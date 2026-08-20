@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Quality bar for tests after provider deletion"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify SUM providers untouched and Fish stays non-OpenAI"}
+{"file": ".trellis/tasks/08-20-stt-providers-rewrite/prd.md", "reason": "Acceptance: three STT vendors, OpenAI URL, migration"}
+{"file": ".trellis/tasks/08-20-stt-providers-rewrite/implement.md", "reason": "Validation commands and rollback"}

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Quality bar for tests and forbidden patterns"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify M4A stays the split format and only volcano uploads WAV"}
+{"file": ".trellis/tasks/08-20-volcano-m4a-wav/prd.md", "reason": "Check acceptance criteria including backup list and no M4A warning"}
+{"file": ".trellis/tasks/08-20-volcano-m4a-wav/implement.md", "reason": "Validation commands and rollback notes"}

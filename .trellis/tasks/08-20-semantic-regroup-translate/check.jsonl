@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check options UI, stored provider migration, SW regroup stage, and overlay cue length stay in sync"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Test bar for parse/merge fallback and provider migration"}
+{"file": ".trellis/tasks/08-20-semantic-regroup-translate/prd.md", "reason": "Acceptance: three STT vendors untouched; sum list; regroup then translate"}
+{"file": ".trellis/tasks/08-20-semantic-regroup-translate/implement.md", "reason": "Validation commands and rollback surface"}
+{"file": ".trellis/tasks/08-20-semantic-regroup-translate/design.md", "reason": "Gemini host, KEEP-on-Chinese, chunk-boundary limitation"}

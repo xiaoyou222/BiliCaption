@@ -7,126 +7,197 @@
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
-  <main class="page">
-    <header class="page-head">
-      <div class="page-title">
-        <span class="logo" aria-hidden="true"></span>
-        <span>BiliCaption 设置</span>
+  <div class="shell">
+    <aside class="nav">
+      <div class="brand">
+        <span class="logo"></span>
+        <span>BiliCaption</span>
       </div>
-      <span class="page-path">chrome-extension://bilicaption/options.html</span>
-    </header>
+      <button type="button" class="nav-item on" data-tab="stt">转写服务</button>
+      <button type="button" class="nav-item" data-tab="sum">总结服务</button>
+      <button type="button" class="nav-item" data-tab="sync">数据同步</button>
+      <button type="button" class="nav-item" data-tab="keys">快捷键</button>
+      <button type="button" class="nav-item" data-tab="logs">运行日志</button>
+      <span class="ver" id="appVer"></span>
+    </aside>
 
-    <section class="card">
-      <h2>转写服务</h2>
-      <div class="card-body">
-        <div class="field">
-          <span class="field-label">服务商</span>
-          <div class="field-stack">
-            <span class="static-value">Groq</span>
-            <span class="hint">目前只接通 Groq 转写，长视频会自动切片</span>
+    <div class="main">
+      <div class="scroll">
+        <section id="tab-stt" class="pane">
+          <div class="title-row">
+            <h2>转写服务</h2>
+            <span class="tip" data-tip="没有字幕时，把视频音频转成字幕">?</span>
           </div>
-        </div>
-        <div class="field top">
-          <label for="sttKey">API Key<span class="req">必填</span></label>
-          <div class="field-stack">
-            <input id="sttKey" type="password" placeholder="gsk_..." />
-            <span class="hint">仅保存在本机浏览器。免费档大约每天 8 小时音频，不是无限额度</span>
+          <div class="channel-head">
+            <span class="sub">转写通道</span>
+            <span class="hint">列表顺序即优先级：前面的限流或失效会自动切到后面的，冷却结束自动切回</span>
           </div>
-        </div>
-        <div class="field">
-          <span class="field-label">连通性</span>
-          <div class="test-row">
-            <button id="testStt" type="button" class="btn-test">测试连接</button>
-            <span id="sttTestMsg" class="test-msg"></span>
+          <div id="channelList" class="channel-list"></div>
+          <div class="channel-add">
+            <select id="addChannelProvider"></select>
+            <button type="button" id="btnAddChannel" class="btn-ghost">+ 添加通道</button>
           </div>
-        </div>
-      </div>
-    </section>
+          <p class="hint">同一服务商可添加多条（多个账号轮换）；ElevenLabs 的 Key 选填，不填走免 Key 演示通道</p>
+        </section>
 
-    <section class="card">
-      <h2>总结服务</h2>
-      <div class="card-body">
-        <div class="field">
-          <label for="sumProvider">服务商</label>
-          <select id="sumProvider">
-            <option value="OpenAI">OpenAI</option>
-            <option value="硅基流动">硅基流动</option>
-            <option value="自定义">自定义</option>
-          </select>
-        </div>
-        <div id="sumCustomFields" class="field-group hidden">
-          <div class="field">
-            <label for="sumUrl">接口地址</label>
-            <input id="sumUrl" type="url" placeholder="https://api.example.com/v1" />
+        <section id="tab-sum" class="pane hidden">
+          <div class="title-row">
+            <h2>总结服务</h2>
+            <span class="tip" data-tip="用于生成选区总结和大纲">?</span>
           </div>
           <div class="field">
-            <label for="sumModel">模型</label>
-            <input id="sumModel" type="text" placeholder="llama-3.3-70b" />
+            <span class="label">服务商</span>
+            <div id="sumSeg" class="seg"></div>
           </div>
-        </div>
-        <div id="sumKeyField" class="field">
-          <label for="sumKey">API Key</label>
-          <input id="sumKey" type="password" placeholder="sk-..." />
-        </div>
-        <div class="field top">
-          <label for="summaryPad">上下文</label>
-          <div class="field-stack">
-            <input id="summaryPad" type="number" min="0" max="50" step="1" value="10" />
-            <span class="hint">总结时上下各取多少条字幕，默认 10，可填 0–50</span>
+          <div id="sumCustom" class="field hidden">
+            <span class="label">接口地址</span>
+              <input id="sumUrl" type="text" placeholder="https://你的-cpa-网关.example.com/v1" />
           </div>
-        </div>
-        <div class="field">
-          <span class="field-label">连通性</span>
-          <div class="test-row">
-            <button id="testSum" type="button" class="btn-test">测试连接</button>
-            <span id="sumTestMsg" class="test-msg"></span>
+          <div class="field">
+            <span class="label">API Key</span>
+            <div class="key-row">
+              <input id="sumKey" type="password" placeholder="sk-..." />
+              <button type="button" id="testSum" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测连通</span></button>
+            </div>
           </div>
-        </div>
-      </div>
-    </section>
+          <div class="field max-280">
+            <span class="label">模型</span>
+            <div class="combo">
+                  <input id="sumModel" type="text" placeholder="gpt-4o-mini" />
+              <button type="button" id="sumModelCaret" class="caret">⌄</button>
+              <div id="sumModelPanel" class="combo-panel hidden"></div>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">总结时带上的上下文条数</span>
+            <div class="stepper">
+              <button type="button" id="ctxDec">−</button>
+              <input id="sumCtx" type="text" value="10" />
+              <button type="button" id="ctxInc">+</button>
+            </div>
+          </div>
+          <div class="hr"></div>
+          <div class="tr-block">
+            <div class="sub">翻译</div>
+            <p class="note">和总结共用上面的服务商与 Key；翻译模型留空则跟随总结模型。</p>
+            <div class="tr-row">
+              <div class="field w-model">
+                <span class="label">翻译模型</span>
+                <div class="combo">
+                  <input id="trModel" type="text" placeholder="留空则跟随总结模型" />
+                  <button type="button" id="trModelCaret" class="caret">⌄</button>
+                  <div id="trModelPanel" class="combo-panel hidden"></div>
+                </div>
+              </div>
+              <div class="field">
+                <span class="label">并发数</span>
+                <div class="stepper">
+                  <button type="button" id="trDec">−</button>
+                  <input id="trConc" type="text" value="4" />
+                  <button type="button" id="trInc">+</button>
+                </div>
+              </div>
+            </div>
+            <p class="hint">并发 1–16</p>
+          </div>
+        </section>
 
-    <section class="card">
-      <h2>快捷键</h2>
-      <div class="card-body">
-        <div class="field center">
-          <span class="field-label">划选</span>
-          <button id="recordKey" type="button">Shift</button>
-          <span class="hint">鼠标放在起点，按住后滑动</span>
-        </div>
-        <div class="field center">
-          <span class="field-label">倍速</span>
-          <div class="keys">
-            <span>Z 恢复 1.0</span>
-            <span>X −0.1</span>
-            <span>C +0.1</span>
+        <section id="tab-sync" class="pane hidden">
+          <div class="title-row">
+            <h2>数据同步</h2>
+            <span class="tip" data-tip="标记只上传到你自己的 WebDAV，不经过任何第三方">?</span>
           </div>
-        </div>
-      </div>
-    </section>
+          <div class="sync-toggle">
+            <button type="button" id="syncToggle" class="switch" aria-pressed="false"><span></span></button>
+            <span>同步到我的 WebDAV</span>
+          </div>
+          <div class="block-7">
+            <span class="label">同步内容</span>
+            <div class="chips">
+              <button type="button" id="syncMarks" class="chip on">✓ 标记</button>
+              <button type="button" id="syncConfig" class="chip on">✓ 设置（服务商 / 模型 / 快捷键）</button>
+              <button type="button" id="syncKeys" class="chip">API Key</button>
+            </div>
+            <p id="syncKeysWarn" class="warn hidden">API Key 会以明文写入你的网盘文件，确认这个网盘只有你能访问</p>
+            <p class="note">生成字幕和大纲只存在本机，换设备需重新生成</p>
+            <div class="dav-paths">
+              <span>/bilicaption/config.json</span>
+              <span>/bilicaption/marks/{bvid}-P{n}.json</span>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">服务器地址</span>
+            <input id="davUrl" type="text" placeholder="https://dav.example.com/bilicaption/" />
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <span class="label">用户名</span>
+              <input id="davUser" type="text" placeholder="me@example.com" />
+            </div>
+            <div class="field">
+              <span class="label">密码 / 应用密码</span>
+              <input id="davPass" type="password" placeholder="****" />
+            </div>
+          </div>
+          <div class="dav-actions">
+            <button type="button" id="testDav" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测连通</span></button>
+            <button type="button" id="syncNow" class="btn-ghost">立即同步</button>
+            <span id="davSyncOrb" class="think-host" hidden></span>
+            <span id="davStatus" class="hint">同步已关闭</span>
+          </div>
+        </section>
 
-    <div class="save-row">
-      <button id="saveSettings" type="button">保存</button>
-      <span id="settingsMsg"></span>
+        <section id="tab-keys" class="pane hidden">
+          <h2>快捷键</h2>
+          <div class="key-line">
+            <span class="key-name">划选（按住）</span>
+            <button type="button" id="recordKey">Shift</button>
+            <span class="hint">按住此键在字幕上拖动</span>
+          </div>
+          <div class="key-line">
+            <span class="key-name">倍速</span>
+            <div class="keys">
+              <span>Z 恢复 1×</span>
+              <span>X −0.1</span>
+              <span>C +0.1</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-logs" class="pane hidden">
+          <div class="log-head">
+            <h2>运行日志</h2>
+            <span id="logCount" class="mono faint">0 条 · 最近 24 小时</span>
+          </div>
+          <div class="log-tools">
+            <div id="logFilter" class="seg compact">
+              <button type="button" data-filter="全部" class="on">全部</button>
+              <button type="button" data-filter="异常">异常</button>
+            </div>
+            <input id="logQuery" type="search" placeholder="搜索…" />
+            <button type="button" id="copyLogsN" class="btn-sm">复制最近 50 条</button>
+            <button type="button" id="exportLogs" class="btn-sm">导出</button>
+            <button type="button" id="clearLogs" class="btn-sm">清空</button>
+          </div>
+          <div id="logList" class="logs"></div>
+        </section>
+      </div>
+
+      <footer class="foot">
+        <button type="button" id="saveSettings">保存</button>
+        <span id="settingsMsg"></span>
+      </footer>
     </div>
+  </div>
 
-    <section class="card log-card">
-      <div class="card-head">
-        <h2>运行日志</h2>
-        <div class="log-actions">
-          <select id="logFilter" aria-label="筛选日志">
-            <option value="all">全部</option>
-            <option value="warn">警告和错误</option>
-            <option value="error">仅错误</option>
-          </select>
-          <button id="copyLogs" type="button" class="btn-test">复制</button>
-          <button id="clearLogs" type="button" class="btn-test">清空</button>
-        </div>
-      </div>
-      <p class="log-hint">转写、下载、Groq 返回码和重试原因会记在这里。API Key 不会写入。最多保留 200 条。</p>
-      <div id="logEmpty" class="log-empty">还没有日志。在侧栏点一次「生成字幕」后，失败和重试会出现在这里。</div>
-      <div id="logList" class="log-list hidden"></div>
-    </section>
-  </main>
+  <script src="lib/md5.js"></script>
+  <script src="lib/模型路由.js"></script>
+  <script src="lib/providers.js"></script>
+  <script src="lib/stt.js"></script>
+  <script src="lib/webdav.js"></script>
+  <script src="lib/prefs.js"></script>
+  <script src="lib/thinking-orbs-engine.js"></script>
+  <script src="lib/thinking-orb.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

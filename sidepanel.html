@@ -40,30 +40,52 @@
       <div id="viewTabs" class="view-tabs hidden">
         <button type="button" data-view="captions" class="active">字幕</button>
         <button type="button" data-view="outline">大纲</button>
-        <div id="jobPill" class="job-pill hidden">
-          <div id="asrJobBar" class="asr-job-bar hidden">
-            <span id="asrJobTitle" class="asr-job-title">转写中</span>
-            <div class="asr-job-track" aria-hidden="true">
-              <div id="asrJobFill" class="asr-job-fill"></div>
+        <button type="button" data-view="markers">标记</button>
+        <div class="job-pill-slot">
+          <div id="jobPill" class="job-pill hidden">
+            <button id="jobPillHead" type="button" class="job-pill-head" aria-expanded="false" aria-controls="jobPillBody">
+              <span id="jobPillOrb" class="job-pill-orb"></span>
+              <span id="jobPillLabel" class="job-pill-label">转写中</span>
+              <span class="job-pill-head-fill" aria-hidden="true"></span>
+              <span class="job-pill-chevron" aria-hidden="true">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5 L5 6.5 L8 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </span>
+            </button>
+            <div id="jobPillBody" class="job-pill-body">
+              <div class="job-pill-body-inner">
+                <div id="asrJobBar" class="job-seg hidden">
+                  <div class="job-seg-head">
+                    <span id="asrSegOrb" class="job-seg-orb"></span>
+                    <span id="asrJobTitle" class="asr-job-title">转写中</span>
+                    <button id="btnBoostAsr" type="button" class="asr-job-boost hidden">加速</button>
+                    <span id="asrSegPct" class="job-seg-pct"></span>
+                  </div>
+                  <div id="asrJobTrack" class="job-seg-track" role="progressbar" aria-label="字幕转写进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="asrJobFill" class="asr-job-fill"></div></div>
+                  <div id="chunkLiveList" class="chunk-live"></div>
+                  <button id="btnChunkFold" type="button" class="chunk-fold hidden"></button>
+                  <div id="chunkDoneList" class="chunk-done hidden"></div>
+                  <div class="job-seg-actions">
+                    <button id="btnPauseAsr" type="button" class="job-btn">暂停</button>
+                    <button id="btnCancelAsrJob" type="button" class="job-btn">取消转写</button>
+                  </div>
+                </div>
+                <div id="trJobBar" class="job-seg hidden">
+                  <div class="job-seg-head tr">
+                    <span id="trJobTitle" class="asr-job-title tr">翻译中</span>
+                    <span id="trSegPct" class="job-seg-pct"></span>
+                    <button id="btnCancelTrJob" type="button" class="job-btn">取消翻译</button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <button id="btnCancelAsrJob" type="button" class="asr-job-cancel">取消</button>
-          </div>
-          <div id="trJobBar" class="asr-job-bar hidden">
-            <span id="trJobTitle" class="asr-job-title">翻译中</span>
-            <div class="asr-job-track" aria-hidden="true">
-              <div id="trJobFill" class="asr-job-fill"></div>
-            </div>
-            <button id="btnCancelTrJob" type="button" class="asr-job-cancel">取消</button>
           </div>
         </div>
       </div>
 
       <div id="emptyView" class="state-view hidden">
-        <div class="empty-icon"></div>
         <div class="empty-title">这个视频没有字幕</div>
         <button id="btnGenerateEmpty" type="button" class="btn-primary lg">生成字幕</button>
         <div id="emptyKeyHint" class="empty-note hidden">还没配置 API Key · <button type="button" id="openSettingsLink" class="link-btn">打开设置</button></div>
-        <div id="emptyEstimate" class="empty-meta"></div>
       </div>
 
       <div id="generatingView" class="gen-view hidden">
@@ -72,19 +94,20 @@
       </div>
 
       <div id="errorView" class="state-view hidden">
-        <div class="empty-icon"></div>
         <div id="errorTitle" class="empty-title">未登录 B 站</div>
         <button id="errorPrimary" type="button" class="btn-primary lg">去登录</button>
       </div>
 
       <div id="outlineEmpty" class="state-view hidden">
-        <div class="empty-icon" id="outlineEmptyIcon"></div>
+        <div id="outlineEmptyOrb" class="think-host hidden"></div>
         <div id="outlineEmptyLabel" class="empty-title">还没有生成大纲</div>
         <button id="btnGenOutline" type="button" class="btn-primary lg">生成大纲</button>
       </div>
 
       <div id="outlineHead" class="outline-head hidden">
         <div id="outlineThink" class="think-host"></div>
+        <span id="outlineHeadLabel">正在生成大纲</span>
+        <button id="btnStopOutline" type="button" class="outline-stop">停止</button>
       </div>
 
       <div id="outlineList" class="outline hidden"></div>
@@ -92,20 +115,23 @@
       <div id="summaryBox" class="summary hidden">
         <div class="summary-head">
           <div class="summary-title-row">
+            <span id="summaryThink" class="think-host hidden"></span>
             <span id="summaryTitle">选区总结</span>
             <span id="summaryMeta" class="summary-meta"></span>
           </div>
           <div class="summary-actions">
-            <button id="btnCopySummary" type="button" class="link-btn">复制</button>
+            <button id="btnAddMarkerSummary" type="button" class="btn-mark">+ 标记</button>
+            <button id="btnCopySummary" type="button" class="btn-copy-sm">复制</button>
             <button id="btnCloseSummary" type="button" class="summary-close" aria-label="关闭">×</button>
           </div>
         </div>
-        <div id="summaryThink" class="think-host hidden"></div>
-        <p id="summaryText"></p>
+        <p id="summaryText" title="双击可编辑"></p>
+        <textarea id="summaryEdit" class="summary-edit hidden"></textarea>
       </div>
 
       <div id="cueWrap" class="cue-wrap hidden">
         <div id="cueList" class="cues"></div>
+        <div id="cueGhosts" class="cue-ghosts hidden"></div>
       </div>
 
       <div id="selectBar" class="select-bar hidden">
@@ -113,7 +139,7 @@
         <div class="select-actions">
           <button id="btnCopy" type="button" class="btn-outline">复制</button>
           <button id="btnSummary" type="button" class="btn-primary">总结</button>
-          <button id="btnClearSelect" type="button" class="btn-text">清除</button>
+          <button id="btnClearSelect" type="button" class="btn-text" aria-label="取消划选">×</button>
         </div>
       </div>
 
@@ -123,16 +149,44 @@
         <button id="btnRegenOutline" type="button" class="btn-outline">重新生成</button>
       </div>
 
+      <div id="markerView" class="marker-view hidden">
+        <div id="markerList" class="markers"></div>
+        <div id="markerEmpty" class="state-view hidden">
+          <div class="empty-title">还没有标记</div>
+          <div class="empty-note">划选字幕并总结后点「添加标记」插入，也可以手动添加</div>
+          <div class="marker-empty-actions">
+            <button id="btnAddMarkerEmpty" type="button" class="btn-outline">+ 标记</button>
+            <button id="btnLibraryEmpty" type="button" class="btn-outline">标记库 ›</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="markerBar" class="action-bar hidden">
+        <button id="btnAddMarker" type="button" class="btn-outline">+ 标记</button>
+        <div style="flex:1"></div>
+        <button id="btnLibrary" type="button" class="btn-outline">标记库 ›</button>
+        <div class="more-wrap">
+          <button id="btnMarkerMore" type="button" class="btn-outline">更多 ⋯</button>
+          <div id="markerMoreMenu" class="more-menu hidden">
+            <button id="btnCopyMarkers" type="button">复制</button>
+            <button id="btnMarkerMd" type="button">导出 MD</button>
+            <button id="btnMarkerCsv" type="button">导出 CSV</button>
+          </div>
+        </div>
+      </div>
+
       <div id="actionBar" class="action-bar hidden">
-        <button id="btnGenerate" type="button" class="btn-primary">生成字幕</button>
         <button id="btnSelect" type="button" class="btn-outline">划选</button>
+        <button id="btnMarkNow" type="button" class="btn-outline">标记</button>
         <button id="btnOverlay" type="button" class="btn-outline">显示字幕</button>
         <div class="more-wrap">
           <button id="btnMore" type="button" class="btn-outline">更多 ⋯</button>
           <div id="moreMenu" class="more-menu hidden">
+            <button id="btnGenerate" type="button">重新生成字幕</button>
             <button id="btnSrt" type="button">下载 SRT</button>
-            <button id="btnTxt" type="button">纯文本</button>
-            <button id="btnTranslate" type="button">译成中文</button>
+            <button id="btnTxt" type="button">下载纯文本</button>
+            <button id="btnTranslate" type="button">翻译成中文</button>
+            <button id="btnClearCache" type="button" class="danger">清理缓存</button>
           </div>
         </div>
       </div>
@@ -145,6 +199,11 @@
   <script src="lib/thinking-orbs-engine.js"></script>
   <script src="lib/thinking-orb.js"></script>
   <script src="lib/zh-simp.js"></script>
+  <script src="lib/translate.js"></script>
+  <script src="lib/模型路由.js"></script>
+  <script src="lib/markers.js"></script>
+  <script src="lib/providers.js"></script>
+  <script src="lib/prefs.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

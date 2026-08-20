@@ -2,6 +2,9 @@
   window.__BILI_CAPTION_GEN__ = (window.__BILI_CAPTION_GEN__ || 0) + 1;
   const SCRIPT_GEN = window.__BILI_CAPTION_GEN__;
   const isCurrentScript = () => window.__BILI_CAPTION_GEN__ === SCRIPT_GEN;
+  // scripting.executeScript 可能在一次瞬时 PING 失败后补注入。旧浮窗上的
+  // 事件处理器属于上一代脚本，先移除并按已保存位置重建，避免快捷键执行两次。
+  document.getElementById("bilicaption-dock")?.remove();
 
   let targetRate = 1;
   let applyingRate = false;
@@ -20,7 +23,7 @@
   const DOCK_SNAP = 26;
   const DOCK_MIN_W = 260;
   const DOCK_MIN_H = 200;
-  const DOCK_TAB_W = 18;
+  const DOCK_TAB_W = 20;
 
   let dockOpen = false;
   let dockGeom = { page: null, full: null };
@@ -47,7 +50,7 @@
 
   function persistDockPrefs() {
     if (!myTabId) return;
-    chrome.storage.local.set({
+    chrome.storage.sync.set({
       [`dockOpen:${myTabId}`]: dockOpen,
       [`preferSidebar:${myTabId}`]: preferSidebar
     }).catch(() => {});
@@ -83,20 +86,38 @@
     };
   }
 
-  function cueTextKey(cue) {
-    return String(Math.round((Number(cue?.from) || 0) * 10));
+  function cueHasCjk(text) {
+    return (String(text || "").match(/[\u4e00-\u9fff]/g) || []).length >= 1;
+  }
+
+  function cueOverlap(a, b) {
+    return Math.min(Number(a?.to) || 0, Number(b?.to) || 0)
+      - Math.max(Number(a?.from) || 0, Number(b?.from) || 0);
   }
 
   function preserveCueText(incoming, existing) {
-    const textByStart = new Map(
-      (Array.isArray(existing) ? existing : []).map((cue) => [
-        cueTextKey(cue),
-        String(cue.content || "")
-      ])
-    );
+    const prev = (Array.isArray(existing) ? existing : []).filter((cue) => cueHasCjk(cue.content));
+    if (!prev.length) return incoming || [];
     return (Array.isArray(incoming) ? incoming : []).map((cue) => {
-      const content = textByStart.get(cueTextKey(cue));
-      return content == null ? { ...cue } : { ...cue, content };
+      if (cueHasCjk(cue.content)) return { ...cue };
+      let best = null;
+      let bestOverlap = 0;
+      for (const item of prev) {
+        const overlap = cueOverlap(cue, item);
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          best = item;
+        }
+      }
+      const dur = Math.max(
+        0.2,
+        Math.min(
+          (Number(cue.to) || 0) - (Number(cue.from) || 0),
+          best ? (Number(best.to) || 0) - (Number(best.from) || 0) : 0
+        )
+      );
+      if (best && bestOverlap >= dur * 0.45) return { ...cue, content: best.content };
+      return { ...cue };
     });
   }
 
@@ -214,15 +235,15 @@
               : err.message));
             return;
           }
-        // 业务提示走 notice；只有 fatal/没有有效数据时才当失败
-        if (response?.fatal) {
-          reject(new Error(response.error || response.fatal || "请求失败"));
-          return;
-        }
-        if (response?.error && !response?.aid && response?.page !== "video") {
-          reject(new Error(response.error));
-          return;
-        }
+          // 业务提示走 notice；只有 fatal/没有有效数据时才当失败
+          if (response?.fatal) {
+            reject(new Error(response.error || response.fatal || "请求失败"));
+            return;
+          }
+          if (response?.error && !response?.aid && response?.page !== "video") {
+            reject(new Error(response.error));
+            return;
+          }
           resolve(response);
         });
       } catch {
@@ -315,18 +336,18 @@
         margin: 0;
         padding: 0;
         border: 1px solid rgba(255,255,255,.16);
-        border-radius: 12px 0 0 12px;
-        background: rgba(18, 20, 23, .78);
-        color: #e8eaed;
+        border-radius: 10px 0 0 10px;
+        background: #17191D;
+        color: #8A9099;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        font: 600 15px/1 inherit;
+        font: 13px/1 inherit;
       }
-      #bilicaption-dock .bc-dock-tab:hover { background: rgba(18, 20, 23, .94); }
+      #bilicaption-dock .bc-dock-tab:hover { background: #1C1F24; color: #C7CBD1; }
       #bilicaption-dock.bc-edge-left .bc-dock-tab {
-        border-radius: 0 12px 12px 0;
+        border-radius: 0 10px 10px 0;
         border-left: none;
       }
       #bilicaption-dock.bc-edge-right .bc-dock-tab { border-right: none; }
@@ -338,10 +359,10 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        border-radius: 10px;
-        border: 1px solid rgba(255,255,255,.1);
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,.18);
         background: #121417;
-        box-shadow: 0 14px 34px rgba(0,0,0,.35);
+        box-shadow: 0 16px 46px rgba(0,0,0,.55);
         opacity: var(--bc-dock-alpha);
       }
       #bilicaption-dock .bc-dock-head {
@@ -349,18 +370,19 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
-        padding: 0 8px 0 12px;
-        background: #16181c;
-        color: #c4c8ce;
-        font: 500 12px/1 inherit;
+        gap: 8px;
+        padding: 0 10px;
+        background: #121417;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+        color: #C7CBD1;
+        font: 600 11.5px/1 inherit;
         cursor: move;
         user-select: none;
       }
       #bilicaption-dock .bc-dock-title {
         flex: none;
-        color: #eceef1;
-        letter-spacing: .04em;
+        color: #C7CBD1;
+        font-weight: 600;
       }
       #bilicaption-dock .bc-dock-actions {
         display: flex;
@@ -378,18 +400,17 @@
       }
       #bilicaption-dock .bc-dock-alpha-value {
         flex: none;
-        min-width: 2.4em;
-        color: #9aa3ad;
-        font: 500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        width: 32px;
+        color: #8A9099;
+        font: 400 10.5px/1 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
         text-align: right;
-        letter-spacing: .02em;
       }
       #bilicaption-dock .bc-dock-alpha {
         -webkit-appearance: none;
         appearance: none;
         flex: 1 1 auto;
-        width: 96px;
-        height: 12px;
+        width: 64px;
+        height: 14px;
         margin: 0;
         background: transparent;
         cursor: pointer;
@@ -398,59 +419,58 @@
       #bilicaption-dock .bc-dock-alpha::-webkit-slider-runnable-track {
         height: 2px;
         border-radius: 99px;
-        background: #3a4048;
+        background: rgba(255,255,255,.18);
       }
       #bilicaption-dock .bc-dock-alpha::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        width: 10px;
-        height: 10px;
-        margin-top: -4px;
+        width: 11px;
+        height: 11px;
+        margin-top: -4.5px;
         border-radius: 50%;
         border: 0;
-        background: #c5ccd4;
+        background: #4D8EF0;
       }
       #bilicaption-dock .bc-dock-alpha::-moz-range-track {
         height: 2px;
-        border-radius: 99px;
-        background: #3a4048;
+        border-radius: 2px;
+        background: rgba(255,255,255,.18);
       }
       #bilicaption-dock .bc-dock-alpha::-moz-range-thumb {
-        width: 10px;
-        height: 10px;
+        width: 11px;
+        height: 11px;
         border: 0;
         border-radius: 50%;
-        background: #c5ccd4;
+        background: #4D8EF0;
       }
       #bilicaption-dock .bc-dock-btns {
         display: flex;
         align-items: center;
         gap: 4px;
         padding-left: 8px;
-        border-left: 1px solid rgba(255,255,255,.08);
+        border-left: 1px solid rgba(255,255,255,.14);
       }
       #bilicaption-dock .bc-dock-sidebar,
       #bilicaption-dock .bc-dock-collapse {
         appearance: none;
         border: 0;
         height: 20px;
-        border-radius: 6px;
+        border-radius: 5px;
         background: transparent;
-        color: #b8bec6;
+        color: #8A9099;
         cursor: pointer;
-        font: 500 11px/1 inherit;
-        padding: 0 7px;
+        font: 400 11px/1 inherit;
+        padding: 0 6px;
       }
       #bilicaption-dock .bc-dock-collapse {
         width: 20px;
         padding: 0;
-        font-weight: 600;
-        font-size: 14px;
+        font-size: 13px;
       }
       #bilicaption-dock .bc-dock-sidebar:hover,
       #bilicaption-dock .bc-dock-collapse:hover {
-        background: rgba(255,255,255,.08);
-        color: #eceef1;
+        background: rgba(255,255,255,.06);
+        color: #C7CBD1;
       }
       #bilicaption-dock .bc-dock-frame {
         flex: 1;
@@ -469,8 +489,16 @@
       #bilicaption-dock .bc-dock-resize-w { left: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; }
       #bilicaption-dock .bc-dock-resize-e { right: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; }
       #bilicaption-dock .bc-dock-resize-s { left: 14px; right: 14px; bottom: 0; height: 7px; cursor: ns-resize; }
+      #bilicaption-dock .bc-dock-resize-n { left: 14px; right: 14px; top: 0; height: 7px; cursor: ns-resize; }
       #bilicaption-dock .bc-dock-resize-sw { left: 0; bottom: 0; width: 16px; height: 16px; cursor: nesw-resize; }
       #bilicaption-dock .bc-dock-resize-se { right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; }
+      #bilicaption-dock .bc-dock-resize-nw { left: 0; top: 0; width: 16px; height: 16px; cursor: nwse-resize; }
+      #bilicaption-dock .bc-dock-resize-ne { right: 0; top: 0; width: 16px; height: 16px; cursor: nesw-resize; }
+      #bilicaption-dock .bc-dock-snap { position: absolute; display: none; pointer-events: none; background: rgba(77,142,240,.5); z-index: 3; }
+      #bilicaption-dock .bc-dock-snap.is-left { display: block; left: 0; top: 0; width: 3px; height: 100%; }
+      #bilicaption-dock .bc-dock-snap.is-right { display: block; right: 0; top: 0; width: 3px; height: 100%; }
+      #bilicaption-dock .bc-dock-snap.is-top { display: block; top: 0; left: 0; height: 3px; width: 100%; }
+      #bilicaption-dock .bc-dock-snap.is-bottom { display: block; bottom: 0; left: 0; height: 3px; width: 100%; }
     `;
     document.documentElement.appendChild(style);
   }
@@ -479,7 +507,7 @@
     return isImmersivePlayer() ? "full" : "page";
   }
 
-  /** 浮窗可用区域；全屏时上下留出信息条和进度条 */
+  /** 浮窗可用区域。叠在播放器上时跟视频画布对齐，不额外留控件带。 */
   function dockArea(el) {
     if (dockMode() === "page") {
       return {
@@ -495,8 +523,8 @@
     return {
       w: host?.clientWidth || window.innerWidth,
       h: host?.clientHeight || window.innerHeight,
-      top: 44,
-      bottom: 84,
+      top: 0,
+      bottom: 0,
       left: 0,
       right: 0
     };
@@ -550,7 +578,7 @@
   function saveDockGeom(geom) {
     dockGeom[dockMode()] = geom;
     const key = dockMode() === "full" ? "dockGeomFull" : "dockGeomPage";
-    chrome.storage.local.set({ [key]: geom }).catch(() => {});
+    chrome.storage.sync.set({ [key]: geom }).catch(() => {});
   }
 
   function applyDockGeom(el = document.getElementById("bilicaption-dock")) {
@@ -568,7 +596,7 @@
     const onLeft = geom.left + geom.width / 2 < area.w / 2;
     el.classList.toggle("bc-edge-left", onLeft);
     el.classList.toggle("bc-edge-right", !onLeft);
-    const tabH = 64;
+    const tabH = 120;
     const top = Math.min(
       Math.max(geom.top + geom.height / 2 - tabH / 2, area.top),
       area.h - area.bottom - tabH
@@ -608,16 +636,32 @@
         }
         if (edges.includes("e")) next.width = start.width + dx;
         if (edges.includes("s")) next.height = start.height + dy;
+        if (edges.includes("n")) {
+          next.top = start.top + dy;
+          next.height = start.height - dy;
+        }
       }
       next = snapDockGeom(clampDockGeom(next, area), area);
       dockGeom[dockMode()] = clampDockGeom(next, area);
       applyDockGeom(el);
+      // 贴边时高亮对应边缘（设计稿 snapHint，左右优先）
+      const hint = el.querySelector(".bc-dock-snap");
+      if (hint) {
+        let side = "";
+        if (next.left <= area.left + 1) side = "left";
+        else if (next.left + next.width >= area.w - area.right - 1) side = "right";
+        else if (next.top <= area.top + 1) side = "top";
+        else if (next.top + next.height >= area.h - area.bottom - 1) side = "bottom";
+        hint.className = `bc-dock-snap${side ? ` is-${side}` : ""}`;
+      }
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       grip.releasePointerCapture?.(event.pointerId);
       el.classList.remove("bc-dragging");
+      const hint = el.querySelector(".bc-dock-snap");
+      if (hint) hint.className = "bc-dock-snap";
       saveDockGeom(currentDockGeom(el));
     };
     window.addEventListener("pointermove", onMove);
@@ -639,7 +683,7 @@
   function setDockAlpha(value) {
     dockAlpha = Math.min(1, Math.max(0.3, Number(value) || 0.82));
     applyDockAlpha();
-    chrome.storage.local.set({ dockAlpha }).catch(() => {});
+    chrome.storage.sync.set({ dockAlpha }).catch(() => {});
   }
 
   function renderDock() {
@@ -804,18 +848,23 @@
     });
     iframe.addEventListener("load", () => {
       postSelKeyState();
-      iframe.contentWindow?.postMessage({ type: "BC_TAB", tabId: myTabId }, "*");
     });
     frame.appendChild(iframe);
     win.append(head, frame);
 
     el.append(tab, win);
+    const snapHint = document.createElement("div");
+    snapHint.className = "bc-dock-snap";
+    el.appendChild(snapHint);
     for (const [name, edges] of [
       ["w", ["w"]],
       ["e", ["e"]],
       ["s", ["s"]],
+      ["n", ["n"]],
       ["sw", ["s", "w"]],
-      ["se", ["s", "e"]]
+      ["se", ["s", "e"]],
+      ["nw", ["n", "w"]],
+      ["ne", ["n", "e"]]
     ]) {
       const grip = document.createElement("div");
       grip.className = `bc-dock-resize bc-dock-resize-${name}`;
@@ -885,6 +934,24 @@
     }
     const noteEl = el.querySelector(".bc-overlay-note");
     if (noteEl) noteEl.style.fontSize = `${m.note}px`;
+  }
+
+  let overlayHostWatch = null;
+
+  function watchOverlayHost(host = getOverlayHost()) {
+    if (!host) return;
+    if (overlayHostWatch?.__host === host) return;
+    overlayHostWatch?.disconnect();
+    overlayHostWatch = new MutationObserver(() => {
+      if (!overlayOn || !overlayCues.length) return;
+      const overlay = document.getElementById("bilicaption-overlay");
+      if (!overlay || !overlay.isConnected || overlay.parentElement !== host) {
+        lastOverlayText = "";
+        updateOverlay(getVideo()?.currentTime || 0);
+      }
+    });
+    overlayHostWatch.__host = host;
+    overlayHostWatch.observe(host, { childList: true });
   }
 
   function watchOverlaySize() {
@@ -959,7 +1026,11 @@
         full
       );
     }
-    return getPlayerHost();
+    return (
+      document.querySelector(".bpx-player-container") ||
+      document.querySelector("#bilibili-player") ||
+      getPlayerHost()
+    );
   }
 
   function placeOverlay(el = document.getElementById("bilicaption-overlay")) {
@@ -970,6 +1041,7 @@
     if (el.parentElement !== host) host.appendChild(el);
     applyOverlayScale(el);
     watchOverlaySize();
+    watchOverlayHost(host);
   }
 
   function hideOverlay() {
@@ -1006,17 +1078,39 @@
       }
     }
     if (idx < 0) return null;
+    for (let i = idx; i >= 0; i -= 1) {
+      const cover = list[i];
+      const from = Number(cover.from);
+      const to = Number(cover.to);
+      if (time >= from && time < to) return cover;
+      if (to < time - 3) break;
+    }
     const cue = list[idx];
-    if (time < Number(cue.to) + 0.45) return cue;
+    const next = list[idx + 1];
+    const from = Number(cue.from);
+    const to = Number(cue.to);
+    const nextFrom = next ? Number(next.from) : Infinity;
+    const minHold = Math.max(to + 0.35, from + 1.25);
+    if (time >= nextFrom) return next;
+    if (time < Math.min(minHold, nextFrom)) return cue;
+    if (next && nextFrom - to < 2.2 && time < nextFrom) return cue;
     return null;
   }
 
   function setOverlayCues(cues) {
     if (!isCurrentScript()) return;
     overlayCues = (Array.isArray(cues) ? cues : [])
-      .filter((cue) => cue && Number(cue.to) > Number(cue.from))
+      .filter((cue) => cue && String(cue.content || "").trim())
+      .map((cue) => {
+        const from = Number(cue.from) || 0;
+        const to = Number(cue.to) || 0;
+        return {
+          ...cue,
+          from,
+          to: Math.max(to, from + 1.2)
+        };
+      })
       .sort((a, b) => Number(a.from) - Number(b.from) || Number(a.to) - Number(b.to));
-    lastOverlayText = "";
     updateOverlay(getVideo()?.currentTime || 0);
   }
 
@@ -1039,9 +1133,11 @@
       return;
     }
     const text = String(cue.content || "").trim();
-    if (text === lastOverlayText) return;
+    const mounted = document.getElementById("bilicaption-overlay");
+    if (text === lastOverlayText && mounted?.isConnected) return;
     lastOverlayText = text;
     const el = ensureOverlay();
+    if (!el.isConnected) placeOverlay(el);
     const textEl = el.querySelector(".bc-overlay-text");
     const noteEl = el.querySelector(".bc-overlay-note");
     if (textEl) textEl.textContent = text;
@@ -1057,6 +1153,7 @@
   }
 
   function applyRate(rate, { notify = true } = {}) {
+    if (!isCurrentScript()) return;
     const next = clampRate(rate);
     targetRate = next;
     const video = getVideo();
@@ -1122,12 +1219,11 @@
   }
 
   function postSelKeyState(held = selKeyHeld) {
-    const payload = { type: "SEL_KEY_STATE", held: Boolean(held) };
-    postRuntime(payload);
-    if (dockOpen) dockFrame()?.contentWindow?.postMessage(payload, "*");
+    postRuntime({ type: "SEL_KEY_STATE", held: Boolean(held) });
   }
 
   function setSelKeyHeld(held) {
+    if (!isCurrentScript()) return;
     const next = Boolean(held);
     if (selKeyHeld === next) return;
     selKeyHeld = next;
@@ -1135,6 +1231,7 @@
   }
 
   function forwardPanelKey(event) {
+    if (!isCurrentScript()) return;
     if (event.isComposing || event.key === "Process") return;
     const typing = isTypingTarget(event.target) || isTypingTarget(document.activeElement);
     const modifierHeld = modifierHeldFromEvent(event);
@@ -1145,7 +1242,8 @@
     }
     if (typing) return;
 
-    const payload = {
+    if (!dockOpen || !dockHover) return;
+    postRuntime({
       type: "PANEL_KEY",
       phase: event.type,
       key: event.key,
@@ -1154,25 +1252,13 @@
       ctrlKey: event.ctrlKey,
       altKey: event.altKey,
       shiftKey: event.shiftKey
-    };
-
-    const toFrame = () => {
-      if (!dockOpen) return;
-      dockFrame()?.contentWindow?.postMessage({ type: "BC_DOCK_KEY", ...payload }, "*");
-    };
-
-    if (matchesSelKey(event)) {
-      if (dockOpen && dockHover) toFrame();
-      return;
-    }
-
-    if (!dockOpen || !dockHover) return;
-    postRuntime(payload);
-    toFrame();
+    });
   }
 
   function onHotkey(event) {
+    if (!isCurrentScript()) return;
     if (dockOpen && dockHover) return;
+    if (!getVideo()) return;
     const action = hotkeyAction(event);
     if (!action) return;
     event.preventDefault();
@@ -1218,7 +1304,10 @@
         duration: video.duration || 0
       });
     };
-    const onMeta = () => applyRate(targetRate, { notify: false });
+    const onMeta = () => {
+      if (!isCurrentScript()) return;
+      applyRate(targetRate, { notify: false });
+    };
     let lastSent = 0;
     const sendTime = () => {
       if (!isCurrentScript()) return;
@@ -1417,10 +1506,14 @@
     }
     if (message?.type === "SWITCH_TRACK") return reply(switchTrack(message.lan));
     if (message?.type === "APPLY_ASR_CUES") {
+      const page = parsePage();
+      const expectedBvid = cachedState.bvid || page.bvid || "";
+      const expectedCid = Number(cachedState.cid || page.cid) || 0;
+      const hasIdentity = Boolean(message.bvid || message.cid);
       const sameVideo =
-        (!message.bvid || !cachedState.bvid || message.bvid === cachedState.bvid) &&
-        (!message.cid || !cachedState.cid || Number(message.cid) === Number(cachedState.cid));
-      if (!sameVideo) return reply(Promise.resolve(snapshot()));
+        (!message.bvid || (expectedBvid && message.bvid === expectedBvid)) &&
+        (!message.cid || (expectedCid && Number(message.cid) === expectedCid));
+      if (!hasIdentity || !sameVideo) return reply(Promise.resolve(snapshot()));
       const keepTranslation =
         cachedState.source === "translated" || cachedState.activeLan === "translated";
       if (message.aid) cachedState.aid = Number(message.aid) || cachedState.aid;
@@ -1436,9 +1529,17 @@
       cachedState.partial = Boolean(message.partial);
       cachedState.error = "";
       setOverlayCues(cachedState.cues);
-      return reply(Promise.resolve(snapshot()));
+      const snap = snapshot();
+      postRuntime({ type: "STATE", payload: snap });
+      return reply(Promise.resolve(snap));
     }
     if (message?.type === "SYNC_CUES") {
+      const hasIdentity = Boolean(message.bvid || message.cid);
+      const sameVideo =
+        (!message.bvid || (cachedState.bvid && message.bvid === cachedState.bvid)) &&
+        (!message.cid || (cachedState.cid && Number(message.cid) === Number(cachedState.cid)));
+      // 翻译可能在后台继续。标签页已经跳到别的视频时，旧任务不得覆盖并缓存到新视频。
+      if (!hasIdentity || !sameVideo) return reply(Promise.resolve(snapshot()));
       cachedState.cues = message.cues || cachedState.cues;
       if (message.activeLan) cachedState.activeLan = message.activeLan;
       if (message.source) cachedState.source = message.source;
@@ -1453,7 +1554,9 @@
           source: cachedState.source
         }).catch(() => {});
       }
-      return reply(Promise.resolve(snapshot()));
+      const snap = snapshot();
+      postRuntime({ type: "STATE", payload: snap });
+      return reply(Promise.resolve(snap));
     }
     if (message?.type === "GENERATE_ASR") {
       return reply(
@@ -1482,37 +1585,30 @@
   });
 
   const notifyNav = () => {
+    if (!isCurrentScript()) return;
     refreshIfNeeded(true).then((state) => {
       postRuntime({ type: "STATE", payload: state });
     });
   };
-
-  const wrap = (method) => {
-    const raw = history[method];
-    history[method] = function () {
-      const result = raw.apply(this, arguments);
-      queueMicrotask(() => {
-        if (location.href !== lastHref) notifyNav();
-      });
-      return result;
-    };
-  };
-  wrap("pushState");
-  wrap("replaceState");
+  // 注：content script 的 isolated world 拦不到页面自己的 pushState/replaceState，
+  // SPA 切页靠下面 popstate 和 1 秒轮询 location.href 兜底
   window.addEventListener("popstate", notifyNav);
   // capture 阶段抢在 B 站播放器之前；只绑 window，避免 C/X 处理两遍
   window.addEventListener("keydown", onHotkey, true);
   window.addEventListener("keydown", forwardPanelKey, true);
   window.addEventListener("keyup", forwardPanelKey, true);
   document.addEventListener("visibilitychange", () => {
+    if (!isCurrentScript()) return;
     if (document.hidden) setSelKeyHeld(false);
   });
   window.addEventListener("message", (event) => {
+    if (!isCurrentScript()) return;
     if (event.data?.type !== "BC_SEL_KEY") return;
     if (event.source !== dockFrame()?.contentWindow) return;
     setSelKeyHeld(Boolean(event.data.held));
   });
   const onPlayerResize = () => {
+    if (!isCurrentScript()) return;
     placeOverlay();
     applyOverlayScale();
     placeDock();
@@ -1534,11 +1630,13 @@
   }, 1000);
 
   chrome.storage.sync.get({ overlayOn: true, selKey: "Shift" }, (data) => {
+    if (!isCurrentScript()) return;
     overlayOn = data.overlayOn !== false;
     selKey = data.selKey || "Shift";
     if (!overlayOn) hideOverlay();
   });
   ensureTabId().then(() => {
+    if (!isCurrentScript()) return;
     const keys = {
       dockGeomPage: null,
       dockGeomFull: null,
@@ -1548,31 +1646,32 @@
       keys[`dockOpen:${myTabId}`] = false;
       keys[`preferSidebar:${myTabId}`] = true;
     }
-    chrome.storage.local.get(keys, (data) => {
+    chrome.storage.sync.get(keys, (data) => {
+      if (!isCurrentScript()) return;
       dockGeom.page = data.dockGeomPage || null;
       dockGeom.full = data.dockGeomFull || null;
       dockAlpha = Math.min(1, Math.max(0.3, Number(data.dockAlpha) || 0.82));
       preferSidebar = myTabId ? data[`preferSidebar:${myTabId}`] !== false : true;
       dockOpen = myTabId ? data[`dockOpen:${myTabId}`] === true && !preferSidebar : false;
       if (dockOpen || !preferSidebar) placeDock();
-      dockFrame()?.contentWindow?.postMessage({ type: "BC_TAB", tabId: myTabId }, "*");
     });
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && myTabId && changes[`dockOpen:${myTabId}`]) {
+    if (!isCurrentScript()) return;
+    if (area === "sync" && myTabId && changes[`dockOpen:${myTabId}`]) {
       dockOpen = changes[`dockOpen:${myTabId}`].newValue === true;
       if (dockOpen || !preferSidebar) placeDock();
       else document.getElementById("bilicaption-dock")?.remove();
     }
-    if (area === "local" && myTabId && changes[`preferSidebar:${myTabId}`]) {
+    if (area === "sync" && myTabId && changes[`preferSidebar:${myTabId}`]) {
       preferSidebar = changes[`preferSidebar:${myTabId}`].newValue !== false;
       if (preferSidebar && !dockOpen) document.getElementById("bilicaption-dock")?.remove();
     }
-    if (area === "local" && changes.dockAlpha) {
+    if (area === "sync" && changes.dockAlpha) {
       dockAlpha = Math.min(1, Math.max(0.3, Number(changes.dockAlpha.newValue) || 0.82));
       applyDockAlpha();
     }
-    if (area === "local" && (changes.dockGeomPage || changes.dockGeomFull)) {
+    if (area === "sync" && (changes.dockGeomPage || changes.dockGeomFull)) {
       if (changes.dockGeomPage) dockGeom.page = changes.dockGeomPage.newValue || null;
       if (changes.dockGeomFull) dockGeom.full = changes.dockGeomFull.newValue || null;
       applyDockGeom();
@@ -1585,7 +1684,9 @@
     }
   });
 
-  const dockWatch = new MutationObserver(() => placeDock());
+  const dockWatch = new MutationObserver(() => {
+    if (isCurrentScript()) placeDock();
+  });
   dockWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
   if (document.body) dockWatch.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
 

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>标记库 · BiliCaption</title>
+  <link rel="stylesheet" href="options.css" />
+  <style>
+    .shell { width: 100%; height: 100%; margin: 0; border: none; border-radius: 0; }
+    .lib { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .lib-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+    .lib-body { flex: 1; min-height: 0; display: flex; }
+    .lib-videos {
+      width: 268px; flex: none; border-right: 1px solid rgba(255,255,255,.07);
+      overflow: auto; padding: 8px;
+    }
+    .v-row {
+      position: relative; display: flex; gap: 9px; padding: 8px; border-radius: 8px;
+      cursor: pointer; margin-bottom: 2px;
+    }
+    .v-row:hover { background: rgba(255,255,255,.04); }
+    .v-row.on { background: rgba(77,142,240,.14); }
+    .v-thumb {
+      width: 56px; height: 34px; flex: none; border-radius: 5px;
+      background: #1B1E23; border: 1px solid rgba(255,255,255,.07);
+      display: flex; align-items: flex-end; justify-content: flex-end;
+      padding: 2px 3px; font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 8.5px; color: #565C66;
+    }
+    .v-title { font-size: 11.5px; line-height: 15px; color: #C7CBD1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .v-row.on .v-title { color: #F0F1F3; }
+    .v-meta { font-size: 10.5px; color: #565C66; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lib-marks { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .lib-marks-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+    .lib-marks-list { flex: 1; overflow: auto; padding: 8px 14px 12px; }
+    .m-row { display: flex; gap: 11px; align-items: flex-start; padding: 8px; border-radius: 8px; cursor: pointer; }
+    .m-row:hover { background: rgba(255,255,255,.04); }
+    .m-time { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px; line-height: 19px; color: #79ACF5; width: 38px; flex: none; }
+    .m-text { font-size: 11.5px; line-height: 19px; color: #C7CBD1; text-wrap: pretty; flex: 1; min-width: 0; }
+    .sync-dot { width: 5px; height: 5px; border-radius: 50%; background: #565C66; }
+    .sync-dot.on { background: #3ECF8E; }
+    .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #6B7078; font-size: 12.5px; }
+    .search { width: 200px; padding: 6px 10px; font-size: 11.5px; font-family: inherit; }
+    .lib-btn {
+      border: 1px solid rgba(255,255,255,.14);
+      background: transparent;
+      color: #9BA0AA;
+      font-size: 11px;
+      line-height: 26px;
+      padding: 0 10px;
+      height: 26px;
+      border-radius: 6px;
+      cursor: pointer;
+      flex: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="lib">
+      <div class="lib-head">
+        <span class="logo"></span>
+        <span style="font-size:13px;font-weight:600">标记库</span>
+        <span id="libSync" style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6B7078">
+          <span class="sync-dot" id="libSyncDot"></span>
+          <span id="libSyncLabel">未开启同步</span>
+        </span>
+        <div style="flex:1"></div>
+        <input id="libQuery" class="search" type="search" placeholder="搜索标记内容或视频…" />
+      </div>
+      <div class="lib-body">
+        <div id="libVideos" class="lib-videos"></div>
+        <div class="lib-marks">
+          <div class="lib-marks-head">
+            <span id="libCurCount" style="font-size:11px;color:#565C66;flex:1">0 条标记</span>
+            <button type="button" id="libOpen" class="lib-btn">打开视频</button>
+            <button type="button" id="libExport" class="lib-btn">导出</button>
+          </div>
+          <div id="libMarks" class="lib-marks-list"></div>
+          <div id="libEmpty" class="empty hidden">还没有标记</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="lib/markers.js"></script>
+  <script src="library.js"></script>
+</body>
+</html>

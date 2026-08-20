@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "STT rewrite crosses options UI, providers schema, SW fetch, and Fish multipart contract"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse transcribeOpenAI via cfg.base; do not fork a custom OpenAI client"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Service-worker / lib module conventions for STT"}
+{"file": ".trellis/tasks/08-20-stt-providers-rewrite/design.md", "reason": "Fish contract, OpenAI editable URL, deletion surface"}
+{"file": ".trellis/tasks/08-20-stt-providers-rewrite/prd.md", "reason": "STT-only scope and acceptance"}

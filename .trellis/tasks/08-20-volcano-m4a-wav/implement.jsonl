@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "M4A to WAV crosses SW, Offscreen, and STT; keep conversion at the cfg boundary"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "WAV encode must be a shared pure function, not copied into offscreen and tests"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layer index for extension service-worker conventions"}
+{"file": ".trellis/tasks/08-20-volcano-m4a-wav/design.md", "reason": "Offscreen contract, data flow, and failure rules"}
+{"file": ".trellis/tasks/08-20-volcano-m4a-wav/prd.md", "reason": "Acceptance: volcano gets WAV, other providers unchanged, sidebar fold does not cancel"}

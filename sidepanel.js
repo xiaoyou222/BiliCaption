@@ -1,4 +1,4 @@
-const GEN_STEPS = ["拉取音频流", "上传 Groq 转写", "对齐时间轴"];
+const GEN_STEPS = ["拉取音频流", "分段语音识别", "对齐时间轴"];
 if (window.top !== window) document.documentElement.classList.add("float-embed");
 
 const $ = (id) => document.getElementById(id);
@@ -25,20 +25,30 @@ const ui = {
   viewTabs: $("viewTabs"),
   emptyView: $("emptyView"),
   emptyKeyHint: $("emptyKeyHint"),
-  emptyEstimate: $("emptyEstimate"),
   generatingView: $("generatingView"),
   genThink: $("genThink"),
   jobPill: $("jobPill"),
+  jobPillHead: $("jobPillHead"),
+  jobPillLabel: $("jobPillLabel"),
+  jobPillOrb: $("jobPillOrb"),
+  jobPillBody: $("jobPillBody"),
   asrJobBar: $("asrJobBar"),
+  asrSegOrb: $("asrSegOrb"),
   asrJobTitle: $("asrJobTitle"),
   asrJobFill: $("asrJobFill"),
+  asrSegPct: $("asrSegPct"),
   trJobBar: $("trJobBar"),
   trJobTitle: $("trJobTitle"),
-  trJobFill: $("trJobFill"),
+  trSegPct: $("trSegPct"),
+  chunkLiveList: $("chunkLiveList"),
+  chunkDoneList: $("chunkDoneList"),
+  btnChunkFold: $("btnChunkFold"),
+  cueGhosts: $("cueGhosts"),
   errorView: $("errorView"),
   errorTitle: $("errorTitle"),
   errorPrimary: $("errorPrimary"),
   outlineEmpty: $("outlineEmpty"),
+  outlineEmptyOrb: $("outlineEmptyOrb"),
   outlineEmptyLabel: $("outlineEmptyLabel"),
   outlineList: $("outlineList"),
   outlineBar: $("outlineBar"),
@@ -49,7 +59,7 @@ const ui = {
   summaryMeta: $("summaryMeta"),
   outlineThink: $("outlineThink"),
   outlineHead: $("outlineHead"),
-  outlineEmptyIcon: $("outlineEmptyIcon"),
+  outlineHeadLabel: $("outlineHeadLabel"),
   cueList: $("cueList"),
   cueWrap: $("cueWrap"),
   selectTrail: $("selectTrail"),
@@ -97,7 +107,13 @@ let hasSummary = false;
 let lastRenderKey = "";
 let overlayOn = true;
 let summaryPad = 10;
+let translateConcurrency = 4;
 let view = "captions";
+let markers = [];
+let markerKey = "";
+let editingMarkerId = null;
+let markerDrafts = new Map();
+let markerMoreOpen = false;
 let outline = null;
 let outlineLoading = false;
 let outlineRaf = 0;
@@ -116,10 +132,23 @@ let asrWatchTimer = 0;
 let asrMissingChecks = 0;
 let asrStopReason = "";
 let translating = false;
-let translateToken = 0;
+let translateJobId = "";
 let translateProgress = { done: 0, total: 0 };
+let translateWatchTimer = 0;
+let translateMissingChecks = 0;
 let translatedCueText = new Map();
 let translatedCueVideoKey = "";
+let translatedCueRanges = [];
+let jobPillOpen = false;
+let jobPillAnimating = false;
+let jobPillChipW = 0;
+let chunkListExpanded = false;
+let asrPaused = false;
+let outlineAbort = null;
+let stopPillOrb = null;
+let stopAsrSegOrb = null;
+let stopOutlineEmptyOrb = null;
+let outlineChapterTotal = 0;
 
 function formatTime(seconds) {
   const total = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -162,7 +191,9 @@ function escapeHtml(text) {
   return String(text)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function renderMarkdownLite(text) {
@@ -325,7 +356,7 @@ function show(el, on) {
   el.classList.toggle("hidden", !on);
 }
 
-const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4];
+const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 
 function currentRate() {
   return Math.min(10, Math.max(0.1, Math.round((Number(state?.rate) || 1) * 10) / 10));
@@ -346,14 +377,16 @@ function renderSpeed(rate) {
   if (!rates.some((item) => Math.abs(item - value) < 0.001)) rates.push(value);
   const html = rates.map((item) => {
     const on = Math.abs(item - value) < 0.001 ? " on" : "";
-    return `<button type="button" role="option" data-rate="${item}" class="${on.trim()}">${formatRate(item)}</button>`;
+    return `<button type="button" role="option" aria-selected="${on ? "true" : "false"}" data-rate="${item}" class="${on.trim()}">${formatRate(item)}</button>`;
   }).join("");
   if (ui.speedMenu.dataset.html !== html) {
     ui.speedMenu.dataset.html = html;
     ui.speedMenu.innerHTML = html;
   } else {
     ui.speedMenu.querySelectorAll("button").forEach((btn) => {
-      btn.classList.toggle("on", Math.abs(Number(btn.dataset.rate) - value) < 0.001);
+      const selected = Math.abs(Number(btn.dataset.rate) - value) < 0.001;
+      btn.classList.toggle("on", selected);
+      btn.setAttribute("aria-selected", selected ? "true" : "false");
     });
   }
 }
@@ -428,11 +461,320 @@ function setMoreOpen(open) {
   moreOpen = open;
   show(ui.moreMenu, open);
   ui.btnMore.classList.toggle("active", open);
-  if (open) setSpeedMenuOpen(false);
+  if (open) {
+    setSpeedMenuOpen(false);
+    setMarkerMoreOpen(false);
+  }
 }
 
-function openSettings() {
-  chrome.runtime.openOptionsPage();
+function setMarkerMoreOpen(open) {
+  markerMoreOpen = open;
+  show($("markerMoreMenu"), open);
+  $("btnMarkerMore")?.classList.toggle("active", open);
+  if (open) {
+    moreOpen = false;
+    show(ui.moreMenu, false);
+    ui.btnMore?.classList.remove("active");
+    setSpeedMenuOpen(false);
+  }
+}
+
+function markersApi() {
+  return globalThis.BiliCaptionMarkers;
+}
+
+function marksVideoKey(next = state) {
+  if (!next?.bvid && next?.cid == null) return "";
+  return `${next?.bvid || ""}:${Number(next?.cid) || 0}`;
+}
+
+function markerMeta(next = state) {
+  return {
+    title: next?.title || lastVideo?.title || "",
+    up: "",
+    part: next?.part || lastVideo?.part || "",
+    dur: formatTime(next?.duration || lastVideo?.duration || 0)
+  };
+}
+
+async function loadMarkers(next = state) {
+  const M = markersApi();
+  const key = marksVideoKey(next);
+  if (!M || !key) {
+    markers = [];
+    markerKey = "";
+    editingMarkerId = null;
+    markerDrafts.clear();
+    return;
+  }
+  if (key !== markerKey) {
+    editingMarkerId = null;
+    markerDrafts.clear();
+    markerKey = key;
+  }
+  const list = await M.load(next.bvid, next.cid);
+  if (marksVideoKey(state) !== key && marksVideoKey(next) !== marksVideoKey(state)) return;
+  markers = list;
+}
+
+function sameMarkerId(a, b) {
+  return String(a) === String(b);
+}
+
+function renderMarkerBar() {
+  const label = `+ 标记 ${formatTime(state?.currentTime || 0)}`;
+  const add = $("btnAddMarker");
+  if (add) add.textContent = label;
+  const now = $("btnMarkNow");
+  if (now) now.textContent = label;
+}
+
+function renderMarkers() {
+  const host = $("markerList");
+  const empty = $("markerEmpty");
+  if (!host || !empty) return;
+  const has = markers.length > 0;
+  show(host, has);
+  show(empty, !has);
+  host.replaceChildren();
+  renderMarkerBar();
+  updateSummaryMarkerBtn();
+  if (!has) return;
+
+  for (const m of markers) {
+    const row = document.createElement("div");
+    row.className = "marker-row";
+    row.dataset.id = String(m.id);
+
+    const time = document.createElement("time");
+    time.textContent = formatTime(m.time);
+
+    const body = document.createElement("div");
+    body.style.cssText = "flex:1;min-width:0";
+
+    if (sameMarkerId(editingMarkerId, m.id)) {
+      const ta = document.createElement("textarea");
+      ta.rows = 2;
+      ta.placeholder = "写点什么…";
+      ta.value = markerDrafts.has(m.id) ? markerDrafts.get(m.id) : (m.text || "");
+      ta.addEventListener("click", (e) => e.stopPropagation());
+      ta.addEventListener("pointerdown", (e) => e.stopPropagation());
+      ta.addEventListener("input", () => {
+        markerDrafts.set(m.id, ta.value);
+        ta.style.height = "auto";
+        ta.style.height = `${ta.scrollHeight}px`;
+      });
+      ta.addEventListener("blur", () => commitMarker(m.id));
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          ta.blur();
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          markerDrafts.delete(m.id);
+          editingMarkerId = null;
+          renderMarkers();
+        }
+      });
+      body.appendChild(ta);
+      requestAnimationFrame(() => {
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${ta.scrollHeight}px`;
+        const end = ta.value.length;
+        ta.setSelectionRange(end, end);
+      });
+    } else {
+      const p = document.createElement("span");
+      p.className = `marker-text${m.text ? "" : " empty"}`;
+      p.textContent = m.text || "（空）";
+      p.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        startEditMarker(m.id);
+      });
+      body.appendChild(p);
+    }
+
+    const tools = document.createElement("div");
+    tools.className = "marker-tools";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "改";
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      startEditMarker(m.id);
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "×";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteMarker(m.id);
+    });
+    tools.append(edit, del);
+
+    row.append(time, body, tools);
+    row.addEventListener("click", () => {
+      if (sameMarkerId(editingMarkerId, m.id)) return;
+      sendToTab({ type: "SEEK", time: m.time }).catch((error) => {
+        flash(error.message || "跳转失败，请先点一下视频页");
+      });
+    });
+    host.appendChild(row);
+  }
+}
+
+function startEditMarker(id) {
+  editingMarkerId = id;
+  const m = markers.find((x) => sameMarkerId(x.id, id));
+  if (m && !markerDrafts.has(m.id)) markerDrafts.set(m.id, m.text || "");
+  renderMarkers();
+}
+
+async function commitMarker(id) {
+  const M = markersApi();
+  if (!M || !state) {
+    editingMarkerId = null;
+    return;
+  }
+  const draft = String(markerDrafts.get(id) ?? "").trim();
+  markerDrafts.delete(id);
+  if (sameMarkerId(editingMarkerId, id)) editingMarkerId = null;
+  try {
+    markers = await M.update(state.bvid, state.cid, id, draft, markerMeta());
+  } catch {
+    await loadMarkers(state);
+  }
+  renderMarkers();
+}
+
+async function deleteMarker(id) {
+  const M = markersApi();
+  if (!M || !state) return;
+  if (sameMarkerId(editingMarkerId, id)) editingMarkerId = null;
+  markerDrafts.delete(id);
+  markers = await M.remove(state.bvid, state.cid, id, markerMeta());
+  renderMarkers();
+}
+
+async function addManualMarker() {
+  if (!state) return;
+  const time = Math.floor(Number(state.currentTime) || 0);
+  const M = markersApi();
+  if (!M) return;
+  try {
+    markers = await M.add(state.bvid, state.cid, { time, text: "" }, markerMeta());
+    const added = markers.find((m) => Math.floor(m.time) === time);
+    editingMarkerId = added?.id ?? null;
+    if (editingMarkerId != null) markerDrafts.set(editingMarkerId, "");
+    view = "markers";
+    renderState(state);
+  } catch (error) {
+    flash(error.message || "添加失败");
+    if (error.duplicate) {
+      view = "markers";
+      renderState(state);
+    }
+  }
+}
+
+function summaryMarkerText() {
+  const edit = $("summaryEdit");
+  if (edit && !edit.classList.contains("hidden")) return edit.value.trim();
+  return (ui.summaryText?.innerText || ui.summaryText?.textContent || "").trim();
+}
+
+function summaryMarkerTime() {
+  const from = Math.min(range.start, range.end >= 0 ? range.end : range.start);
+  if (from >= 0 && state?.cues?.[from]) return Number(state.cues[from].from) || 0;
+  return Number(state?.currentTime) || 0;
+}
+
+async function addMarkerFromSummary() {
+  const text = summaryMarkerText();
+  if (!text) {
+    flash("还没有总结内容");
+    return;
+  }
+  const time = summaryMarkerTime();
+  const M = markersApi();
+  if (!M || !state) return;
+  try {
+    markers = await M.add(state.bvid, state.cid, { time, text }, markerMeta());
+    flash(`已添加标记 · ${formatTime(time)}`);
+    updateSummaryMarkerBtn();
+  } catch (error) {
+    flash(error.message || "添加失败");
+  }
+}
+
+function updateSummaryMarkerBtn() {
+  const btn = $("btnAddMarkerSummary");
+  if (!btn) return;
+  const time = summaryMarkerTime();
+  const exists = markers.some((m) => Math.floor(m.time) === Math.floor(time));
+  btn.textContent = exists ? "已标记" : "+ 标记";
+  btn.classList.toggle("active", exists);
+}
+
+function openLibrary() {
+  const id = marksVideoKey();
+  openExtensionPage("library.html", id ? `?id=${encodeURIComponent(id)}` : "");
+}
+
+function markerEntry() {
+  return {
+    bvid: state?.bvid || "",
+    cid: Number(state?.cid) || 0,
+    title: state?.title || "",
+    part: state?.part || "",
+    dur: formatTime(state?.duration || 0)
+  };
+}
+
+async function copyMarkers() {
+  const M = markersApi();
+  if (!M || !markers.length) {
+    flash("还没有标记");
+    return;
+  }
+  try {
+    await copyText(M.copyText(markers, state?.bvid || ""));
+    flash(`已复制 ${markers.length} 条标记（时间戳为可点链接）`);
+  } catch {
+    flash("复制失败");
+  }
+}
+
+function exportMarkers(kind) {
+  const M = markersApi();
+  if (!M || !markers.length) {
+    flash("还没有标记");
+    return;
+  }
+  const entry = markerEntry();
+  if (kind === "md") {
+    const name = `${fileBase()}-marks.md`;
+    downloadText(name, M.toMarkdown(entry, markers));
+    flash(`已保存 ${name} · 时间戳带 ?t= 可跳回 B 站`);
+  } else {
+    const name = `${fileBase()}-marks.csv`;
+    downloadText(name, M.toCsv(entry, markers));
+    flash(`已保存 ${name} · 含 URL 列`);
+  }
+}
+
+function openExtensionPage(file, query = "") {
+  const url = chrome.runtime.getURL(file) + query;
+  chrome.tabs.create({ url }).catch(() => {
+    chrome.runtime.openOptionsPage();
+  });
+}
+
+function openSettings(tab) {
+  const query = tab ? `?tab=${encodeURIComponent(tab)}` : "";
+  openExtensionPage("options.html", query);
 }
 
 function openBiliLogin() {
@@ -452,23 +794,19 @@ function showSummaryThinking(on) {
     if (stopSummaryOrb) return;
     if (!ui.summaryThink) return;
     show(ui.summaryThink, true);
-    show(ui.summaryText, false);
-    stopSummaryOrb = startOrb(ui.summaryThink, { state: "composing", size: 20, speed: 0.6, label: "总结中…" });
+    stopSummaryOrb = startOrb(ui.summaryThink, { state: "solving", size: 18, speed: 0.7, iconOnly: true, label: "" });
     return;
   }
   stopSummaryOrb?.();
   stopSummaryOrb = null;
-  if (ui.summaryThink) {
-    show(ui.summaryThink, false);
-    show(ui.summaryText, true);
-  }
+  if (ui.summaryThink) show(ui.summaryThink, false);
 }
 
 function showOutlineThinking(on) {
   if (on) {
     if (stopOutlineOrb) return;
     if (ui.outlineThink) {
-      stopOutlineOrb = startOrb(ui.outlineThink, { state: "searching", size: 20, speed: 0.6, label: "生成大纲…" });
+      stopOutlineOrb = startOrb(ui.outlineThink, { state: "solving", size: 18, speed: 0.7, iconOnly: true, label: "" });
     }
     return;
   }
@@ -481,6 +819,56 @@ function setOrbLabel(host, label) {
   if (!text) return;
   text.dataset.text = label;
   text.textContent = label;
+}
+
+function showAsrSegOrb(on) {
+  if (!on) {
+    stopAsrSegOrb?.();
+    stopAsrSegOrb = null;
+    if (ui.asrSegOrb) ui.asrSegOrb.replaceChildren();
+    return;
+  }
+  if (stopAsrSegOrb || !ui.asrSegOrb) return;
+  stopAsrSegOrb = startOrb(ui.asrSegOrb, {
+    state: "connecting",
+    size: 13,
+    speed: 0.9,
+    iconOnly: true,
+    label: ""
+  });
+}
+
+function showOutlineEmptyOrb(on) {
+  if (!on) {
+    stopOutlineEmptyOrb?.();
+    stopOutlineEmptyOrb = null;
+    if (ui.outlineEmptyOrb) {
+      ui.outlineEmptyOrb.replaceChildren();
+      show(ui.outlineEmptyOrb, false);
+    }
+    return;
+  }
+  if (!ui.outlineEmptyOrb) return;
+  show(ui.outlineEmptyOrb, true);
+  if (stopOutlineEmptyOrb) return;
+  stopOutlineEmptyOrb = startOrb(ui.outlineEmptyOrb, { state: "weaving", size: 58, speed: 0.6, iconOnly: true, label: "" });
+}
+
+function showPillOrb(on) {
+  if (!on) {
+    stopPillOrb?.();
+    stopPillOrb = null;
+    if (ui.jobPillOrb) ui.jobPillOrb.replaceChildren();
+    return;
+  }
+  if (stopPillOrb || !ui.jobPillOrb) return;
+  stopPillOrb = startOrb(ui.jobPillOrb, {
+    state: "connecting",
+    size: 13,
+    speed: 0.9,
+    iconOnly: true,
+    label: ""
+  });
 }
 
 function showGenerateThinking(on, label) {
@@ -520,9 +908,13 @@ function formatWait(ms) {
 }
 
 function sameAsrVideo(info) {
-  if (!info || !state) return !info?.bvid;
-  if (info.bvid && state.bvid && info.bvid !== state.bvid) return false;
-  if (info.cid && state.cid && Number(info.cid) !== Number(state.cid)) return false;
+  if (!info || !state) return false;
+  const hasIdentity = Boolean(info.bvid || info.cid);
+  const expectedBvid = state.bvid || "";
+  const expectedCid = Number(state.cid) || 0;
+  if (!hasIdentity || (!expectedBvid && !expectedCid)) return false;
+  if (info.bvid && (!expectedBvid || info.bvid !== expectedBvid)) return false;
+  if (info.cid && (!expectedCid || Number(info.cid) !== expectedCid)) return false;
   return true;
 }
 
@@ -533,29 +925,66 @@ function translationVideoKey(value = state) {
 }
 
 function cueTranslationKey(cue) {
-  return String(Math.round((Number(cue?.from) || 0) * 10));
+  const from = Math.round((Number(cue?.from) || 0) * 100);
+  const to = Math.round((Number(cue?.to) || 0) * 100);
+  return `${from}-${to}`;
+}
+
+function cueHasCjk(text) {
+  return (String(text || "").match(/[\u4e00-\u9fff]/g) || []).length >= 1;
+}
+
+function cueOverlap(a, b) {
+  return Math.min(Number(a?.to) || 0, Number(b?.to) || 0)
+    - Math.max(Number(a?.from) || 0, Number(b?.from) || 0);
+}
+
+function normCueText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
 }
 
 function resetTranslationsFor(value = state) {
   const key = translationVideoKey(value);
   if (translatedCueVideoKey && key && translatedCueVideoKey !== key) {
     translatedCueText = new Map();
+    translatedCueRanges = [];
   }
   if (key) translatedCueVideoKey = key;
 }
 
-function rememberTranslatedCue(cue, content) {
+function rememberTranslatedCue(cue, content, original) {
   resetTranslationsFor(state);
-  translatedCueText.set(cueTranslationKey(cue), String(content || ""));
+  const translated = String(content || "");
+  if (!translated) return;
+  translatedCueText.set(cueTranslationKey(cue), translated);
+  const orig = normCueText(original);
+  if (orig) translatedCueText.set(`e:${orig}`, translated);
+  translatedCueRanges.push({
+    from: Number(cue?.from) || 0,
+    to: Number(cue?.to) || Number(cue?.from) || 0,
+    original: orig,
+    translated
+  });
 }
 
 function applyRememberedTranslations(cues) {
-  if (!Array.isArray(cues) || !translatedCueText.size) {
-    return Array.isArray(cues) ? cues.map((cue) => ({ ...cue })) : [];
-  }
+  if (!Array.isArray(cues)) return [];
+  const hasMemory = translatedCueText.size || translatedCueRanges.length;
+  if (!hasMemory) return cues.map((cue) => ({ ...cue }));
   return cues.map((cue) => {
-    const content = translatedCueText.get(cueTranslationKey(cue));
-    return content == null ? { ...cue } : { ...cue, content };
+    const text = normCueText(cue.content);
+    if (cueHasCjk(text) && !needsTranslation(text)) return { ...cue };
+    const byOriginal = text ? translatedCueText.get(`e:${text}`) : null;
+    if (byOriginal) return { ...cue, content: byOriginal };
+    const byTime = translatedCueText.get(cueTranslationKey(cue));
+    if (byTime != null) return { ...cue, content: byTime };
+    for (const item of translatedCueRanges) {
+      if (!item.original || item.original !== text) continue;
+      const overlap = cueOverlap(cue, item);
+      const dur = Math.max(0.2, (Number(cue.to) || 0) - (Number(cue.from) || 0));
+      if (overlap >= dur * 0.8) return { ...cue, content: item.translated };
+    }
+    return { ...cue };
   });
 }
 
@@ -605,10 +1034,17 @@ function startAsrWatch() {
       stopAsrWatch();
       generating = false;
       asrJobId = "";
-      asrProgress = null;
       clearInterval(asrWaitTimer);
       asrStopReason = "Chrome 后台任务已中断";
-      await refresh(true);
+      if (state) {
+        state = {
+          ...state,
+          partial: true,
+          asrDone: Math.max(Number(asrProgress?.done) || 0, Number(state.asrDone) || 0),
+          asrTotal: Math.max(Number(asrProgress?.total) || 0, Number(state.asrTotal) || 0)
+        };
+      }
+      renderAsrJobBar();
       if (state?.partial) flash("后台任务已中断，已保留进度，可继续生成", 6000);
     } catch {
       // 下一轮再确认，避免一次消息失败就误判任务中断
@@ -618,88 +1054,377 @@ function startAsrWatch() {
   }, 20 * 1000);
 }
 
+function chunkStatusLabel(status) {
+  if (status === "fail") return "失败";
+  if (status === "run") return "转写中";
+  if (status === "pause") return "已暂停";
+  if (status === "done") return "✓ 完成";
+  return "排队";
+}
+
+function synthesizeChunks(done, total, current, duration, failed = []) {
+  const n = Math.max(0, Number(total) || 0);
+  if (!n || n > 400) return [];
+  const dur = Math.max(0, Number(duration) || 0);
+  const slice = dur && n ? dur / n : 0;
+  const failSet = new Set((failed || []).map((i) => Number(i)));
+  const running = Math.max(0, Number(current) || (done < n ? done + 1 : 0));
+  return Array.from({ length: n }, (_, idx) => {
+    const i = idx + 1;
+    const start = slice ? slice * idx : 0;
+    const end = slice ? slice * i : 0;
+    let status = "wait";
+    if (failSet.has(i) || failSet.has(idx)) status = "fail";
+    else if (i <= done) status = "done";
+    else if (i === running && generating && !asrPaused) status = "run";
+    else if (i === running && asrPaused) status = "pause";
+    return { i, start, end, status };
+  });
+}
+
+function renderChunkRows(host, rows) {
+  if (!host) return;
+  // 冷却倒计时每秒重渲染整个胶囊，行没变就跳过，避免点阵球每秒重启闪一下
+  const sig = rows.map((c) => `${c.i}:${c.status}:${Math.round(c.start || 0)}-${Math.round(c.end || 0)}`).join("|");
+  if (host._chunkSig === sig) return;
+  host._chunkSig = sig;
+  (host._chunkOrbStops || []).forEach((stop) => stop());
+  host._chunkOrbStops = [];
+  host.replaceChildren();
+  for (const c of rows) {
+    const row = document.createElement("div");
+    row.className = `chunk-row is-${c.status}`;
+    const idx = document.createElement("span");
+    idx.className = "chunk-idx";
+    idx.textContent = `#${String(c.i).padStart(2, "0")}`;
+    const range = document.createElement("span");
+    range.className = "chunk-range";
+    range.textContent = c.end
+      ? `${formatTime(c.start)}–${formatTime(c.end)}`
+      : "";
+    row.append(idx, range);
+    if (c.status === "fail") {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "chunk-retry";
+      retry.textContent = "重试";
+      retry.addEventListener("click", (e) => {
+        e.stopPropagation();
+        retryAsrChunk(c.i);
+      });
+      row.appendChild(retry);
+    } else {
+      // HANDOFF：「转写中」那一片内嵌 13px connecting 点阵球
+      if (c.status === "run") {
+        const orbHost = document.createElement("span");
+        orbHost.className = "chunk-orb";
+        row.appendChild(orbHost);
+        host._chunkOrbStops.push(startOrb(orbHost, {
+          state: "connecting",
+          size: 13,
+          speed: 0.9,
+          iconOnly: true,
+          label: ""
+        }));
+      }
+      const st = document.createElement("span");
+      st.className = `chunk-status ${c.status}`;
+      st.textContent = chunkStatusLabel(c.status);
+      row.appendChild(st);
+    }
+    host.appendChild(row);
+  }
+}
+
+const PILL_MORPH_MS = 340;
+const PILL_MAX_H = () => Math.min(Math.round(window.innerHeight * 0.72), 420);
+
+function cacheJobPillChipWidth(pill) {
+  if (!pill || jobPillOpen || jobPillAnimating || pill.classList.contains("hidden")) return;
+  const w = Math.ceil(pill.getBoundingClientRect().width);
+  if (w > 24) jobPillChipW = w;
+}
+
+function pillMorphEnd(pill, done) {
+  let called = false;
+  const finish = () => {
+    if (called) return;
+    called = true;
+    pill.removeEventListener("transitionend", onEnd);
+    clearTimeout(timer);
+    done();
+  };
+  const onEnd = (e) => {
+    if (e.target === pill && (e.propertyName === "height" || e.propertyName === "width")) finish();
+  };
+  pill.addEventListener("transitionend", onEnd);
+  const timer = setTimeout(finish, PILL_MORPH_MS + 80);
+}
+
+function expandJobPill() {
+  const pill = ui.jobPill;
+  if (!pill || jobPillAnimating || jobPillOpen) return;
+  const startW = Math.ceil(pill.getBoundingClientRect().width);
+  if (startW > 24) jobPillChipW = startW;
+  jobPillOpen = true;
+  jobPillAnimating = true;
+  // 先把展开态内容渲染出来并测量目标尺寸（body 显示、296 宽）。
+  renderAsrJobBar();
+  pill.style.transition = "none";
+  pill.style.width = "";
+  pill.style.height = "auto";
+  const targetW = Math.ceil(pill.getBoundingClientRect().width);
+  const targetH = Math.min(pill.scrollHeight, PILL_MAX_H());
+  // 从收起尺寸起步
+  pill.style.width = `${startW}px`;
+  pill.style.height = "20px";
+  pill.offsetWidth; // reflow
+  pill.style.transition = "";
+  requestAnimationFrame(() => {
+    pill.style.width = `${targetW}px`;
+    pill.style.height = `${targetH}px`;
+  });
+  pillMorphEnd(pill, () => {
+    pill.style.transition = "none";
+    pill.style.width = "";
+    pill.style.height = "";
+    pill.offsetWidth;
+    pill.style.transition = "";
+    jobPillAnimating = false;
+  });
+}
+
+function collapseJobPill() {
+  const pill = ui.jobPill;
+  if (!pill || jobPillAnimating || !jobPillOpen) return;
+  const startW = Math.ceil(pill.getBoundingClientRect().width);
+  const startH = Math.ceil(pill.getBoundingClientRect().height);
+  const chipW = jobPillChipW > 24 ? jobPillChipW : 80;
+  jobPillAnimating = true;
+  pill.classList.add("is-collapsing");
+  pill.style.transition = "none";
+  pill.style.width = `${startW}px`;
+  pill.style.height = `${startH}px`;
+  pill.offsetWidth;
+  pill.style.transition = "";
+  requestAnimationFrame(() => {
+    pill.style.width = `${chipW}px`;
+    pill.style.height = "20px";
+  });
+  pillMorphEnd(pill, () => {
+    jobPillOpen = false;
+    pill.classList.remove("is-open");
+    pill.classList.remove("is-collapsing");
+    pill.style.transition = "none";
+    pill.style.width = "";
+    pill.style.height = "";
+    pill.offsetWidth;
+    pill.style.transition = "";
+    jobPillAnimating = false;
+    renderAsrJobBar();
+  });
+}
+
 function renderAsrJobBar() {
+  const pill = ui.jobPill;
   const bar = ui.asrJobBar;
   const trBar = ui.trJobBar;
-  const pill = ui.jobPill;
   const hasCues = Boolean(state?.cues?.length);
   const partial = Boolean(state?.partial);
-  const showAsr = Boolean(bar && hasCues && (generating || partial));
-  const showTr = Boolean(trBar && hasCues && translating);
+  const showAsr = Boolean(generating || (partial && (asrProgress?.total || state?.asrTotal)));
+  const showTr = Boolean(translating);
   const progress = asrProgress || {};
   const waitLeft = Math.max(0, (Number(progress.waitUntil) || 0) - Date.now());
-  const waiting = generating && waitLeft > 0;
+  const waiting = generating && waitLeft > 0 && !progress.boosted;
+  // 头部计数与分片列表必须同源，否则会出现「8/13 但列表 0 完成」
+  const chunkRows = generating && Array.isArray(progress.chunks) && progress.chunks.length
+    ? progress.chunks
+    : null;
+  const chunkDoneN = chunkRows ? chunkRows.filter((c) => c.status === "done").length : 0;
+  const chunkRunIdx = chunkRows
+    ? chunkRows.findIndex((c) => c.status === "run" || c.status === "pause") + 1
+    : 0;
+  const asrDone = chunkRows
+    ? chunkDoneN
+    : Number(generating ? progress.done ?? state?.asrDone : state?.asrDone) || 0;
+  const asrTotal = chunkRows
+    ? chunkRows.length
+    : Number(generating ? progress.total ?? state?.asrTotal : state?.asrTotal) || 0;
+  const asrCurrent = chunkRows ? chunkRunIdx : Number(progress.current) || 0;
+  const asrShown = asrDone;
+  const trDone = Number(translateProgress.done) || 0;
+  const trTotal = Number(translateProgress.total) || 0;
+  const failed = progress.failed || [];
+
+  const coolLabel = (() => {
+    const ms = waitLeft || 0;
+    const sec = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  })();
+
+  if (ui.jobPillLabel) {
+    if (jobPillOpen) ui.jobPillLabel.textContent = "后台任务";
+    else if (showAsr && showTr) ui.jobPillLabel.textContent = "2 个任务";
+    else if (showAsr && waiting) ui.jobPillLabel.textContent = `冷却 ${coolLabel}`;
+    else if (showAsr) ui.jobPillLabel.textContent = asrTotal ? `转写 ${asrShown}/${asrTotal}` : "转写中";
+    else if (showTr && translateProgress.stage === "regroup") {
+      ui.jobPillLabel.textContent = trTotal ? `断句 ${trDone}/${trTotal}` : "优化断句";
+    }
+    else if (showTr) ui.jobPillLabel.textContent = trTotal ? `翻译 ${trDone}/${trTotal}` : "翻译中";
+  }
 
   if (pill) {
-    show(pill, showAsr || showTr);
-    pill.classList.toggle("is-split", showAsr && showTr);
-    pill.classList.toggle("is-wait", showAsr && waiting);
-    pill.classList.toggle("is-idle", showAsr && !generating && partial);
+    const visible = showAsr || showTr;
+    show(pill, visible);
+    pill.classList.toggle("is-wait", waiting);
+    if (ui.jobPillHead) ui.jobPillHead.setAttribute("aria-expanded", jobPillOpen && visible ? "true" : "false");
+    pill.classList.toggle("is-open", jobPillOpen && visible);
+    if (visible && !jobPillOpen && !jobPillAnimating) cacheJobPillChipWidth(pill);
   }
+  showPillOrb(false);
 
   if (bar) {
     show(bar, showAsr);
     if (showAsr) {
-      const asrDone = Number(generating ? progress.done ?? state?.asrDone : state?.asrDone) || 0;
-      const asrTotal = Number(generating ? progress.total ?? state?.asrTotal : state?.asrTotal) || 0;
-      const asrCurrent = Number(progress.current) || 0;
-      const asrShown = generating
-        ? (asrCurrent || (asrTotal ? Math.min(asrTotal, asrDone + 1) : 0))
-        : asrDone;
-      bar.classList.toggle("is-wait", waiting);
-      if (ui.asrJobFill?.parentElement) show(ui.asrJobFill.parentElement, generating);
-      if ($("btnCancelAsrJob")) show($("btnCancelAsrJob"), generating);
+      const canBoost = Boolean(waiting && progress.canBoost && progress.waitKind === "quota");
+      show($("btnBoostAsr"), canBoost);
+      const pauseBtn = $("btnPauseAsr");
+      if (pauseBtn) {
+        pauseBtn.textContent = generating ? (asrPaused ? "继续" : "暂停") : "继续生成";
+        pauseBtn.dataset.mode = generating ? "pause" : "resume";
+        show(pauseBtn, generating || partial);
+      }
+      show($("btnCancelAsrJob"), generating || partial);
+      showAsrSegOrb(generating && !waiting && !asrPaused);
       if (ui.asrJobTitle) {
-        const count = asrTotal ? `${asrShown}/${asrTotal}` : String(asrShown || "");
-        const waitLabel = progress.waitKind === "quota" ? "额度冷却" : "重试";
+        const activeProvider = String(asrProgress?.provider || "").trim();
         ui.asrJobTitle.textContent = waiting
-          ? (count
-            ? `${waitLabel} ${formatWait(waitLeft || 1000)} · ${count}`
-            : `${waitLabel} ${formatWait(waitLeft || 1000)}`)
-          : generating
-            ? (count ? `转写中 ${count}` : "转写中")
-            : (count ? `继续生成 ${count}` : "继续生成");
-        ui.asrJobTitle.title = !generating && partial && asrStopReason
-          ? asrStopReason
-          : (progress.message || "");
+          ? `转写中 · 冷却 ${coolLabel}`
+          : asrPaused
+            ? "已暂停"
+            : generating
+              ? (activeProvider ? `转写中 · ${activeProvider}` : "转写中")
+              : "继续生成";
       }
+      if (ui.asrSegPct) ui.asrSegPct.textContent = asrTotal ? `${asrShown}/${asrTotal}` : "";
       if (ui.asrJobFill) {
-        const pct = asrTotal ? Math.max(4, Math.min(100, Math.round((asrShown / asrTotal) * 100))) : 8;
+        const pct = asrTotal ? Math.max(0, Math.min(100, Math.round((asrShown / asrTotal) * 100))) : 0;
         ui.asrJobFill.style.width = `${pct}%`;
+        ui.asrJobFill.style.background = asrPaused ? "#8A9099" : "";
+        const track = $("asrJobTrack");
+        if (track) {
+          track.setAttribute("aria-valuenow", String(pct));
+          track.setAttribute("aria-valuetext", asrTotal ? `${asrShown}/${asrTotal} 个分片已完成` : "正在准备转写");
+        }
       }
+      const chunks = chunkRows
+        || synthesizeChunks(asrDone, asrTotal, asrCurrent, state?.duration, failed);
+      const live = chunks.filter((c) => c.status === "fail" || c.status === "run" || c.status === "pause");
+      const doneRows = chunks.filter((c) => c.status === "done" || c.status === "wait");
+      renderChunkRows(ui.chunkLiveList, live);
+      const queued = chunks.filter((c) => c.status === "wait").length;
+      const doneN = chunks.filter((c) => c.status === "done").length;
+      if (ui.btnChunkFold) {
+        show(ui.btnChunkFold, doneRows.length > 0);
+        ui.btnChunkFold.textContent = chunkListExpanded
+          ? "收起 ▴"
+          : `已完成 ${doneN} 片 · 排队 ${queued} 片 ▸`;
+      }
+      show(ui.chunkDoneList, chunkListExpanded);
+      if (chunkListExpanded) renderChunkRows(ui.chunkDoneList, doneRows);
     }
   }
 
   if (trBar) {
     show(trBar, showTr);
     if (showTr) {
-      const done = Number(translateProgress.done) || 0;
-      const total = Number(translateProgress.total) || 0;
-      if (ui.trJobTitle) ui.trJobTitle.textContent = total ? `翻译中 ${done}/${total}` : "翻译中";
-      if (ui.trJobFill) {
-        const pct = total ? Math.max(4, Math.min(100, Math.round((done / total) * 100))) : 8;
-        ui.trJobFill.style.width = `${pct}%`;
-      }
+      if (ui.trJobTitle) ui.trJobTitle.textContent = translateProgress.stage === "regroup" ? "优化断句" : "翻译中";
+      if (ui.trSegPct) ui.trSegPct.textContent = trTotal ? `${trDone}/${trTotal}` : "";
     }
+  }
+
+  renderCueGhosts(generating && view === "captions");
+}
+
+function renderCueGhosts(on) {
+  const host = ui.cueGhosts;
+  if (!host) return;
+  show(host, on);
+  if (!on) {
+    host.replaceChildren();
+    return;
+  }
+  if (host.childElementCount) return;
+  for (let i = 0; i < 3; i += 1) {
+    const row = document.createElement("div");
+    row.className = "cue-ghost";
+    row.innerHTML = `<span class="cue-ghost-time"></span><span class="cue-ghost-bar"></span>`;
+    host.appendChild(row);
+  }
+}
+
+async function pauseAsr(paused) {
+  try {
+    await chrome.runtime.sendMessage({
+      type: "PAUSE_ASR",
+      paused: paused !== false,
+      jobId: asrJobId,
+      bvid: state?.bvid,
+      cid: state?.cid,
+      tabId: boundTabId || myTabId
+    });
+    asrPaused = paused !== false;
+    renderAsrJobBar();
+  } catch (error) {
+    flash(error.message || "无法暂停");
+  }
+}
+
+async function retryAsrChunk(index) {
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: "RETRY_ASR_CHUNK",
+      index,
+      jobId: asrJobId,
+      bvid: state?.bvid,
+      cid: state?.cid,
+      tabId: boundTabId || myTabId
+    });
+    if (result?.error) flash(result.error);
+  } catch (error) {
+    flash(error.message || "重试失败");
   }
 }
 
 function applyAsrProgress(info) {
   if (!info || !sameAsrVideo(info)) return;
   const hadCues = Boolean(state?.cues?.length);
+  const sameJob = !info.jobId || !asrProgress?.jobId || info.jobId === asrProgress.jobId;
+  const prevDone = sameJob ? Number(asrProgress?.done) || 0 : 0;
+  const prevTotal = sameJob ? Number(asrProgress?.total) || 0 : 0;
+  const prevCurrent = sameJob ? Number(asrProgress?.current) || 0 : 0;
+  // 后台的 done/chunks 都是从任务实况现算的，直接信任；本地再取 max 会把重开任务的旧计数残留下来
   asrProgress = {
-    done: info.done != null ? Number(info.done) : asrProgress?.done || 0,
-    total: info.total != null ? Number(info.total) : asrProgress?.total || 0,
+    jobId: info.jobId || asrProgress?.jobId || "",
+    done: info.done != null ? Number(info.done) || 0 : prevDone,
+    total: info.total != null ? Number(info.total) || 0 : prevTotal,
     waitUntil: Number(info.waitUntil) || 0,
     message: info.message || asrProgress?.message || "",
     stage: info.stage || "",
-    current: info.current != null ? Number(info.current) : asrProgress?.current || 0,
+    current: Number(info.current) > 0 ? Number(info.current) : prevCurrent,
     waitKind: info.stage === "wait" ? (info.waitKind || asrProgress?.waitKind || "") : "",
-    running: info.running !== false && info.stage !== "done"
+    canBoost: Boolean(info.canBoost),
+    boosted: Boolean(info.boosted),
+    provider: info.provider || asrProgress?.provider || "",
+    running: info.running !== false && info.stage !== "done",
+    chunks: Array.isArray(info.chunks) ? info.chunks : asrProgress?.chunks,
+    failed: Array.isArray(info.failed) ? info.failed : asrProgress?.failed || [],
+    paused: info.paused != null ? Boolean(info.paused) : asrProgress?.paused
   };
+  if (info.paused != null) asrPaused = Boolean(info.paused);
   if (info.cues?.length) {
     const cues = applyRememberedTranslations(info.cues);
-    const translated = translatedCueText.size > 0;
+    const translated = translatedCueText.size > 0 || translatedCueRanges.length > 0 || info.source === "translated";
     state = {
       ...(state || {}),
       cues,
@@ -738,11 +1463,100 @@ async function attachRunningAsr(next) {
   }
 }
 
-function estimateLabel(duration) {
-  const sec = Number(duration) || 0;
-  if (!sec) return "";
-  const wait = Math.max(18, Math.round(sec * 0.027));
-  return `预计 ${wait} 秒 · ${formatTime(sec)} 音频`;
+function stopTranslateWatch() {
+  clearInterval(translateWatchTimer);
+  translateWatchTimer = 0;
+  translateMissingChecks = 0;
+}
+
+function startTranslateWatch() {
+  if (translateWatchTimer) return;
+  stopTranslateWatch();
+  let checking = false;
+  translateWatchTimer = setInterval(async () => {
+    if (!translating || checking) {
+      if (!translating) stopTranslateWatch();
+      return;
+    }
+    checking = true;
+    try {
+      const status = await chrome.runtime.sendMessage({
+        type: "GET_TRANSLATE_JOB",
+        jobId: translateJobId,
+        tabId: boundTabId || myTabId,
+        bvid: state?.bvid,
+        cid: state?.cid
+      });
+      if (status?.running) {
+        translateMissingChecks = 0;
+        if (status.stage !== "done") applyTranslateProgress(status);
+        return;
+      }
+      translateMissingChecks += 1;
+      if (translateMissingChecks < 2) return;
+      stopTranslateWatch();
+      translating = false;
+      translateJobId = "";
+      translateProgress = { done: 0, total: 0 };
+      renderAsrJobBar();
+      if (!state?.cues?.length) await refresh(true);
+      flash("后台翻译已中断，已保留进度，可再点一次", 6000);
+    } catch {
+      // 下一轮再确认
+    } finally {
+      checking = false;
+    }
+  }, 20 * 1000);
+}
+
+function rememberCuesFromJob(cues) {
+  if (!Array.isArray(cues)) return;
+  resetTranslationsFor(state);
+  for (const cue of cues) {
+    if (cueHasCjk(cue.content)) rememberTranslatedCue(cue, cue.content);
+  }
+}
+
+function applyTranslateProgress(info) {
+  if (!info || (state && !sameAsrVideo(info))) return;
+  const running = info.running !== false && info.stage !== "done" && info.stage !== "canceled" && info.stage !== "error";
+  translating = running;
+  if (info.jobId) translateJobId = info.jobId;
+  translateProgress = {
+    done: Number(info.done) || 0,
+    total: Number(info.total) || 0,
+    stage: info.stage || ""
+  };
+  if (info.cues?.length) {
+    rememberCuesFromJob(info.cues);
+    state = {
+      ...(state || {}),
+      cues: info.cues,
+      source: "translated",
+      activeLan: "translated"
+    };
+    renderCues();
+  }
+  renderAsrJobBar();
+}
+
+async function attachRunningTranslate(next) {
+  try {
+    const status = await chrome.runtime.sendMessage({
+      type: "GET_TRANSLATE_JOB",
+      tabId: boundTabId || myTabId,
+      bvid: next?.bvid || state?.bvid,
+      cid: next?.cid || state?.cid
+    });
+    if (!status?.running) return false;
+    translating = true;
+    translateJobId = status.jobId || translateJobId;
+    applyTranslateProgress(status);
+    startTranslateWatch();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function cuesSignature(cues) {
@@ -801,12 +1615,28 @@ function buildCueRows(cues) {
     const time = document.createElement("time");
     time.textContent = formatTime(cues[i].from);
     const text = document.createElement("div");
+    text.className = "cue-text";
     text.textContent = cues[i].content;
     row.append(time, text);
     cueRowEls[i] = row;
     frag.append(row);
   }
   ui.cueList.replaceChildren(frag);
+}
+
+function patchCueTexts(cues) {
+  if (!cues?.length) return;
+  if (cueRowEls.length !== cues.length) {
+    lastCuesSig = cuesSignature(cues);
+    lastActiveIndex = -1;
+    buildCueRows(cues);
+    return;
+  }
+  for (let i = 0; i < cues.length; i += 1) {
+    const row = cueRowEls[i];
+    const text = row?.querySelector(".cue-text") || row?.children?.[1];
+    if (text && text.textContent !== cues[i].content) text.textContent = cues[i].content;
+  }
 }
 
 function renderCues() {
@@ -817,6 +1647,8 @@ function renderCues() {
     lastCuesSig = sig;
     lastActiveIndex = -1;
     buildCueRows(cues);
+  } else {
+    patchCueTexts(cues);
   }
   if (!cues.length) return;
   highlight(state.currentTime || 0, { forceScroll: changed });
@@ -882,7 +1714,8 @@ function highlight(currentTime, { forceScroll = false } = {}) {
 }
 
 function syncSelectChrome(onCaptions = view === "captions") {
-  const selectOpen = onCaptions && !hasSummary && (range.start >= 0 || selecting);
+  // 设计稿：有起点后才切到底部选区条，未定起点时保持行动条（按钮变「点起点…」）
+  const selectOpen = onCaptions && !hasSummary && range.start >= 0;
   show(ui.selectBar, selectOpen);
   show(ui.actionBar, onCaptions && !hasSummary && !selectOpen);
 }
@@ -907,7 +1740,7 @@ function paintSelection() {
   }
 
   syncSelectChrome(true);
-  ui.btnSelect.textContent = selecting && range.end < 0 && start >= 0 ? "滑到终点…" : "划选";
+  ui.btnSelect.textContent = selecting ? (start < 0 ? "点起点…" : "点终点…") : "划选";
   ui.btnSelect.classList.toggle("active", selecting);
 
   if (start < 0) {
@@ -1354,18 +2187,25 @@ function parseStreamingChapters(text) {
 
 async function generateOutline() {
   if (!state?.cues?.length || outlineLoading) return;
+  outlineAbort?.abort();
+  outlineAbort = new AbortController();
+  const ac = outlineAbort;
   outlineLoading = true;
   outline = null;
   lastOutlineIndex = -1;
   view = "outline";
   renderState(state);
-  showOutlineThinking(true);
   const startedOutlineKey = outlineKey(state);
   try {
     const lines = state.cues.map((cue) => `[${formatTime(cue.from)}] ${cue.content}`).join("\n");
     let lastPreview = "";
     const result = await runModel(`请根据下面带时间戳的视频字幕，生成 3-8 个章节大纲。只输出 JSON 数组。每个对象字段顺序必须是 title、synopsis、start、end。title 是短标题，synopsis 是一两句摘要，start/end 是秒（数字）。不要输出其他文字。\n\n${lines}`, {
+      signal: ac.signal,
+      validate(text) {
+        return parseOutlineJson(text).length > 0;
+      },
       onDelta(full) {
+        if (ac.signal.aborted) return;
         const partial = parseStreamingChapters(full);
         const preview = JSON.stringify(partial);
         if (!partial.length || preview === lastPreview) return;
@@ -1373,8 +2213,10 @@ async function generateOutline() {
         outline = partial;
         if (view !== "outline") return;
         show(ui.outlineEmpty, false);
+        showOutlineEmptyOrb(false);
         show(ui.outlineHead, true);
-        if (ui.outlineHead) ui.outlineHead.classList.add("has-rows");
+        showOutlineThinking(true);
+        if (ui.outlineHeadLabel) ui.outlineHeadLabel.textContent = `正在生成大纲 · 第 ${Math.max(1, partial.length)} 段`;
         show(ui.outlineList, true);
         if (!outlineRaf) {
           outlineRaf = requestAnimationFrame(() => {
@@ -1384,18 +2226,30 @@ async function generateOutline() {
         }
       }
     });
+    if (ac.signal.aborted) return;
     outline = parseOutlineJson(result);
+    if (!outline.length) throw new Error("大纲结果结构校验失败");
     const key = startedOutlineKey;
     if (key) await chrome.storage.local.set({ [key]: outline });
     flash("大纲已生成");
   } catch (error) {
+    if (ac.signal.aborted || error?.name === "AbortError") return;
     outline = null;
     flash(error.message || "生成大纲失败");
   } finally {
-    outlineLoading = false;
-    showOutlineThinking(false);
-    renderState(state);
+    if (outlineAbort === ac) {
+      outlineLoading = false;
+      showOutlineThinking(false);
+      renderState(state);
+    }
   }
+}
+
+function stopOutline() {
+  outlineAbort?.abort();
+  outlineLoading = false;
+  showOutlineThinking(false);
+  renderState(state);
 }
 
 function renderState(next) {
@@ -1438,6 +2292,12 @@ function renderState(next) {
     loadOutlineCache(next).then(() => {
       if (outline && outlineKey(state) === outlineKey(next)) renderState(state);
     });
+    loadMarkers(next).then(() => {
+      if (marksVideoKey(state) === marksVideoKey(next)) {
+        if (view === "markers") renderMarkers();
+        updateSummaryMarkerBtn();
+      }
+    });
   }
 
   const loggedIn = Boolean(lastLogin?.isLogin);
@@ -1448,15 +2308,16 @@ function renderState(next) {
   const showLoginEmpty = !generating && !hasCues && !loggedIn && !netLogin && (loginError || (Boolean(next?.error) && /登录/.test(next.error || "") && !/无法确认登录/.test(next.error || "")));
   const showNetLogin = !generating && !hasCues && !noScript && netLogin;
   const showGenError = !generating && Boolean(genError) && !hasCues && !showLoginEmpty && !showNetLogin;
-  const showFullGen = generating && !hasCues && !showLoginEmpty && !showNetLogin && !noScript;
-  const isEmpty = !generating && !showLoginEmpty && !showNetLogin && !showGenError && !noScript && !hasCues;
-  const hasList = !showFullGen && !showLoginEmpty && !showNetLogin && !showGenError && !noScript && hasCues;
+  const onVideoReady = !showLoginEmpty && !showNetLogin && !showGenError && !noScript;
+  const isEmpty = onVideoReady && !hasCues && !generating && view !== "markers";
+  const hasList = onVideoReady && (hasCues || generating);
   const onCaptions = hasList && view === "captions";
   const onOutline = hasList && view === "outline";
+  const onMarkers = onVideoReady && view === "markers";
 
   show(ui.speedSelect, true);
-  show(ui.controlRow, hasList && (next.tracks?.length || 0) > 1);
-  show(ui.viewTabs, hasList);
+  show(ui.controlRow, hasCues && (next.tracks?.length || 0) > 1);
+  show(ui.viewTabs, hasList || onMarkers || generating || translating);
 
   ui.viewTabs.querySelectorAll("button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
@@ -1479,13 +2340,10 @@ function renderState(next) {
   renderSpeed(next.rate || 1);
 
   show(ui.emptyView, isEmpty);
-  if (isEmpty) {
-    show(ui.emptyKeyHint, !hasSttKey);
-    ui.emptyEstimate.textContent = estimateLabel(next.duration);
-  }
+  if (isEmpty) show(ui.emptyKeyHint, !hasSttKey);
 
-  show(ui.generatingView, showFullGen);
-  showGenerateThinking(showFullGen);
+  show(ui.generatingView, false);
+  showGenerateThinking(false);
   renderAsrJobBar();
 
   errorMode = "";
@@ -1515,15 +2373,26 @@ function renderState(next) {
   }
 
   const outlineRows = Boolean(outline?.length);
-  show(ui.outlineHead, onOutline && outlineLoading);
-  if (ui.outlineHead) ui.outlineHead.classList.toggle("has-rows", outlineRows);
+  const outlineBoot = onOutline && outlineLoading && !outlineRows;
+  show(ui.outlineHead, onOutline && outlineLoading && outlineRows);
+  if (ui.outlineHeadLabel && outlineLoading && outlineRows) {
+    const n = Math.max(1, outline?.length || 1);
+    ui.outlineHeadLabel.textContent = `正在生成大纲 · 第 ${n} 段`;
+  }
+  showOutlineThinking(onOutline && outlineLoading && outlineRows);
 
   const outlineEmptyShown = onOutline && !outlineLoading && !outlineRows;
-  show(ui.outlineEmpty, outlineEmptyShown);
-  if (outlineEmptyShown) {
-    ui.outlineEmptyLabel.textContent = "还没有生成大纲";
-    show($("btnGenOutline"), true);
-    show(ui.outlineEmptyIcon, true);
+  show(ui.outlineEmpty, outlineEmptyShown || outlineBoot);
+  if (outlineBoot) {
+    ui.outlineEmptyLabel.textContent = "AI 正在阅读全文字幕…";
+    show($("btnGenOutline"), false);
+    showOutlineEmptyOrb(true);
+  } else {
+    showOutlineEmptyOrb(false);
+    if (outlineEmptyShown) {
+      ui.outlineEmptyLabel.textContent = "还没有生成大纲";
+      show($("btnGenOutline"), true);
+    }
   }
 
   show(ui.outlineList, onOutline && outlineRows);
@@ -1536,7 +2405,16 @@ function renderState(next) {
   show(ui.cueWrap || ui.cueList, onCaptions);
   show(ui.summaryBox, onCaptions && hasSummary);
   syncSelectChrome(onCaptions);
-  show(ui.outlineBar, onOutline && outlineRows && !outlineLoading);
+  // 流式期间底部条也在：第一个按钮变「停止生成」（设计稿 outlineActions）
+  show(ui.outlineBar, onOutline && outlineRows);
+  if (onOutline && outlineRows) {
+    const copyBtn = $("btnCopyOutline");
+    if (copyBtn) copyBtn.textContent = outlineLoading ? "停止生成" : "复制大纲";
+  }
+  show($("markerView"), onMarkers);
+  show($("markerBar"), onMarkers);
+  if (onMarkers) renderMarkers();
+  else if (hasSummary) updateSummaryMarkerBtn();
 
   if (onCaptions) {
     const generated = next.source === "groq" || next.activeLan === "groq-asr";
@@ -1560,7 +2438,7 @@ async function refreshLoginOnly() {
 }
 
 async function refresh(force = false) {
-  if ((outlineLoading || generating) && !force) return;
+  if ((outlineLoading || generating || translating) && !force) return;
   genError = "";
   try {
     const tab = await getActiveTab();
@@ -1572,7 +2450,9 @@ async function refresh(force = false) {
     }
     const next = await sendToTab({ type: force ? "REFRESH" : "GET_STATE" }, tab.id);
     renderState(next);
-    if (await attachRunningAsr(next)) renderState(state || next);
+    const asrOn = await attachRunningAsr(next);
+    const trOn = await attachRunningTranslate(next);
+    if (asrOn || trOn) renderState(state || next);
     if (!next?.login) await refreshLoginOnly();
   } catch (error) {
     renderState({ page: "no-script", error: error.message });
@@ -1601,17 +2481,18 @@ function extractSeasonIdFromUrl(url = "") {
 async function generateSubtitles() {
   if (generating) return;
 
-  const { groqApiKey, sttProvider } = await chrome.storage.sync.get({
+  const sttSettings = await BiliCaptionPrefs.loadSettings({
     groqApiKey: "",
-    sttProvider: "Groq"
+    sttKey: "",
+    sttProvider: "Groq",
+    sttCreds: {},
+    sttChannels: []
   });
-  if (sttProvider && sttProvider !== "Groq") {
-    flash("当前仅接通了 Groq 转写");
-    openSettings();
-    return;
-  }
-  if (!groqApiKey) {
-    flash("请先填写 Groq API Key");
+  const P = globalThis.BiliCaptionProviders;
+  const channels = P?.resolveChannels?.(sttSettings) || [];
+  const usable = channels.filter((cfg) => P?.channelUsable?.(cfg));
+  if (!usable.length) {
+    flash("请先在设置里添加并配置好转写通道");
     openSettings();
     return;
   }
@@ -1784,31 +2665,30 @@ function cancelGenerate() {
 }
 
 async function copyText(text) {
-  const tryLegacy = () => {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    ta.setSelectionRange(0, text.length);
-    let ok = false;
-    try {
-      ok = document.execCommand("copy");
-    } catch {
-      ok = false;
-    }
-    ta.remove();
-    return ok;
-  };
-
-  if (tryLegacy()) return;
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // iframe 无焦点时走下面
+    }
   }
-  throw new Error("复制失败");
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  if (!ok) throw new Error("复制失败");
 }
 
 function markCopied(btn, ok = true) {
@@ -1845,32 +2725,35 @@ async function readChatStream(res, onDelta) {
   const decoder = new TextDecoder();
   let buffer = "";
   let full = "";
+  const consume = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") return;
+    let json = null;
+    try {
+      json = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const piece = json?.choices?.[0]?.delta?.content
+      || json?.choices?.[0]?.message?.content
+      || "";
+    if (piece) {
+      full += piece;
+      onDelta(full);
+    }
+  };
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || "";
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const data = trimmed.slice(5).trim();
-      if (!data || data === "[DONE]") continue;
-      let json = null;
-      try {
-        json = JSON.parse(data);
-      } catch {
-        continue;
-      }
-      const piece = json?.choices?.[0]?.delta?.content
-        || json?.choices?.[0]?.message?.content
-        || "";
-      if (piece) {
-        full += piece;
-        onDelta(full);
-      }
-    }
+    lines.forEach(consume);
   }
+  buffer += decoder.decode();
+  if (buffer.trim().startsWith("data:")) consume(buffer);
   if (!full && buffer.trim()) {
     try {
       const json = JSON.parse(buffer);
@@ -1883,18 +2766,11 @@ async function readChatStream(res, onDelta) {
   return full;
 }
 
-async function openaiPrompt(prompt, { onDelta } = {}) {
-  const { apiBase, apiKey, apiModel } = await chrome.storage.sync.get({
-    apiBase: "",
-    apiKey: "",
-    apiModel: ""
-  });
-  if (!apiKey) return null;
-  const base = (apiBase || "https://api.openai.com/v1").replace(/\/$/, "");
-  const model = defaultChatModel(base, apiModel);
-  await ensureApiOrigin(base);
-
+async function requestPromptModel(prompt, { base, key, model, onDelta, signal, validate }) {
+  const route = globalThis.BiliCaptionModelRoute;
   const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort);
   const timer = setTimeout(() => controller.abort(), 90000);
   try {
     const res = await fetch(`${base}/chat/completions`, {
@@ -1902,12 +2778,13 @@ async function openaiPrompt(prompt, { onDelta } = {}) {
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
+        Authorization: `Bearer ${key}`
       },
       body: JSON.stringify({
         model,
         temperature: 0.3,
         stream: Boolean(onDelta),
+        ...(route?.requestFields?.(model, "low") || {}),
         messages: [
           { role: "system", content: "你是简洁的中文助手。只输出结果，不要客套。" },
           { role: "user", content: prompt }
@@ -1921,23 +2798,63 @@ async function openaiPrompt(prompt, { onDelta } = {}) {
       } catch {
         json = null;
       }
-      throw new Error(chatErrorMessage(json, res.status));
+      const error = new Error(chatErrorMessage(json, res.status));
+      error.status = res.status;
+      throw error;
     }
 
-    summaryModel = model;
+    let text = "";
+    let responseModel = model;
     if (onDelta && res.body) {
-      const text = await readChatStream(res, onDelta);
-      return text.trim();
+      text = (await readChatStream(res, onDelta)).trim();
+    } else {
+      let json;
+      try {
+        json = await res.json();
+      } catch {
+        throw route?.markError?.(new Error("模型响应不是有效 JSON"), { invalidResponse: true }) || new Error("模型响应不是有效 JSON");
+      }
+      responseModel = json.model || model;
+      text = json.choices?.[0]?.message?.content?.trim() || "";
     }
-    const json = await res.json();
-    summaryModel = apiModel || json.model || model;
-    return json.choices?.[0]?.message?.content?.trim() || "";
+    if (!text || (validate && !validate(text))) {
+      throw route?.markError?.(new Error("模型响应结构校验失败"), { invalidResponse: true }) || new Error("模型响应结构校验失败");
+    }
+    summaryModel = responseModel;
+    return text;
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error("请求超时，请稍后重试");
+    if (error?.name === "AbortError") {
+      if (signal?.aborted) throw error;
+      throw route?.markError?.(new Error("请求超时，请稍后重试"), { status: 408 }) || error;
+    }
     throw error;
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     clearTimeout(timer);
   }
+}
+
+async function openaiPrompt(prompt, { onDelta, signal, validate } = {}) {
+  const settings = await BiliCaptionPrefs.loadSettings({
+    sumProvider: "OpenAI",
+    apiBase: "",
+    apiKey: "",
+    apiModel: ""
+  });
+  const cfg = globalThis.BiliCaptionProviders.resolveSum(settings);
+  if (!cfg.key) return null;
+  if (!cfg.base) throw new Error("请先在设置里填写接口地址");
+  const base = cfg.base;
+  const model = defaultChatModel(base, cfg.model);
+  await ensureApiOrigin(base);
+  return requestPromptModel(prompt, {
+    base,
+    key: cfg.key,
+    model,
+    onDelta,
+    signal,
+    validate
+  });
 }
 
 async function runModel(prompt, options) {
@@ -1961,6 +2878,7 @@ async function summarizeSelection() {
   if (cueScrollRaf) cancelAnimationFrame(cueScrollRaf);
   cueScrollRaf = 0;
   show(ui.summaryBox, true);
+  ui.summaryBox?.classList.add("is-beam");
   syncSelectChrome(true);
   ui.summaryTitle.textContent = "选区总结";
   ui.summaryMeta.textContent = span;
@@ -1973,144 +2891,136 @@ async function summarizeSelection() {
       onDelta(full) {
         if (!started) {
           started = true;
-          showSummaryThinking(false);
           ui.summaryText.classList.add("streaming");
         }
         setSummaryBody(full);
       }
     });
     ui.summaryText.classList.remove("streaming");
+    ui.summaryBox?.classList.remove("is-beam");
+    showSummaryThinking(false);
     setSummaryBody(result);
     ui.summaryMeta.textContent = span;
     flash("总结完成");
   } catch (error) {
     showSummaryThinking(false);
     ui.summaryText.classList.remove("streaming");
+    ui.summaryBox?.classList.remove("is-beam");
     ui.summaryText.textContent = error.message || String(error);
   }
 }
 
 function toSimplified(text) {
-  return window.BiliCaptionZh?.toSimplified?.(text) || String(text || "");
+  return window.BiliCaptionTranslate?.toSimplified?.(text)
+    || window.BiliCaptionZh?.toSimplified?.(text)
+    || String(text || "");
 }
 
 function needsTranslation(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return false;
-  const latin = (raw.match(/[A-Za-z]/g) || []).length;
-  const cjk = (raw.match(/[\u4e00-\u9fff]/g) || []).length;
-  if (latin < 4) return false;
-  if (cjk > 0 && latin <= Math.max(cjk * 1.5, 12)) return false;
+  return window.BiliCaptionTranslate?.needsTranslation?.(text) === true;
+}
 
-  const zhPunct = /[、。！？；：…「」『』《》]/.test(raw);
-  const englishSentence =
-    /\b(the|a|an|is|are|was|were|be|been|to|of|and|or|in|on|for|with|this|that|it|you|we|i|can|will|have|has|do|does|not|but|if|as|at|from|your|our|they|their|what|how|why|when|all|just|about|into|than|then|so|my|me|no|yes|let|get|got|make|use|using)\b/i.test(raw)
-    || /[A-Za-z]{3,}(?:\s+[A-Za-z]{2,}){2,}/.test(raw);
+function clampTranslateConcurrency(value) {
+  return window.BiliCaptionTranslate?.clampTranslateConcurrency?.(value) ?? 4;
+}
 
-  if (zhPunct && !englishSentence) return false;
-  if (cjk === 0) return englishSentence;
-  return englishSentence && latin > cjk * 1.5;
+function commitTranslatedCues(next) {
+  state = {
+    ...state,
+    cues: next.map((cue) => ({ ...cue })),
+    source: "translated",
+    activeLan: "translated"
+  };
+  renderCues();
+  sendToTab({
+    type: "SYNC_CUES",
+    cues: state.cues,
+    source: "translated",
+    activeLan: "translated",
+    bvid: state.bvid || "",
+    cid: Number(state.cid) || 0
+  }).catch(() => {});
 }
 
 async function translateCues() {
   if (!state?.cues?.length || translating) return;
   setMoreOpen(false);
-  resetTranslationsFor(state);
 
-  const next = state.cues.map((cue) => ({
-    ...cue,
-    content: toSimplified(cue.content)
-  }));
-  next.forEach((cue, index) => {
-    if (cue.content !== state.cues[index]?.content) {
-      rememberTranslatedCue(cue, cue.content);
-    }
+  const settings = await BiliCaptionPrefs.loadSettings({
+    sumProvider: "OpenAI",
+    apiBase: "",
+    apiKey: ""
   });
-  const targets = next
-    .map((cue, index) => ({ index, text: cue.content }))
-    .filter((item) => needsTranslation(item.text));
-
-  if (!targets.length) {
-    if (translatedCueText.size) {
-      state = {
-        ...state,
-        cues: applyRememberedTranslations(state.cues),
-        source: "translated",
-        activeLan: "translated"
-      };
-      renderCues();
-      sendToTab({
-        type: "SYNC_CUES",
-        cues: state.cues,
-        source: "translated",
-        activeLan: "translated"
-      }).catch(() => {});
-    }
-    flash("已经是中文，不用翻译");
+  const cfg = globalThis.BiliCaptionProviders.resolveSum(settings);
+  if (!cfg.key) {
+    flash("请先在设置里配置总结服务和 API Key");
+    openSettings();
     return;
   }
+  if (!cfg.base) {
+    flash("请先在设置里填写接口地址");
+    openSettings();
+    return;
+  }
+  await ensureApiOrigin(cfg.base);
 
-  const token = ++translateToken;
-  translating = true;
-  translateProgress = { done: 0, total: targets.length };
-  renderAsrJobBar();
   try {
-    const size = 24;
-    for (let offset = 0; offset < targets.length; offset += size) {
-      if (token !== translateToken) return;
-      translateProgress = { done: offset, total: targets.length };
-      renderAsrJobBar();
-      const batch = targets.slice(offset, offset + size);
-      const text = batch.map((item, i) => `${i + 1}. ${item.text}`).join("\n");
-      const translated = await runModel(`只把下面的英文字幕译成简体中文。保持编号，一行一条，不要解释，不要翻译编号：\n\n${text}`);
-      if (token !== translateToken) return;
-      const byId = new Map();
-      for (const line of translated.split(/\n+/)) {
-        const match = line.match(/^(\d+)[\.、\)]\s*(.+)$/);
-        if (match) byId.set(Number(match[1]), match[2].trim());
-      }
-      for (let i = 0; i < batch.length; i += 1) {
-        const got = byId.get(i + 1);
-        const cue = next[batch[i].index];
-        const content = toSimplified(got || batch[i].text);
-        cue.content = content;
-        if (got) rememberTranslatedCue(cue, content);
-      }
+    const started = await chrome.runtime.sendMessage({
+      type: "START_TRANSLATE",
+      tabId: boundTabId || myTabId,
+      bvid: state.bvid,
+      cid: state.cid,
+      cues: state.cues
+    });
+    if (started?.error) {
+      flash(started.error);
+      return;
+    }
+    if (started?.empty) {
+      if (started.cues?.length) commitTranslatedCues(started.cues);
+      flash("已经是中文，不用翻译");
+      return;
+    }
+    translating = true;
+    translateJobId = started.jobId || "";
+    translateProgress = {
+      done: Number(started.done) || 0,
+      total: Number(started.total) || 0,
+      stage: started.stage || "regroup"
+    };
+    if (started.cues?.length) {
+      rememberCuesFromJob(started.cues);
       state = {
         ...state,
-        cues: applyRememberedTranslations(state?.cues?.length ? state.cues : next),
+        cues: started.cues,
         source: "translated",
         activeLan: "translated"
       };
       renderCues();
-      sendToTab({
-        type: "SYNC_CUES",
-        cues: state.cues,
-        source: "translated",
-        activeLan: "translated"
-      }).catch(() => {});
-      translateProgress = { done: Math.min(targets.length, offset + batch.length), total: targets.length };
-      renderAsrJobBar();
     }
-    if (token !== translateToken) return;
-    flash(`已翻译 ${targets.length} 句英文`);
+    renderAsrJobBar();
+    startTranslateWatch();
   } catch (error) {
-    if (token !== translateToken) return;
-    flash(error.message || "翻译失败");
-  } finally {
-    if (token === translateToken) {
-      translating = false;
-      translateProgress = { done: 0, total: 0 };
-      renderAsrJobBar();
-    }
+    flash(error.message || "翻译启动失败");
   }
 }
 
 function cancelTranslate() {
-  translateToken += 1;
+  const jobId = translateJobId;
   translating = false;
   translateProgress = { done: 0, total: 0 };
+  stopTranslateWatch();
   renderAsrJobBar();
+  if (jobId || state?.bvid || state?.cid) {
+    chrome.runtime.sendMessage({
+      type: "CANCEL_TRANSLATE",
+      jobId,
+      bvid: state?.bvid,
+      cid: state?.cid,
+      tabId: boundTabId || myTabId
+    }).catch(() => {});
+  }
+  translateJobId = "";
   flash("已取消翻译，已译出的句子会留着");
 }
 
@@ -2238,17 +3148,24 @@ async function setOverlayOn(on) {
 }
 
 async function loadPrefs() {
-  const data = await chrome.storage.sync.get({
+  const data = await BiliCaptionPrefs.loadSettings({
     groqApiKey: "",
     sttKey: "",
+    sttProvider: "Groq",
+    sttCreds: {},
+    sttChannels: [],
     selKey: "Shift",
     overlayOn: true,
-    summaryPad: 10
+    summaryPad: 10,
+    translateConcurrency: 4
   });
-  hasSttKey = Boolean(data.groqApiKey || data.sttKey);
+  const P = globalThis.BiliCaptionProviders;
+  const channels = P?.resolveChannels?.(data) || [];
+  hasSttKey = channels.some((cfg) => P?.channelUsable?.(cfg));
   selKey = data.selKey || "Shift";
   overlayOn = data.overlayOn !== false;
   summaryPad = Math.min(50, Math.max(0, Math.round(Number(data.summaryPad) || 10)));
+  translateConcurrency = clampTranslateConcurrency(data.translateConcurrency);
   renderOverlayBtn();
 }
 
@@ -2294,9 +3211,51 @@ ui.btnGenerateEmpty.addEventListener("click", generateSubtitles);
 $("btnCancelGen").addEventListener("click", cancelGenerate);
 $("btnCancelAsrJob")?.addEventListener("click", cancelGenerate);
 $("btnCancelTrJob")?.addEventListener("click", cancelTranslate);
-ui.asrJobBar?.addEventListener("click", (event) => {
-  if (event.target.closest("#btnCancelAsrJob")) return;
-  if (!generating && state?.partial) generateSubtitles();
+ui.jobPillHead?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (jobPillAnimating) return;
+  if (jobPillOpen) collapseJobPill();
+  else expandJobPill();
+});
+$("btnPauseAsr")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if ($("btnPauseAsr")?.dataset.mode === "resume") {
+    generateSubtitles();
+    return;
+  }
+  pauseAsr(!asrPaused);
+});
+ui.btnChunkFold?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  chunkListExpanded = !chunkListExpanded;
+  renderAsrJobBar();
+});
+$("btnStopOutline")?.addEventListener("click", stopOutline);
+$("btnBoostAsr")?.addEventListener("click", async () => {
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: "BOOST_ASR",
+      jobId: asrJobId,
+      bvid: state?.bvid,
+      cid: state?.cid,
+      tabId: boundTabId || myTabId
+    });
+    if (result?.error) {
+      flash(result.error);
+      return;
+    }
+    if (asrProgress) {
+      asrProgress.boosted = true;
+      asrProgress.canBoost = false;
+      asrProgress.waitUntil = 0;
+    }
+    renderAsrJobBar();
+    flash(result?.provider
+      ? `已用 ${result.provider} 顶上，主服务冷却好了会切回去`
+      : "已用备用服务顶上，主服务冷却好了会切回去");
+  } catch (error) {
+    flash(error.message || "加速失败");
+  }
 });
 $("btnGenOutline").addEventListener("click", generateOutline);
 $("btnRegenOutline").addEventListener("click", () => {
@@ -2304,6 +3263,10 @@ $("btnRegenOutline").addEventListener("click", () => {
   generateOutline();
 });
 $("btnCopyOutline").addEventListener("click", async () => {
+  if (outlineLoading) {
+    stopOutline();
+    return;
+  }
   if (!outline?.length) return;
   await copyText(outlineText());
   flash("大纲已复制（含时间戳）");
@@ -2401,12 +3364,54 @@ $("btnCopy").addEventListener("click", async () => {
 function closeSummary() {
   hasSummary = false;
   showSummaryThinking(false);
+  ui.summaryBox?.classList.remove("is-beam");
+  ui.summaryText?.classList.remove("streaming");
+  endSummaryEdit(true);
   show(ui.summaryBox, false);
   paintSelection();
 }
 
+/** 双击总结正文进入编辑，失焦后保留文本（不重新请求） */
+function startSummaryEdit() {
+  const edit = $("summaryEdit");
+  if (!edit || !hasSummary) return;
+  if (!edit.classList.contains("hidden")) return;
+  edit.value = ui.summaryText.innerText || ui.summaryText.textContent || "";
+  show(ui.summaryText, false);
+  show(edit, true);
+  autoGrowSummaryEdit(edit);
+  requestAnimationFrame(() => {
+    edit.focus();
+    const end = edit.value.length;
+    edit.setSelectionRange(end, end);
+  });
+}
+
+function endSummaryEdit(silent = false) {
+  const edit = $("summaryEdit");
+  if (!edit || edit.classList.contains("hidden")) return;
+  const text = edit.value.trim();
+  show(edit, false);
+  show(ui.summaryText, true);
+  if (!silent && text) setSummaryBody(text);
+}
+
+function autoGrowSummaryEdit(edit) {
+  edit.style.height = "auto";
+  edit.style.height = `${edit.scrollHeight}px`;
+}
+
 $("btnSummary").addEventListener("click", summarizeSelection);
 $("btnCloseSummary").addEventListener("click", closeSummary);
+ui.summaryText.addEventListener("dblclick", startSummaryEdit);
+$("summaryEdit")?.addEventListener("input", (event) => autoGrowSummaryEdit(event.target));
+$("summaryEdit")?.addEventListener("blur", () => endSummaryEdit(false));
+$("summaryEdit")?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    endSummaryEdit(true);
+  }
+});
 $("btnCopySummary").addEventListener("click", async () => {
   const thinking = ui.summaryThink && !ui.summaryThink.classList.contains("hidden");
   const text = ui.summaryText.textContent.trim();
@@ -2418,6 +3423,28 @@ $("btnCopySummary").addEventListener("click", async () => {
     markCopied($("btnCopySummary"), false);
   }
 });
+$("btnAddMarkerSummary")?.addEventListener("click", addMarkerFromSummary);
+$("btnAddMarker")?.addEventListener("click", addManualMarker);
+$("btnAddMarkerEmpty")?.addEventListener("click", addManualMarker);
+$("btnMarkNow")?.addEventListener("click", addManualMarker);
+$("btnLibrary")?.addEventListener("click", openLibrary);
+$("btnLibraryEmpty")?.addEventListener("click", openLibrary);
+$("btnMarkerMore")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setMarkerMoreOpen(!markerMoreOpen);
+});
+$("btnCopyMarkers")?.addEventListener("click", () => {
+  setMarkerMoreOpen(false);
+  copyMarkers();
+});
+$("btnMarkerMd")?.addEventListener("click", () => {
+  setMarkerMoreOpen(false);
+  exportMarkers("md");
+});
+$("btnMarkerCsv")?.addEventListener("click", () => {
+  setMarkerMoreOpen(false);
+  exportMarkers("csv");
+});
 
 ui.btnMore.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -2425,6 +3452,7 @@ ui.btnMore.addEventListener("click", (event) => {
 });
 document.addEventListener("click", () => {
   if (moreOpen) setMoreOpen(false);
+  if (markerMoreOpen) setMarkerMoreOpen(false);
   setSpeedMenuOpen(false);
 });
 $("btnSrt").addEventListener("click", () => {
@@ -2442,6 +3470,41 @@ $("btnTxt").addEventListener("click", () => {
   setMoreOpen(false);
 });
 $("btnTranslate").addEventListener("click", translateCues);
+$("btnClearCache")?.addEventListener("click", async () => {
+  setMoreOpen(false);
+  const bvid = state?.bvid || "";
+  const cid = Number(state?.cid) || 0;
+  if (!bvid && !cid) {
+    flash("当前没有视频");
+    return;
+  }
+  let cleared;
+  try {
+    cleared = await chrome.runtime.sendMessage({ type: "CLEAR_VIDEO_CACHE", bvid, cid });
+  } catch (error) {
+    flash(error.message || "清理缓存失败");
+    return;
+  }
+  if (!cleared?.ok) {
+    flash(cleared?.error || "清理缓存失败");
+    return;
+  }
+  generating = false;
+  translating = false;
+  asrJobId = "";
+  translateJobId = "";
+  asrProgress = null;
+  translateProgress = { done: 0, total: 0 };
+  stopAsrWatch();
+  stopTranslateWatch();
+  translatedCueText = new Map();
+  translatedCueRanges = [];
+  translatedCueVideoKey = translationVideoKey(state);
+  outline = null;
+  lastRenderKey = "";
+  flash("已清理本视频的字幕和翻译缓存");
+  refresh(true).catch(() => renderState({ page: "video" }));
+});
 
 ui.trackSelect.addEventListener("change", async () => {
   const next = await sendToTab({ type: "SWITCH_TRACK", lan: ui.trackSelect.value });
@@ -2485,11 +3548,16 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       if (message.duration != null) state.duration = message.duration;
       if (message.rate != null) state.rate = message.rate;
     }
-    if (message.currentTime != null) highlight(message.currentTime || 0);
+    if (message.currentTime != null) {
+      highlight(message.currentTime || 0);
+      if (view === "markers" || view === "captions") renderMarkerBar();
+    }
     if (message.rate != null) renderSpeed(message.rate);
   }
   if (message?.type === "ASR_PROGRESS") {
-    if (message.tabId && boundTabId && message.tabId !== boundTabId && !inFloatEmbed()) return;
+    if (message.tabId && boundTabId && message.tabId !== boundTabId && !inFloatEmbed()) {
+      if (!(message.bvid && state?.bvid && message.bvid === state.bvid)) return;
+    }
     if (state?.bvid && !sameAsrVideo(message)) return;
     if (message.jobId) asrJobId = message.jobId;
     if (message.stage === "error" || message.stage === "canceled") {
@@ -2547,8 +3615,28 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     applyAsrProgress(message);
     if (!state?.cues?.length) renderGenProgress(message.stage, message.message || "");
   }
+  if (message?.type === "TRANSLATE_PROGRESS") {
+    if (message.tabId && boundTabId && message.tabId !== boundTabId && !inFloatEmbed()) return;
+    if (state?.bvid && !sameAsrVideo(message)) return;
+    if (message.jobId) translateJobId = message.jobId;
+    if (message.stage === "error" || message.stage === "canceled" || message.stage === "done") {
+      translating = false;
+      translateJobId = "";
+      translateProgress = { done: 0, total: 0 };
+      stopTranslateWatch();
+      applyTranslateProgress({ ...message, running: false });
+      translating = false;
+      renderAsrJobBar();
+      if (message.stage === "error") flash(message.message || "翻译失败", 6000);
+      else if (message.stage === "done") flash(message.message || "翻译完成");
+      return;
+    }
+    translating = true;
+    applyTranslateProgress(message);
+    startTranslateWatch();
+  }
   if (message?.type === "STATE" && message.payload && !outlineLoading) {
-    if (generating) {
+    if (generating || translating) {
       if (message.payload.cues?.length && sameAsrVideo(message.payload)) {
         const cues = applyRememberedTranslations(message.payload.cues);
         const translated = translatedCueText.size > 0;
@@ -2569,7 +3657,13 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local") {
+    if (changes.groqApiKey || changes.sttKey || changes.sttCreds) {
+      loadPrefs().catch(() => {});
+    }
+  }
   if (area !== "sync") return;
+  if (changes.sttProvider) loadPrefs().catch(() => {});
   if (changes.selKey) selKey = changes.selKey.newValue || "Shift";
   if (changes.overlayOn) {
     overlayOn = changes.overlayOn.newValue !== false;
@@ -2578,9 +3672,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.summaryPad) {
     summaryPad = Math.min(50, Math.max(0, Math.round(Number(changes.summaryPad.newValue) || 10)));
   }
-  if (changes.groqApiKey || changes.sttKey) {
-    hasSttKey = Boolean(changes.groqApiKey?.newValue || changes.sttKey?.newValue || hasSttKey);
-    if (changes.groqApiKey) hasSttKey = Boolean(changes.groqApiKey.newValue);
+  if (changes.translateConcurrency) {
+    translateConcurrency = clampTranslateConcurrency(changes.translateConcurrency.newValue);
   }
 });
 
@@ -2607,21 +3700,28 @@ chrome.storage.local.get({ lastVideo: null }).then((data) => {
 loadPrefs().then(() => {
   if (state) renderState(state);
 });
-refresh(false);
+bindFloatTab().then(() => refresh(false));
 window.addEventListener("keydown", onSidepanelHotkey, true);
 window.addEventListener("keyup", onSelKeyUp, true);
 window.addEventListener("blur", onSelKeyUp);
-window.addEventListener("message", (event) => {
-  if (event.data?.type === "BC_TAB") {
-    myTabId = Number(event.data.tabId) || 0;
+
+async function bindFloatTab() {
+  if (!inFloatEmbed()) return;
+  try {
+    const tab = await chrome.tabs.getCurrent();
+    if (tab?.id) {
+      myTabId = tab.id;
+      boundTabId = tab.id;
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const me = await chrome.runtime.sendMessage({ type: "WHOAMI" });
+    myTabId = Number(me?.tabId) || 0;
     boundTabId = myTabId;
-    return;
+  } catch {
+    // ignore
   }
-  if (event.data?.type === "SEL_KEY_STATE") {
-    applySelKeyState(Boolean(event.data.held));
-    return;
-  }
-  if (event.data?.type === "BC_DOCK_KEY" || event.data?.type === "PANEL_KEY") {
-    applyForwardedKey(event.data);
-  }
-});
+}

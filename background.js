@@ -1,4 +1,4 @@
-importScripts("lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js");
+importScripts("lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js");
 
 const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
@@ -9,13 +9,78 @@ const MAX_QUOTA_WAIT_MS = 70 * 60 * 1000;
 const LOG_KEY = "appLogs";
 const LOG_MAX = 200;
 
-const immersiveByTab = new Map();
 const asrJobs = new Map();
 const asrJobLocks = new Map();
+const asrCacheWrites = new Map();
+const translateJobs = new Map();
+const translateJobLocks = new Map();
 let appLogs = [];
 let appLogsLoaded = false;
 let appLogsLoading = null;
 let appLogFlushTimer = 0;
+
+function maxCueField(cues, field = "to") {
+  let max = 0;
+  for (const cue of cues || []) {
+    const n = Number(cue?.[field]) || 0;
+    if (n > max) max = n;
+  }
+  return max;
+}
+
+function clampCues(cues, max = 8000) {
+  if (!Array.isArray(cues)) return [];
+  return cues.slice(0, max).map((cue) => ({
+    ...cue,
+    content: String(cue?.content || "").slice(0, 500)
+  }));
+}
+
+function isExtensionPage(sender) {
+  const url = String(sender?.url || "");
+  return url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+}
+
+function isBiliContent(sender) {
+  const url = String(sender?.url || sender?.tab?.url || "");
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "www.bilibili.com" || host.endsWith(".bilibili.com");
+  } catch {
+    return false;
+  }
+}
+
+const CONTENT_MESSAGE_TYPES = new Set([
+  "WHOAMI",
+  "LOAD_SUBTITLES",
+  "GET_LOGIN",
+  "SAVE_CUES_CACHE",
+  "GET_ASR_JOB",
+  "CANCEL_ASR",
+  "BOOST_ASR",
+  "PAUSE_ASR",
+  "RETRY_ASR_CHUNK",
+  "FETCH_CUES",
+  "GENERATE_ASR",
+  "GET_TRANSLATE_JOB",
+  "CLOSE_SIDE_PANEL",
+  "RESTORE_SIDE_PANEL"
+]);
+
+function allowMessage(type, sender) {
+  if (isExtensionPage(sender)) return true;
+  if (isBiliContent(sender) && CONTENT_MESSAGE_TYPES.has(type)) return true;
+  return false;
+}
+
+function utf8Size(value) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value || {})).length;
+  } catch {
+    return JSON.stringify(value || {}).length;
+  }
+}
 
 function hostOf(url) {
   try {
@@ -155,28 +220,41 @@ async function installAudioRefererRules() {
       addRules: [rule]
     });
   } catch (error) {
-    delete rule.condition.initiatorDomains;
-    try {
-      await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: [1001],
-        addRules: [rule]
-      });
-    } catch (retryError) {
-      console.warn("[BiliCaption] dnr rules", retryError);
-      appLog("warn", "net", `改 Referer 规则安装失败：${retryError.message || retryError}`);
+    // 不去掉 initiatorDomains 降级重试：那会把 Referer 改写扩大到全浏览器流量
+    console.warn("[BiliCaption] dnr rules", error);
+    appLog("warn", "net", `改 Referer 规则安装失败：${error.message || error}`);
+  }
+}
+
+async function resumePendingTranslateJobs() {
+  try {
+    const all = await chrome.storage.local.get(null);
+    const pending = Object.entries(all)
+      .filter(([key, value]) => key.startsWith("trJob:") && value?.pending && value?.cues?.length)
+      .map(([, value]) => value)
+      .filter((value) => Date.now() - (Number(value.savedAt) || 0) < 6 * 60 * 60 * 1000)
+      .slice(0, 1);
+    for (const value of pending) {
+      resumeStoredTranslate(value).catch(() => {});
     }
+  } catch {
+    // ignore
   }
 }
 
 enableAllBiliPanels();
 installAudioRefererRules();
+resumePendingTranslateJobs();
+chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
 chrome.runtime.onInstalled.addListener(() => {
   enableAllBiliPanels();
   installAudioRefererRules();
+  chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
 });
 chrome.runtime.onStartup.addListener(() => {
   enableAllBiliPanels();
   installAudioRefererRules();
+  resumePendingTranslateJobs();
 });
 
 async function resolvePanelContext(sender) {
@@ -205,29 +283,209 @@ function showChromeSidePanel(tabId, windowId) {
   return Promise.resolve();
 }
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  immersiveByTab.delete(tabId);
-});
-
 function broadcast(message) {
   chrome.runtime.sendMessage(message).catch(() => {});
 }
 
+// ---- 通道链：sttChannels 顺序即优先级，前面的限流/失效自动落到后面的 ----
+
+function asrChannelState(job, idx) {
+  if (!job) return "ok";
+  if ((job.deadChannels || []).includes(idx)) return "dead";
+  const until = Number(job.channelCools?.[idx]) || 0;
+  return until > Date.now() ? "cool" : "ok";
+}
+
+/** 从链头找第一个可用通道（高优先级冷却恢复后自动回归） */
+function pickAsrChannel(job) {
+  const channels = job?.channels || [];
+  for (let i = 0; i < channels.length; i += 1) {
+    if (asrChannelState(job, i) === "ok") return { cfg: channels[i], idx: i };
+  }
+  return null;
+}
+
+/** 全部通道不可用时：有冷却中的返回最近剩余毫秒，全 dead 返回 0 */
+function asrChainRevivalMs(job) {
+  const channels = job?.channels || [];
+  const now = Date.now();
+  let soonest = 0;
+  for (let i = 0; i < channels.length; i += 1) {
+    if ((job.deadChannels || []).includes(i)) continue;
+    const until = Number(job.channelCools?.[i]) || 0;
+    if (until > now && (!soonest || until < soonest)) soonest = until;
+  }
+  return soonest ? Math.max(2000, soonest - now) : 0;
+}
+
+function markChannelCool(job, idx, ms) {
+  if (!job) return;
+  job.channelCools = job.channelCools || [];
+  job.channelCools[idx] = Date.now() + Math.max(2000, Number(ms) || 5000);
+}
+
+function markChannelDead(job, idx, reason) {
+  if (!job) return;
+  job.deadChannels = job.deadChannels || [];
+  if (!job.deadChannels.includes(idx)) job.deadChannels.push(idx);
+  appLog("warn", "asr", `通道 ${idx + 1}（${job.channels?.[idx]?.provider || "?"}）已停用：${reason || "不可用"}`);
+}
+
+function partIsComplete(part) {
+  return Boolean(
+    part
+    && !part.failed
+    && (part.complete === true || (Array.isArray(part.cues) && part.cues.length > 0))
+  );
+}
+
+function snapshotAsrChunks(job, parts, current) {
+  const plan = job?.chunkPlan || [];
+  const failed = job?.failedChunks || [];
+  const total = Math.max(plan.length, (parts || []).length, Number(job?.progress?.total) || 0);
+  // 流式转写时后面的分段还没切出来，用视频时长均分兜底，让列表能显示时间范围
+  const slice = Number(job?.duration) > 0 && total > 0 ? Number(job.duration) / total : 0;
+  const out = [];
+  for (let i = 0; i < total; i += 1) {
+    const part = parts?.[i];
+    const item = plan[i] || {};
+    const status = part?.failed || failed.includes(i + 1)
+      ? "fail"
+      : partIsComplete(part)
+        ? "done"
+        : (i + 1 === current
+          ? (job?.paused ? "pause" : "run")
+          : "wait");
+    const rawStart = part?.start ?? item.start;
+    const rawEnd = Number(item.end) || 0;
+    out.push({
+      i: i + 1,
+      start: rawStart != null && Number.isFinite(Number(rawStart)) ? Number(rawStart) : (slice ? slice * i : 0),
+      end: rawEnd > 0 ? rawEnd : (slice ? slice * (i + 1) : 0),
+      status
+    });
+  }
+  return out;
+}
+
+async function waitIfAsrPaused(job, signal, onProgress, extra = {}) {
+  while (job?.paused && !signal?.aborted) {
+    emitProgress(onProgress, {
+      stage: "pause",
+      paused: true,
+      message: "已暂停",
+      done: extra.done,
+      total: extra.total,
+      current: extra.current,
+      failed: job?.failedChunks || [],
+      chunks: snapshotAsrChunks(job, extra.parts, extra.current)
+    });
+    await sleep(400, signal);
+  }
+}
+
+function pauseAsrJob(query, paused) {
+  const job = findAsrJob(query);
+  if (!job) return { error: "没有进行中的转写" };
+  job.paused = Boolean(paused);
+  jobBroadcast(job, {
+    paused: job.paused,
+    stage: job.paused ? "pause" : "upload",
+    message: job.paused ? "已暂停" : "继续转写",
+    chunks: snapshotAsrChunks(job, job.partsRef, job.progress?.current)
+  });
+  return { ok: true, paused: job.paused };
+}
+
+function retryAsrChunks(query, { index } = {}) {
+  const job = findAsrJob(query);
+  if (!job) return { error: "没有进行中的转写" };
+  const parts = job.partsRef || [];
+  const queue = job.retryQueue || [];
+  const want = [Math.max(0, Number(index) - 1)].filter((i) => parts[i]?.failed);
+  if (!want.length) return { error: "没有可重试的分片" };
+  for (const i of want) {
+    parts[i] = null;
+    if (!queue.includes(i)) queue.push(i);
+  }
+  job.failedChunks = (job.failedChunks || []).filter((n) => !want.includes(n - 1));
+  job.retryQueue = queue;
+  job.paused = false;
+  jobBroadcast(job, {
+    paused: false,
+    failed: job.failedChunks,
+    chunks: snapshotAsrChunks(job, parts, job.progress?.current),
+    message: `已重新提交 ${want.length} 片`
+  });
+  return { ok: true, count: want.length };
+}
+
+function asrBoostFlags(job) {
+  const idx = Number(job?.activeChannel) || 0;
+  return {
+    // 通道切换已全自动，不再提供手动加速
+    canBoost: false,
+    boosted: false,
+    usingBackup: (job?.channels?.length || 0) > 1 && idx > 0,
+    provider: job?.channels?.[idx]?.provider || job?.sttCfg?.provider || ""
+  };
+}
+
+function pickAsrCfg(job, fallbackKey) {
+  const picked = pickAsrChannel(job);
+  if (picked) {
+    if (job) job.activeChannel = picked.idx;
+    return picked.cfg;
+  }
+  if (job?.channels?.length) return null;
+  if (!fallbackKey) return null;
+  return {
+    provider: "Groq",
+    kind: "openai",
+    base: "https://api.groq.com/openai/v1",
+    model: GROQ_MODEL,
+    key: fallbackKey,
+    creds: { key: fallbackKey }
+  };
+}
+
 function jobBroadcast(job, extra) {
   const prev = job.progress || {};
+  const { job: _ignoreJob, ...safe } = extra || {};
+  // done / chunks 一律从 partsRef 现算，避免旧广播残留导致「头部 8/13、列表 0 完成」这种错位
+  const partsRef = Array.isArray(job.partsRef) ? job.partsRef : null;
+  const doneLive = partsRef ? partsRef.filter(partIsComplete).length : null;
+  const done = doneLive != null
+    ? doneLive
+    : (safe.done != null ? Number(safe.done) || 0 : Number(prev.done) || 0);
+  const total = safe.total != null ? Number(safe.total) || 0 : Number(prev.total) || 0;
+  const current = Number(safe.current) > 0
+    ? Number(safe.current)
+    : (Number(prev.current) || 0);
   job.progress = {
     ...prev,
-    ...extra,
-    cues: extra.cues || prev.cues,
+    ...safe,
+    done,
+    total,
+    current,
+    cues: safe.cues || prev.cues,
+    paused: Boolean(job.paused),
+    failed: job.failedChunks || safe.failed || prev.failed || [],
+    chunks: partsRef
+      ? snapshotAsrChunks(job, partsRef, current)
+      : (safe.chunks || prev.chunks),
+    ...asrBoostFlags(job),
     at: Date.now()
   };
+  const { parts: _parts, partsRef: _partsRef, chunkPlan: _chunkPlan, ...rest } = job.progress;
   broadcast({
     type: "ASR_PROGRESS",
     tabId: job?.tabId || 0,
     jobId: job?.jobId || "",
     bvid: job?.bvid || "",
     cid: job?.cid || 0,
-    ...job.progress
+    ...rest,
+    cueCount: Array.isArray(rest.cues) ? rest.cues.length : 0
   });
 }
 
@@ -235,6 +493,8 @@ function findAsrJob({ jobId, tabId, bvid, cid }) {
   if (jobId && asrJobs.has(jobId)) return asrJobs.get(jobId);
   for (const job of asrJobs.values()) {
     if (bvid && job.bvid && job.bvid !== bvid) continue;
+    // 任务刚建、bvid 还没解析出来时，必须 cid 也一致才算同一个视频
+    if (bvid && !job.bvid && !(cid && job.cid && Number(job.cid) === Number(cid))) continue;
     if (cid && job.cid && Number(job.cid) !== Number(cid)) continue;
     if (!bvid && tabId && job.tabId && Number(job.tabId) !== Number(tabId)) continue;
     if (bvid || jobId || tabId) return job;
@@ -251,8 +511,542 @@ function getAsrJobStatus(query = {}) {
     tabId: job.tabId || 0,
     bvid: job.bvid || "",
     cid: job.cid || 0,
+    ...(job.progress || {}),
+    ...asrBoostFlags(job),
+    paused: Boolean(job.paused),
+    failed: job.failedChunks || job.progress?.failed || [],
+    done: Array.isArray(job.partsRef)
+      ? job.partsRef.filter(partIsComplete).length
+      : (Number(job.progress?.done) || 0),
+    chunks: (Array.isArray(job.partsRef)
+      ? snapshotAsrChunks(job, job.partsRef, job.progress?.current)
+      : (job.progress?.chunks || []))
+  };
+}
+
+function translateJobStoreKey(bvid, cid) {
+  return `trJob:${bvid || "bv"}:${cid || 0}`;
+}
+
+function findTranslateJob({ jobId, tabId, bvid, cid }) {
+  if (jobId && translateJobs.has(jobId)) return translateJobs.get(jobId);
+  for (const job of translateJobs.values()) {
+    if (bvid && job.bvid && job.bvid !== bvid) continue;
+    if (cid && job.cid && Number(job.cid) !== Number(cid)) continue;
+    if (!bvid && tabId && job.tabId && Number(job.tabId) !== Number(tabId)) continue;
+    if (bvid || jobId || tabId) return job;
+  }
+  return null;
+}
+
+function translateJobSnapshot(job) {
+  if (!job) return { running: false };
+  return {
+    running: true,
+    jobId: job.jobId,
+    tabId: job.tabId || 0,
+    bvid: job.bvid || "",
+    cid: job.cid || 0,
     ...(job.progress || {})
   };
+}
+
+function trBroadcast(job, extra) {
+  const prev = job.progress || {};
+  job.progress = {
+    ...prev,
+    ...extra,
+    cues: extra.cues || prev.cues,
+    at: Date.now()
+  };
+  const { cues, ...rest } = job.progress;
+  const terminal = ["done", "error", "canceled"].includes(rest.stage);
+  broadcast({
+    type: "TRANSLATE_PROGRESS",
+    tabId: job?.tabId || 0,
+    jobId: job?.jobId || "",
+    bvid: job?.bvid || "",
+    cid: job?.cid || 0,
+    ...rest,
+    ...(terminal && cues?.length ? { cues } : {}),
+    cueCount: Array.isArray(cues) ? cues.length : 0
+  });
+}
+
+async function loadTranslateJob(bvid, cid) {
+  const key = translateJobStoreKey(bvid, cid);
+  const data = await chrome.storage.local.get(key);
+  return data[key] || null;
+}
+
+async function saveTranslateJob(job) {
+  if (!job?.bvid && !job?.cid) return;
+  await chrome.storage.local.set({
+    [translateJobStoreKey(job.bvid, job.cid)]: {
+      jobId: job.jobId,
+      tabId: job.tabId || 0,
+      bvid: job.bvid || "",
+      cid: job.cid || 0,
+      cues: job.cues || [],
+      done: Number(job.done) || 0,
+      total: Number(job.total) || 0,
+      pending: job.pending !== false,
+      regrouped: Boolean(job.regrouped),
+      savedAt: Date.now()
+    }
+  });
+}
+
+async function clearTranslateJob(bvid, cid) {
+  await chrome.storage.local.remove(translateJobStoreKey(bvid, cid));
+}
+
+async function syncTranslatedCues(job) {
+  const cues = job.cues || [];
+  if (job.tabId && cues.length) {
+    chrome.tabs.sendMessage(job.tabId, {
+      type: "SYNC_CUES",
+      cues,
+      source: "translated",
+      activeLan: "translated",
+      bvid: job.bvid || "",
+      cid: Number(job.cid) || 0
+    }).catch(() => {});
+  }
+  if ((job.bvid || job.cid) && cues.length) {
+    await saveCachedAsr(job.bvid, job.cid, {
+      cues,
+      activeLan: "translated",
+      source: "translated"
+    });
+  }
+}
+
+function enqueueTranslateCommit(job, operation) {
+  const previous = job.commitChain || Promise.resolve();
+  const current = previous.then(operation);
+  // 后续批次可以等前一批清理完；当前调用仍拿到原始错误并交给任务统一处理。
+  job.commitChain = current.catch(() => {});
+  return current;
+}
+
+function defaultChatModel(base, apiModel) {
+  if (apiModel) return apiModel;
+  if (String(base).includes("siliconflow")) return "Qwen/Qwen2.5-7B-Instruct";
+  return "gpt-4o-mini";
+}
+
+function chatErrorMessage(json, status) {
+  return json?.error?.message || json?.message || `接口错误 ${status}`;
+}
+
+async function translateChat(prompt, { apiBase, apiKey, apiModel, signal, system } = {}) {
+  const base = String(apiBase || "").replace(/\/$/, "");
+  if (!base) throw new Error("请先在设置里填写接口地址");
+  const model = defaultChatModel(base, apiModel);
+  const route = self.BiliCaptionModelRoute;
+  const timeout = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(90000) : null;
+  const combined = typeof AbortSignal.any === "function"
+    ? AbortSignal.any([signal, timeout].filter(Boolean))
+    : signal;
+  let res;
+  try {
+    res = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      signal: combined,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        ...(route?.requestFields?.(model, "none") || {}),
+        messages: [
+          { role: "system", content: system || "你是简洁的中文助手。只输出结果，不要客套。" },
+          { role: "user", content: prompt }
+        ]
+      })
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (error?.name === "AbortError" || error?.name === "TimeoutError") {
+      throw route?.markError?.(new Error("模型请求超时"), { status: 408 }) || error;
+    }
+    throw error;
+  }
+  if (!res.ok) {
+    let json = null;
+    try {
+      json = await res.json();
+    } catch {
+      json = null;
+    }
+    const error = new Error(chatErrorMessage(json, res.status));
+    error.status = res.status;
+    throw error;
+  }
+  let json;
+  try {
+    json = await res.json();
+  } catch (error) {
+    throw route?.markError?.(new Error("模型响应不是有效 JSON"), { invalidResponse: true }) || error;
+  }
+  const content = json.choices?.[0]?.message?.content?.trim() || "";
+  if (!content) {
+    throw route?.markError?.(new Error("模型响应为空"), { invalidResponse: true }) || new Error("模型响应为空");
+  }
+  return content;
+}
+
+async function translateBatchWithFallback(prompt, batch, config, _job, T) {
+  const raw = await translateChat(prompt, config);
+  return T.parseTranslatedBatch(raw, batch.length);
+}
+
+function cancelTranslateJob(jobId, extra = {}) {
+  const job = findTranslateJob({ jobId, bvid: extra.bvid, cid: extra.cid, tabId: extra.tabId });
+  if (!job) return false;
+  job.controller.abort();
+  appLog("info", "sum", "已取消翻译", { bvid: job.bvid, cid: job.cid });
+  return true;
+}
+
+async function startTranslate(input, sender) {
+  const tabId = Number(input.tabId || sender?.tab?.id) || 0;
+  const existing = findTranslateJob({
+    bvid: input.bvid,
+    cid: input.cid,
+    tabId
+  });
+  if (existing) {
+    return { started: true, joined: true, ...translateJobSnapshot(existing) };
+  }
+  const stored = await loadTranslateJob(input.bvid, input.cid);
+  if (stored?.pending) {
+    const resumed = await resumeStoredTranslate(stored);
+    if (resumed) return { started: true, joined: true, ...translateJobSnapshot(resumed) };
+  }
+
+  const T = self.BiliCaptionTranslate;
+  const { cues, targets } = T.prepareCues(input.cues || []);
+  if (!targets.length) return { empty: true, cues };
+
+  const jobId = String(input.jobId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const controller = new AbortController();
+  const regroupTotal = Math.max(1, T.chunkCues(cues, T.REGROUP_CHUNK_SIZE).length);
+  const job = {
+    jobId,
+    controller,
+    tabId,
+    bvid: input.bvid || "",
+    cid: Number(input.cid) || 0,
+    cues,
+    done: 0,
+    total: targets.length,
+    pending: true,
+    regrouped: false,
+    progress: {
+      stage: "regroup",
+      running: true,
+      done: 0,
+      total: regroupTotal,
+      cues,
+      partial: true
+    }
+  };
+  translateJobs.set(jobId, job);
+  runTranslateJob(job, targets).catch(() => {});
+  return { started: true, jobId, done: 0, total: regroupTotal, stage: "regroup", cues };
+}
+
+async function resumeStoredTranslate(stored) {
+  if (!stored?.pending || !stored.cues?.length) return null;
+  const live = findTranslateJob({ bvid: stored.bvid, cid: stored.cid, jobId: stored.jobId });
+  if (live) return live;
+  const T = self.BiliCaptionTranslate;
+  const { cues, targets } = T.prepareCues(stored.cues);
+  if (!targets.length) {
+    await clearTranslateJob(stored.bvid, stored.cid);
+    return null;
+  }
+  const jobId = String(stored.jobId || `${Date.now()}-resume`);
+  const alreadyRegrouped = Boolean(stored.regrouped);
+  const regroupTotal = Math.max(1, T.chunkCues(cues, T.REGROUP_CHUNK_SIZE).length);
+  const job = {
+    jobId,
+    controller: new AbortController(),
+    tabId: Number(stored.tabId) || 0,
+    bvid: stored.bvid || "",
+    cid: Number(stored.cid) || 0,
+    cues,
+    done: Number(stored.done) || Math.max(0, (Number(stored.total) || 0) - targets.length),
+    total: Number(stored.total) || (Number(stored.done) || 0) + targets.length,
+    pending: true,
+    regrouped: alreadyRegrouped,
+    progress: {
+      stage: alreadyRegrouped ? "run" : "regroup",
+      running: true,
+      done: alreadyRegrouped ? (Number(stored.done) || 0) : 0,
+      total: alreadyRegrouped
+        ? (Number(stored.total) || targets.length)
+        : regroupTotal,
+      cues,
+      partial: true
+    }
+  };
+  translateJobs.set(jobId, job);
+  runTranslateJob(job, targets).catch(() => {});
+  return job;
+}
+
+async function getTranslateJobStatus(query = {}) {
+  const live = findTranslateJob(query);
+  if (live) return translateJobSnapshot(live);
+  if (query.bvid || query.cid) {
+    const stored = await loadTranslateJob(query.bvid, query.cid);
+    if (stored?.pending) {
+      const job = await resumeStoredTranslate(stored);
+      if (job) return translateJobSnapshot(job);
+    }
+  }
+  return { running: false };
+}
+
+async function regroupCuesWithModel(job, { apiBase, apiKey, apiModel, signal }) {
+  const T = self.BiliCaptionTranslate;
+  const chunks = T.chunkCues(job.cues || [], T.REGROUP_CHUNK_SIZE);
+  if (!chunks.length) {
+    job.regrouped = true;
+    return;
+  }
+  const merged = [];
+  trBroadcast(job, {
+    stage: "regroup",
+    running: true,
+    done: 0,
+    total: chunks.length,
+    cues: job.cues,
+    partial: true
+  });
+  for (let i = 0; i < chunks.length; i += 1) {
+    throwIfAborted(signal);
+    let next = chunks[i];
+    try {
+      const raw = await translateChat(T.buildRegroupPrompt(chunks[i]), {
+        apiBase,
+        apiKey,
+        apiModel,
+        signal,
+        system: T.REGROUP_SYSTEM
+      });
+      const result = T.applyRegroupText(chunks[i], raw);
+      next = result.cues;
+      if (result.fallback) {
+        appLog("info", "sum", `断句第 ${i + 1} 块解析失败，保持原句`, {
+          bvid: job.bvid,
+          cid: job.cid,
+          reason: result.reason
+        });
+      }
+    } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError") {
+        job.cues = [...refineAsrCues(merged), ...chunks.slice(i).flat()];
+        throw error;
+      }
+      appLog("info", "sum", `断句第 ${i + 1} 块失败，保持原句`, {
+        bvid: job.bvid,
+        cid: job.cid,
+        message: error.message || String(error)
+      });
+      next = chunks[i];
+    }
+    merged.push(...next);
+    job.cues = [...refineAsrCues(merged), ...chunks.slice(i + 1).flat()];
+    await saveTranslateJob(job);
+    await syncTranslatedCues(job);
+    trBroadcast(job, {
+      stage: "regroup",
+      running: true,
+      done: i + 1,
+      total: chunks.length,
+      cues: job.cues,
+      partial: true
+    });
+  }
+  job.cues = refineAsrCues(merged);
+  job.regrouped = true;
+  await saveTranslateJob(job);
+  await syncTranslatedCues(job);
+  trBroadcast(job, {
+    stage: "regroup",
+    running: true,
+    done: chunks.length,
+    total: chunks.length,
+    cues: job.cues,
+    partial: true
+  });
+}
+
+async function runTranslateJob(job, targets) {
+  const T = self.BiliCaptionTranslate;
+  const lockKey = `${job.bvid || "bv"}:${job.cid || 0}`;
+  if (translateJobLocks.has(lockKey) && translateJobLocks.get(lockKey) !== job.jobId) {
+    translateJobs.delete(job.jobId);
+    return;
+  }
+  translateJobLocks.set(lockKey, job.jobId);
+  const { signal } = job.controller;
+  let work = targets;
+
+  try {
+    const settings = await BiliCaptionPrefs.loadSettings({
+      sumProvider: "OpenAI",
+      apiBase: "",
+      apiKey: "",
+      apiModel: "",
+      translateModel: "",
+      translateConcurrency: 4
+    });
+    const sumCfg = self.BiliCaptionProviders.resolveSum(settings);
+    const apiBase = sumCfg.base;
+    const apiKey = sumCfg.key;
+    const apiModel = sumCfg.model;
+    const translateModel = String(settings.translateModel || apiModel).trim();
+    const translateConcurrency = settings.translateConcurrency;
+    throwIfAborted(signal);
+    if (!apiKey) throw new Error("请先在设置里配置总结服务和 API Key");
+    if (!apiBase) throw new Error("请先在设置里填写接口地址");
+
+    if (!job.regrouped && (job.cues || []).length) {
+      await regroupCuesWithModel(job, {
+        apiBase,
+        apiKey,
+        apiModel: translateModel,
+        signal
+      });
+      const prepared = T.prepareCues(job.cues);
+      job.cues = prepared.cues;
+      work = prepared.targets;
+      job.done = 0;
+      job.total = work.length;
+    }
+    job.regrouped = true;
+    await saveTranslateJob(job);
+    trBroadcast(job, {
+      stage: "run",
+      running: true,
+      done: job.done,
+      total: job.total,
+      cues: job.cues,
+      partial: true
+    });
+
+    const size = 24;
+    const batches = [];
+    for (let offset = 0; offset < work.length; offset += size) {
+      batches.push(work.slice(offset, offset + size));
+    }
+    const conc = T.clampTranslateConcurrency(translateConcurrency);
+    job.done = Number(job.done) || 0;
+    job.commitChain = Promise.resolve();
+
+    await T.runPool(batches, conc, async (batch) => {
+      throwIfAborted(signal);
+      if (job.failed) return;
+      const text = batch.map((item, i) => `${i + 1}. ${item.text}`).join("\n");
+      const parsed = await translateBatchWithFallback(
+        `只把下面的英文字幕译成简体中文。必须保持编号，一行一条，不要解释，不要输出英文原文：\n\n${text}`,
+        batch,
+        { apiBase, apiKey, apiModel: translateModel, signal },
+        job,
+        T
+      );
+      throwIfAborted(signal);
+      if (job.failed) return;
+      await enqueueTranslateCommit(job, async () => {
+        throwIfAborted(signal);
+        if (job.failed) return;
+        let added = 0;
+        for (let i = 0; i < batch.length; i += 1) {
+          const got = T.toSimplified(parsed[i] || "");
+          if (!T.looksTranslated(got, batch[i].text)) continue;
+          job.cues[batch[i].index] = { ...job.cues[batch[i].index], content: got };
+          added += 1;
+        }
+        job.done += added;
+        await saveTranslateJob(job);
+        await syncTranslatedCues(job);
+        if (job.failed) return;
+        trBroadcast(job, {
+          stage: "run",
+          running: true,
+          done: job.done,
+          total: job.total,
+          cues: job.cues,
+          partial: true
+        });
+      });
+    }, signal);
+
+    throwIfAborted(signal);
+    await job.commitChain;
+    job.pending = false;
+    await syncTranslatedCues(job);
+    await clearTranslateJob(job.bvid, job.cid);
+    const applied = Number(job.done) || 0;
+    const left = Math.max(0, job.total - applied);
+    const message = left
+      ? `已翻译 ${applied} 句，还有 ${left} 句没对上，可再点一次`
+      : `已翻译 ${applied} 句英文`;
+    appLog("info", "sum", message, { bvid: job.bvid, cid: job.cid, done: applied, total: job.total });
+    trBroadcast(job, {
+      stage: "done",
+      running: false,
+      done: applied,
+      total: job.total,
+      cues: job.cues,
+      partial: false,
+      message
+    });
+  } catch (error) {
+    job.failed = true;
+    const canceled = signal.aborted || error?.name === "AbortError";
+    const leftover = T.prepareCues(job.cues || []).targets.length;
+    await syncTranslatedCues(job).catch(() => {});
+    if (canceled && leftover > 0) {
+      job.pending = true;
+      await saveTranslateJob(job).catch(() => {});
+    } else {
+      job.pending = false;
+      await clearTranslateJob(job.bvid, job.cid).catch(() => {});
+    }
+    if (canceled) {
+      trBroadcast(job, {
+        stage: "canceled",
+        running: false,
+        done: job.done,
+        total: job.total,
+        cues: job.cues,
+        partial: true,
+        message: "已取消翻译，已译出的句子会留着"
+      });
+      return;
+    }
+    appLog("error", "sum", error.message || String(error), { bvid: job.bvid, cid: job.cid });
+    trBroadcast(job, {
+      stage: "error",
+      running: false,
+      done: job.done,
+      total: job.total,
+      cues: job.cues,
+      partial: true,
+      message: error.message || "翻译失败"
+    });
+  } finally {
+    if (translateJobLocks.get(lockKey) === job.jobId) translateJobLocks.delete(lockKey);
+    translateJobs.delete(job.jobId);
+  }
 }
 
 async function fetchJson(url, options = {}) {
@@ -382,7 +1176,27 @@ async function fetchPlayer(aid, cid) {
   return json.data;
 }
 
+function isAllowedCueHost(url) {
+  try {
+    const parsed = new URL(normalizeSubtitleUrl(url));
+    if (parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === "bilibili.com"
+      || host.endsWith(".bilibili.com")
+      || host === "hdslb.com"
+      || host.endsWith(".hdslb.com")
+      || host === "bilivideo.com"
+      || host.endsWith(".bilivideo.com")
+      || host.endsWith(".akamaized.net")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function fetchCues(url) {
+  if (!isAllowedCueHost(url)) throw new Error("字幕地址不在允许的域名内");
   const json = await fetchJson(normalizeSubtitleUrl(url));
   const body = Array.isArray(json?.body) ? json.body : [];
   return body
@@ -407,30 +1221,180 @@ function asrCacheKey(bvid, cid) {
   return `asr:${bvid || "bv"}:${cid || 0}`;
 }
 
+function cueHasCjk(text) {
+  return (String(text || "").match(/[\u4e00-\u9fff]/g) || []).length >= 1;
+}
+
+function cueOverlap(a, b) {
+  return Math.min(Number(a?.to) || 0, Number(b?.to) || 0)
+    - Math.max(Number(a?.from) || 0, Number(b?.from) || 0);
+}
+
+function mergeTranslatedCues(incoming, existing) {
+  const prev = (existing || []).filter((cue) => cueHasCjk(cue.content));
+  if (!prev.length) return incoming || [];
+  return (incoming || []).map((cue) => {
+    if (cueHasCjk(cue.content)) return { ...cue };
+    let best = null;
+    let bestOverlap = 0;
+    for (const item of prev) {
+      const overlap = cueOverlap(cue, item);
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        best = item;
+      }
+    }
+    const dur = Math.max(
+      0.2,
+      Math.min(
+        (Number(cue.to) || 0) - (Number(cue.from) || 0),
+        best ? (Number(best.to) || 0) - (Number(best.from) || 0) : 0
+      )
+    );
+    if (best && bestOverlap >= dur * 0.45) {
+      return { ...cue, content: best.content };
+    }
+    return { ...cue };
+  });
+}
+
+const ASR_CACHE_MAX = 40;
+const ASR_CACHE_MAX_BYTES = 6 * 1024 * 1024;
+
+async function pruneAsrCache(keepKey = "") {
+  let all;
+  try {
+    all = await chrome.storage.local.get(null);
+  } catch {
+    return;
+  }
+  const entries = Object.keys(all)
+    .filter((key) => key.startsWith("asr:") && !key.startsWith("asrJob:"))
+    .map((key) => ({
+      key,
+      savedAt: Number(all[key]?.savedAt) || 0,
+      size: utf8Size(all[key])
+    }))
+    .sort((a, b) => a.savedAt - b.savedAt);
+  const drop = [];
+  const takeOldest = () => {
+    const idx = entries.findIndex((item) => item.key !== keepKey);
+    if (idx < 0) return null;
+    return entries.splice(idx, 1)[0];
+  };
+  while (entries.length > ASR_CACHE_MAX) {
+    const gone = takeOldest();
+    if (!gone) break;
+    drop.push(gone);
+  }
+  let total = entries.reduce((sum, item) => sum + item.size, 0);
+  while (total > ASR_CACHE_MAX_BYTES && entries.length > 1) {
+    const gone = takeOldest();
+    if (!gone) break;
+    drop.push(gone);
+    total -= gone.size;
+  }
+  if (drop.length) {
+    await chrome.storage.local.remove(drop.map((item) => item.key)).catch(() => {});
+    appLog("info", "asr", `已清理 ${drop.length} 份旧转写缓存`);
+  }
+}
+
+async function writeLocal(payload) {
+  try {
+    await chrome.storage.local.set(payload);
+    return true;
+  } catch (error) {
+    if (!/quota|resource|full/i.test(error?.message || "")) throw error;
+    return false;
+  }
+}
+
 async function loadCachedAsr(bvid, cid) {
   const key = asrCacheKey(bvid, cid);
   const data = await chrome.storage.local.get(key);
   const cached = data[key] || null;
   if (!cached?.cues?.length) return cached;
-  // 旧版按字硬切的缓存拼回去；B 站官方字幕不走这里
+  if (cached.source === "translated" || cached.activeLan === "translated") return cached;
   const refined = refineCues(cached.cues);
   const changed = refined.length !== cached.cues.length
     || refined.some((cue, i) => cue.content !== cached.cues[i]?.content);
   if (changed) {
     cached.cues = refined;
-    await chrome.storage.local.set({ [key]: { ...cached, savedAt: Date.now() } });
+    await writeLocal({ [key]: { ...cached, savedAt: Date.now() } });
   }
   return cached;
 }
 
+async function writeCachedAsr(key, bvid, cid, payload) {
+  const data = await chrome.storage.local.get(key);
+  const prev = data[key] || null;
+  let cues = payload.cues || [];
+  let source = payload.source || "";
+  let activeLan = payload.activeLan || "";
+  const writingAsr = source === "groq" || activeLan === "groq-asr";
+  const prevTranslated = prev?.source === "translated" || prev?.activeLan === "translated";
+  if (writingAsr && prevTranslated && prev?.cues?.length && cues.length) {
+    cues = mergeTranslatedCues(cues, prev.cues);
+    if (cues.some((cue, i) => cue.content !== payload.cues[i]?.content)) {
+      source = "translated";
+      activeLan = "translated";
+    }
+  }
+  const stored = {
+    ...(prev || {}),
+    ...payload,
+    cues,
+    source,
+    activeLan,
+    savedAt: Date.now()
+  };
+  const keyPayload = { [key]: stored };
+  if (!(await writeLocal(keyPayload))) {
+    await pruneAsrCache(key);
+    if (!(await writeLocal(keyPayload))) {
+      appLog("warn", "asr", "字幕缓存写入失败，已跳过以免打断转写", { bvid, cid });
+    }
+  }
+  return stored;
+}
+
 async function saveCachedAsr(bvid, cid, payload) {
   const key = asrCacheKey(bvid, cid);
-  await chrome.storage.local.set({
-    [key]: {
-      ...payload,
-      savedAt: Date.now()
-    }
-  });
+  // 分段转写和批量翻译可能同时回写同一个视频。所有 read-modify-write
+  // 必须按视频串行，否则二者同时读到旧值时，较晚完成的一次会覆盖翻译或新分片。
+  const previous = asrCacheWrites.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(() => writeCachedAsr(key, bvid, cid, payload));
+  asrCacheWrites.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (asrCacheWrites.get(key) === current) asrCacheWrites.delete(key);
+  }
+}
+
+async function clearVideoCache(bvid, cid) {
+  const asr = findAsrJob({ bvid, cid });
+  const translation = findTranslateJob({ bvid, cid });
+  asr?.controller?.abort();
+  translation?.controller?.abort();
+
+  // 先让任务的取消清理和最后一次部分结果落盘结束，再在同一写队列之后删除，
+  // 保证“清理缓存”不会过几百毫秒又被后台任务写回来。
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!findAsrJob({ bvid, cid }) && !findTranslateJob({ bvid, cid })) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const key = asrCacheKey(bvid, cid);
+  await asrCacheWrites.get(key)?.catch(() => {});
+  await chrome.storage.local.remove([
+    key,
+    asrJobKey(bvid, cid),
+    translateJobStoreKey(bvid, cid),
+    `outline:${bvid || ""}:${Number(cid) || 0}`
+  ]);
+  return { ok: true };
 }
 
 function asrJobKey(bvid, cid) {
@@ -445,12 +1409,18 @@ async function loadAsrJob(bvid, cid) {
 
 async function saveAsrJob(bvid, cid, payload) {
   const key = asrJobKey(bvid, cid);
-  await chrome.storage.local.set({
+  const data = {
     [key]: {
       ...payload,
       savedAt: Date.now()
     }
-  });
+  };
+  if (!(await writeLocal(data))) {
+    await pruneAsrCache();
+    if (!(await writeLocal(data))) {
+      appLog("warn", "asr", "转写进度写入失败，已跳过以免打断任务", { bvid, cid });
+    }
+  }
 }
 
 async function clearAsrJob(bvid, cid) {
@@ -462,21 +1432,47 @@ function chunkStartKey(start) {
 }
 
 function hydratePart(chunk, saved, index) {
+  const duration = Math.max(0, (Number(chunk.end) || 0) - (Number(chunk.start) || 0));
+  const cues = (saved?.cues || [])
+    .filter((cue) => !(duration > 0) || Number(cue.from) < duration - 0.01)
+    .map((cue) => ({
+      ...cue,
+      from: Math.max(0, Number(cue.from) || 0),
+      to: duration > 0
+        ? Math.min(duration, Math.max(Number(cue.from) + 0.15, Number(cue.to) || 0))
+        : Math.max(Number(cue.from) + 0.15, Number(cue.to) || 0)
+    }));
   return {
     i: index,
     start: chunk.start || 0,
+    end: chunk.end || 0,
     overlap: chunk.overlap || 0,
-    cues: saved?.cues || []
+    cues,
+    complete: true,
+    silent: Boolean(saved?.silent)
   };
 }
 
 function partCoversChunk(part, chunk) {
+  const chunkStart = Number(chunk.start) || 0;
+  const chunkEnd = Number(chunk.end) || 0;
+  const chunkDur = chunkEnd - chunkStart;
+  const savedStart = Number(part?.start) || 0;
+  const savedEnd = Number(part?.end) || 0;
+  if (
+    part?.complete === true
+    && chunkDur > 0
+    && savedEnd > savedStart
+    && Math.abs(savedStart - chunkStart) < 1.5
+    && savedEnd >= chunkEnd - 1.5
+  ) return true;
   const cues = part?.cues || [];
   if (!cues.length) return false;
-  const lastTo = Math.max(...cues.map((cue) => Number(cue.to) || 0));
-  const dur = (Number(chunk.end) || 0) - (Number(chunk.start) || 0);
-  if (dur > 20) return lastTo >= dur - 8;
-  return true;
+  const lastTo = maxCueField(cues);
+  const dur = chunkDur;
+  if (!(dur > 0)) return false;
+  const need = dur > 20 ? Math.max(dur - 8, dur * 0.7) : Math.max(dur * 0.8, dur - 0.4);
+  return lastTo >= need;
 }
 
 function cuesForChunk(cues, chunk) {
@@ -494,7 +1490,7 @@ function cuesForChunk(cues, chunk) {
 
 function matchSavedParts(chunks, saved, cachedCues) {
   const parts = chunks.map(() => null);
-  const pool = (saved?.parts || []).filter((part) => part && (part.cues?.length || part.start != null));
+  const pool = (saved?.parts || []).filter(partIsComplete);
   const used = new Set();
   const sameLayout = Number(saved?.total) === chunks.length;
 
@@ -533,7 +1529,7 @@ function matchSavedParts(chunks, saved, cachedCues) {
 
   if (sameLayout) {
     const leftover = pool
-      .filter((part) => !used.has(part) && part.cues?.length)
+      .filter((part) => !used.has(part) && partIsComplete(part))
       .sort((a, b) => {
         const ai = Number.isInteger(Number(a.i)) ? Number(a.i) : 1e9;
         const bi = Number.isInteger(Number(b.i)) ? Number(b.i) : 1e9;
@@ -552,14 +1548,17 @@ function matchSavedParts(chunks, saved, cachedCues) {
       if (parts[i]) continue;
       const slice = cuesForChunk(cachedCues, chunks[i]);
       if (!slice.length) continue;
-      const lastTo = Math.max(...slice.map((cue) => Number(cue.to) || 0));
+      const lastTo = maxCueField(slice);
       const dur = (Number(chunks[i].end) || 0) - (Number(chunks[i].start) || 0);
-      if (dur > 0 && lastTo >= dur - 8) {
+      const need = dur > 20 ? Math.max(dur - 8, dur * 0.7) : Math.max(dur * 0.8, dur - 0.4);
+      if (dur > 0 && lastTo >= need) {
         parts[i] = {
           i,
           start: chunks[i].start || 0,
           overlap: chunks[i].overlap || 0,
-          cues: slice
+          cues: slice,
+          complete: true,
+          silent: false
         };
       }
     }
@@ -568,20 +1567,42 @@ function matchSavedParts(chunks, saved, cachedCues) {
   return parts;
 }
 
-function maxChunkSeconds() {
-  return (self.BiliCaptionMp4?.CHUNK_SECONDS || 8 * 60) + MAX_CHUNK_SLACK;
+function asrChunkLimits(job) {
+  const base = {
+    maxSeconds: self.BiliCaptionMp4?.CHUNK_SECONDS || 8 * 60,
+    maxBytes: self.BiliCaptionMp4?.CHUNK_BYTES || 20 * 1024 * 1024,
+    hardDuration: false
+  };
+  const cfgs = job?.channels?.length
+    ? job.channels
+    : [job?.sttCfg, job?.backupCfg].filter(Boolean);
+  for (const cfg of cfgs) {
+    const next = self.BiliCaptionProviders?.sttLimits?.(cfg);
+    if (!next) continue;
+    base.maxSeconds = Math.min(base.maxSeconds, Number(next.maxSeconds) || base.maxSeconds);
+    base.maxBytes = Math.min(base.maxBytes, Number(next.maxBytes) || base.maxBytes);
+    base.hardDuration ||= Boolean(next.hardDuration);
+  }
+  return base;
 }
 
-function maxChunkBytes() {
-  return self.BiliCaptionMp4?.CHUNK_BYTES || 20 * 1024 * 1024;
+function maxChunkSeconds(job) {
+  const limits = asrChunkLimits(job);
+  return limits.maxSeconds + (limits.hardDuration ? 1 : MAX_CHUNK_SLACK);
+}
+
+function maxChunkBytes(job) {
+  return asrChunkLimits(job).maxBytes;
 }
 
 /**  Groq 看的是文件大小；时间轴标签不准时不能据此整段报废 */
-function chunkFitsLimits(chunk) {
+function chunkFitsLimits(chunk, job) {
+  const limits = asrChunkLimits(job);
   const size = Number(chunk?.blob?.size) || 0;
-  if (size <= 0 || size > MAX_UPLOAD_BYTES) return false;
+  if (size <= 0 || size > Math.min(MAX_UPLOAD_BYTES, limits.maxBytes)) return false;
   const dur = Number(chunk.end) - Number(chunk.start);
-  if (Number.isFinite(dur) && dur > maxChunkSeconds()) {
+  if (Number.isFinite(dur) && dur > maxChunkSeconds(job)) {
+    if (limits.hardDuration) return false;
     const minBytes = dur * 3000;
     if (size >= minBytes) return false;
   }
@@ -646,8 +1667,13 @@ async function loadSubtitles(page) {
   let notice = "";
   const cached = await loadCachedAsr(meta.bvid, meta.cid);
   const asrJob = await loadAsrJob(meta.bvid, meta.cid);
-  const lastCueTo = Math.max(0, ...(cached?.cues || []).map((cue) => Number(cue.to) || 0));
-  const looksIncomplete = lastCueTo > 20 && Number(meta.duration) > 0 && lastCueTo < Number(meta.duration) - 90;
+  const lastCueTo = maxCueField(cached?.cues);
+  // 新缓存会明确写 partial=false；长片尾静音不能仅凭最后一句离视频结尾远
+  // 就判成断点任务。时长启发式只用于兼容没有 partial 字段的旧缓存。
+  const looksIncomplete = cached?.partial == null
+    && lastCueTo > 20
+    && Number(meta.duration) > 0
+    && lastCueTo < Number(meta.duration) - 90;
   const partial = Boolean(
     cached?.partial
     || (asrJob?.parts?.length && asrJob.pending !== false)
@@ -687,8 +1713,8 @@ async function loadSubtitles(page) {
     partial,
     asrDone: Math.max(
       Number(asrJob?.done) || 0,
-      Number(asrJob?.parts?.length) || 0,
-      lastCueTo > 20 ? Math.max(1, Math.round(lastCueTo / (8 * 60))) : 0
+      (asrJob?.parts || []).filter(Boolean).length,
+      lastCueTo > 80 ? Math.max(1, Math.round(lastCueTo / (8 * 60))) : 0
     ),
     asrTotal: Number(asrJob?.total) || (Number(meta.duration) > 0 ? Math.ceil(Number(meta.duration) / (8 * 60)) : 0),
     notice,
@@ -806,48 +1832,75 @@ async function openAudioDownload(stream, signal) {
   };
 }
 
-function estimatedChunkCount(duration) {
-  const maxChunk = BiliCaptionMp4.CHUNK_SECONDS || 8 * 60;
+function estimatedChunkCount(duration, job) {
+  const maxChunk = asrChunkLimits(job).maxSeconds;
   if (!(Number(duration) > 0)) return 1;
   return Math.max(1, Math.ceil(Number(duration) / maxChunk));
 }
 
+function audioIsShort(duration, size = 0, job) {
+  const maxSec = maxChunkSeconds(job);
+  const dur = Number(duration) || 0;
+  const bytes = Number(size) || 0;
+  if (bytes > Math.min(MAX_UPLOAD_BYTES, maxChunkBytes(job))) return false;
+  if (dur > 0) return dur <= maxSec;
+  return bytes > 0 && bytes <= maxChunkBytes(job);
+}
+
 async function downloadAudio(stream, onProgress, signal) {
-  onProgress?.("正在下载音频…");
-  const { res, total, mime } = await openAudioDownload(stream, signal);
+  for (let attempt = 0; ; attempt += 1) {
+    onProgress?.(attempt ? `音频下载断开，正在重试（第 ${attempt + 1} 次）…` : "正在下载音频…");
+    const { res, total, mime } = await openAudioDownload(stream, signal);
 
-  if (!res.body || !total) {
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > MAX_DOWNLOAD_BYTES) {
-      throw new Error(`音频约 ${(buf.byteLength / 1024 / 1024).toFixed(1)}MB，文件过大，请换更短视频`);
+    if (!res.body || !total) {
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > MAX_DOWNLOAD_BYTES) {
+        throw new Error(`音频约 ${(buf.byteLength / 1024 / 1024).toFixed(1)}MB，文件过大，请换更短视频`);
+      }
+      appLog("info", "bili", `音频下载完成 ${mbOf(buf.byteLength)}MB`, { mb: mbOf(buf.byteLength) });
+      return new Blob([buf], { type: mime });
     }
-    appLog("info", "bili", `音频下载完成 ${mbOf(buf.byteLength)}MB`, { mb: mbOf(buf.byteLength) });
-    return new Blob([buf], { type: mime });
-  }
 
-  const reader = res.body.getReader();
-  const chunks = [];
-  let received = 0;
-  while (true) {
-    throwIfAborted(signal);
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.byteLength;
-    if (received > MAX_DOWNLOAD_BYTES) {
-      reader.cancel().catch(() => {});
-      throw new Error("音频文件过大，请换更短视频");
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+    let broken = false;
+    while (true) {
+      throwIfAborted(signal);
+      let piece;
+      try {
+        piece = await reader.read();
+      } catch (error) {
+        if (error?.name === "AbortError" || signal?.aborted) throw error;
+        broken = true;
+        break;
+      }
+      if (piece.done) break;
+      chunks.push(piece.value);
+      received += piece.value.byteLength;
+      if (received > MAX_DOWNLOAD_BYTES) {
+        reader.cancel().catch(() => {});
+        throw new Error("音频文件过大，请换更短视频");
+      }
+      if (total) {
+        const pct = Math.min(99, Math.round((received / total) * 100));
+        onProgress?.(`正在下载音频… ${pct}%`);
+      } else {
+        onProgress?.(`正在下载音频… ${(received / 1024 / 1024).toFixed(1)}MB`);
+      }
     }
-    if (total) {
-      const pct = Math.min(99, Math.round((received / total) * 100));
-      onProgress?.(`正在下载音频… ${pct}%`);
-    } else {
-      onProgress?.(`正在下载音频… ${(received / 1024 / 1024).toFixed(1)}MB`);
+    const incomplete = broken || (total > 0 && received < total - 64 * 1024);
+    if (incomplete) {
+      appLog("warn", "bili", `音频下载中断 ${mbOf(received)}/${mbOf(total)}MB`, { attempt: attempt + 1 });
+      if (attempt >= 2) {
+        throw new Error(`音频下载中断（${mbOf(received)}MB/${mbOf(total)}MB），请点「生成字幕」重试`);
+      }
+      continue;
     }
+    const blob = new Blob(chunks, { type: mime });
+    appLog("info", "bili", `音频下载完成 ${mbOf(blob.size)}MB`, { mb: mbOf(blob.size) });
+    return blob;
   }
-  const blob = new Blob(chunks, { type: mime });
-  appLog("info", "bili", `音频下载完成 ${mbOf(blob.size)}MB`, { mb: mbOf(blob.size) });
-  return blob;
 }
 
 function guessExt(mime) {
@@ -861,18 +1914,44 @@ function guessExt(mime) {
   return "m4a";
 }
 
+function jobCompatibilityError(cfg) {
+  if (!cfg) return "";
+  return self.BiliCaptionProviders?.sttCompatibilityError?.(cfg, "m4a") || "";
+}
+
 function mergeChunkCues(parts) {
   const all = [];
   for (const part of parts) {
-    const keepAfter = part.start + (part.overlap ? part.overlap * 0.45 : 0);
+    if (!part?.cues?.length) continue;
     for (const cue of part.cues) {
       const from = Number(cue.from) + part.start;
       const to = Number(cue.to) + part.start;
-      if (all.length && from < keepAfter) continue;
+      const content = String(cue.content || "").trim();
+      if (!content) continue;
+      // 重叠区不能一刀切掉：上一片末尾可能本来就是静音，盲删会漏掉
+      // 下一片开头的第一句话。只在时间相邻且文本确实重复时去重。
+      if (part.overlap && from < part.start + part.overlap + 0.35) {
+        const normalized = content.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+        const duplicate = [...all].reverse().find((item) => {
+          if (Number(item.to) < part.start - 2 || Number(item.from) > to + 0.5) return false;
+          const previous = String(item.content || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+          if (!normalized || !previous) return false;
+          if (normalized === previous) return true;
+          const shorter = Math.min(normalized.length, previous.length);
+          return shorter >= 6 && (normalized.includes(previous) || previous.includes(normalized));
+        });
+        if (duplicate) {
+          if (normalized.length > String(duplicate.content || "").replace(/[\s\p{P}\p{S}]+/gu, "").length) {
+            duplicate.content = content;
+          }
+          duplicate.to = Math.max(Number(duplicate.to) || 0, to);
+          continue;
+        }
+      }
       all.push({
         from,
         to,
-        content: cue.content,
+        content,
         sid: all.length + 1
       });
     }
@@ -952,26 +2031,105 @@ function emitProgress(onProgress, extra) {
 }
 
 async function waitForQuota(ms, signal, onProgress, extra = {}) {
+  const job = extra.job;
   const end = Date.now() + Math.max(2000, ms) + 1500;
-  while (Date.now() < end) {
-    throwIfAborted(signal);
-    const left = end - Date.now();
+  const stopHeartbeat = startWorkerHeartbeat();
+  try {
+    while (Date.now() < end) {
+      throwIfAborted(signal);
+      if (job?.skipWait) {
+        job.skipWait = false;
+        break;
+      }
+      // 有别的通道恢复了就提前结束等待
+      if (job && extra.waitKind === "quota" && pickAsrChannel(job)) break;
+      const left = end - Date.now();
+      emitProgress(onProgress, {
+        stage: "wait",
+        message: extra.waitKind === "retry"
+          ? `${extra.waitReason || "转写暂时繁忙"}，${formatWait(left)} 后重试`
+          : `所有通道都在冷却，${formatWait(left)} 后继续`,
+        waitUntil: end,
+        canBoost: false,
+        waitKind: extra.waitKind
+      });
+      await sleep(Math.min(5000, left), signal);
+    }
     emitProgress(onProgress, {
-      stage: "wait",
-      message: extra.waitKind === "retry"
-        ? `${extra.waitReason || "Groq 暂时繁忙"}，${formatWait(left)} 后重试`
-        : `额度冷却中，${formatWait(left)} 后继续`,
-      waitUntil: end,
-      ...extra
+      stage: "upload",
+      message: "冷却结束，正在重试当前分段…",
+      waitUntil: 0
     });
-    await sleep(Math.min(5000, left), signal);
+  } finally {
+    stopHeartbeat?.();
   }
-  emitProgress(onProgress, {
-    stage: "upload",
-    message: "冷却结束，正在重试当前分段…",
-    waitUntil: 0,
-    ...extra
-  });
+}
+
+function sttCallError(error, cfg) {
+  const status = Number(error?.status) || 0;
+  const raw = error?.message || String(error || "");
+  const retryAfter = Number(error?.retryAfter) || 0;
+  const waitMs = retryAfter > 0 && retryAfter < 1000 ? retryAfter * 1000 : retryAfter;
+  if (status === 429 || /rate limit|quota|try again|额度|限流|ASPH|ASH/i.test(raw)) {
+    if (cfg?.provider === "Groq") return groqLimitError(raw, waitMs || retryAfter);
+    const next = new Error(`${cfg?.provider || "转写"} 额度不足${waitMs ? `，${formatWait(waitMs)} 后自动继续` : ""}`);
+    next.quota = true;
+    next.retryAfter = waitMs || 60 * 1000;
+    next.status = status;
+    return next;
+  }
+  if ([408, 500, 502, 503, 504].includes(status) || /timeout|unavailable|bad gateway|network|Failed to fetch/i.test(raw)) {
+    return groqTransientError(raw, status, status === 429 ? 15000 : 8000);
+  }
+  return error;
+}
+
+function isFatalSttError(error) {
+  const status = Number(error?.status) || 0;
+  if ([401, 403, 404, 405].includes(status)) return true;
+  const raw = String(error?.message || error || "");
+  return /未配置转写服务|转写模块未加载|未选择转写服务商|未接通的转写服务|未知服务商|不支持.*音频|无法直接转写|请填写.*(?:API\s*Key|AppID|SecretId|SecretKey)|先填写 API Key|签名.*失败|鉴权|未授权|未开通|invalid api key|incorrect api key|unauthorized|authentication|forbidden|model .*not found/i.test(raw);
+}
+
+async function transcribeWithCfg(blob, cfg, options) {
+  if (!cfg) throw new Error("未配置转写服务");
+  if (cfg.provider === "Groq" && cfg.key) {
+    const result = await transcribeWithGroq(blob, { ...options, apiKey: cfg.key, model: cfg.model });
+    if (options.job) {
+      options.job.lastSttModel = cfg.model || GROQ_MODEL;
+      options.job.lastSttProvider = cfg.provider;
+    }
+    return result;
+  }
+  const Stt = self.BiliCaptionStt;
+  if (!Stt?.transcribe) throw new Error("转写模块未加载");
+  const stopHeartbeat = startWorkerHeartbeat();
+  let timed;
+  try {
+    timed = abortAfter(options.signal, 3 * 60 * 1000);
+    const result = await Stt.transcribe(blob, cfg, {
+      language: options.language,
+      signal: timed.signal,
+      filename: options.filename,
+      duration: options.duration
+    });
+    if (options.job) {
+      options.job.lastSttModel = cfg.model || "";
+      options.job.lastSttProvider = cfg.provider || "";
+    }
+    return result;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      if (options.signal?.aborted) throw error;
+      const timeout = new Error(`${cfg.provider || "转写服务"}响应超时`);
+      timeout.status = 504;
+      throw sttCallError(timeout, cfg);
+    }
+    throw sttCallError(error, cfg);
+  } finally {
+    timed?.cleanup();
+    stopHeartbeat?.();
+  }
 }
 
 function groqTransientError(raw, status, waitMs = 8000) {
@@ -985,24 +2143,72 @@ function groqTransientError(raw, status, waitMs = 8000) {
 async function transcribeOne(blob, options) {
   let transientTries = 0;
   for (;;) {
+    const job = options.job;
+    const cfg = pickAsrCfg(job, options.apiKey);
+    const channelIdx = Number(job?.activeChannel) || 0;
+    const multiChannel = (job?.channels?.length || 0) > 1;
+    const label = cfg?.provider || "转写";
+
+    // 全部通道都不可用：有冷却中的就等最近恢复，全 dead 则报错收尾
+    if (!cfg) {
+      const revive = asrChainRevivalMs(job);
+      if (!revive) {
+        throw new Error("所有转写通道都不可用，请在设置里检查通道的 Key 与额度");
+      }
+      emitProgress(options.onProgress, {
+        stage: "wait",
+        message: "所有通道都在冷却，等待最近的通道恢复…",
+        waitUntil: Date.now() + revive + 1500,
+        waitKind: "quota"
+      });
+      await waitForQuota(revive, options.signal, options.onProgress, { job, waitKind: "quota" });
+      continue;
+    }
+
     try {
-      appLog("info", "groq", `上传第 ${options.current || 1}/${options.total || 1} 段 ${mbOf(blob.size)}MB`, {
+      appLog("info", "asr", `上传第 ${options.current || 1}/${options.total || 1} 段 ${mbOf(blob.size)}MB · ${label}${multiChannel ? `（通道${channelIdx + 1}）` : ""}`, {
         mb: mbOf(blob.size),
         current: options.current,
         total: options.total,
         try: transientTries + 1
       });
-      return await transcribeWithGroq(blob, options);
+      return await transcribeWithCfg(blob, cfg, options);
     } catch (error) {
       if (error?.name === "AbortError" || options.signal?.aborted) throw error;
-      if (Number(error?.requested) > maxChunkSeconds() + 20) {
+      if (Number(error?.requested) > maxChunkSeconds(job) + 20) {
         throw new Error(
           `这一段实际约 ${Math.round(Number(error.requested) / 60)} 分钟，超过约 8 分钟上限，已停下以免浪费额度`
         );
       }
+
+      // 通道自身致命（Key 无效 / 模型不存在等）：停用该通道，立即落向下一条
+      if (isFatalSttError(error)) {
+        appLog("error", "asr", `${label} 通道不可用：${error.message || String(error)}`, {
+          status: error.status,
+          current: options.current,
+          total: options.total
+        });
+        markChannelDead(job, channelIdx, error.message || String(error));
+        const next = pickAsrChannel(job);
+        emitProgress(options.onProgress, {
+          stage: "upload",
+          message: next
+            ? `${label} 不可用，已切到 ${next.cfg.provider} 继续`
+            : `${label} 不可用`,
+          waitUntil: 0
+        });
+        if (next) continue;
+        const revive = asrChainRevivalMs(job);
+        if (revive) {
+          await waitForQuota(revive, options.signal, options.onProgress, { job, waitKind: "quota" });
+          continue;
+        }
+        throw new Error(`所有转写通道都不可用：${error.message || String(error)}`);
+      }
+
       const retryable = Boolean(error?.quota || error?.retryable || error?.retryAfter);
       if (!retryable) {
-        appLog("error", "groq", error.message || String(error), {
+        appLog("error", "asr", error.message || String(error), {
           status: error.status,
           current: options.current,
           total: options.total
@@ -1011,8 +2217,8 @@ async function transcribeOne(blob, options) {
       }
       if (!error?.quota) transientTries += 1;
       if (!error?.quota && transientTries > 6) {
-        const giveUp = `${error.message || "Groq 临时故障"}。已保存前面的段落，可点继续生成`;
-        appLog("error", "groq", giveUp, { current: options.current, total: options.total, try: transientTries });
+        const giveUp = `${error.message || `${label} 临时故障`}。已保存前面的段落，可点继续生成`;
+        appLog("error", "asr", giveUp, { current: options.current, total: options.total, try: transientTries });
         throw new Error(giveUp);
       }
       const transientBackoff = Math.min(
@@ -1028,18 +2234,39 @@ async function transcribeOne(blob, options) {
         ),
         error?.quota ? MAX_QUOTA_WAIT_MS : 60 * 1000
       );
+
+      if (error?.quota) {
+        // 限流：给该通道记冷却，立即尝试下一条通道；全部冷却才等待
+        markChannelCool(job, channelIdx, wait);
+        const next = pickAsrChannel(job);
+        if (next) {
+          appLog("warn", "asr", `${label} 额度冷却 ${formatWait(wait)}，自动切到 ${next.cfg.provider} 继续第 ${options.current || "?"} 段`, {
+            waitMs: wait,
+            current: options.current,
+            total: options.total
+          });
+          emitProgress(options.onProgress, {
+            stage: "upload",
+            message: `${label} 限流，已切到 ${next.cfg.provider} 继续（冷却结束自动切回）`,
+            waitUntil: 0
+          });
+          continue;
+        }
+      }
+
       const extra = {
+        job,
         done: options.done || 0,
         total: options.total || 0,
         current: options.current || 0,
         waitKind: error?.quota ? "quota" : "retry",
-        waitReason: error?.quota ? "" : (error.status ? `Groq 错误 ${error.status}` : "网络暂时中断")
+        waitReason: error?.quota ? "" : (error.status ? `${label} 错误 ${error.status}` : "网络暂时中断")
       };
       appLog(
         error?.quota ? "warn" : "error",
-        "groq",
+        "asr",
         error?.quota
-          ? `额度冷却，${formatWait(wait)} 后继续第 ${options.current || "?"} 段`
+          ? `${label} 额度冷却，${formatWait(wait)} 后继续第 ${options.current || "?"} 段`
           : `第 ${options.current || "?"} 段失败（${error.status || "网络中断"}），${formatWait(wait)} 后第 ${transientTries} 次重试：${error.message || "临时故障"}`,
         {
           status: error.status || 0,
@@ -1052,8 +2279,8 @@ async function transcribeOne(blob, options) {
       emitProgress(options.onProgress, {
         stage: "wait",
         message: error?.quota
-          ? `额度冷却中，${formatWait(wait)} 后继续`
-          : `Groq 繁忙（${error.status || "临时故障"}），${formatWait(wait)} 后重试第 ${options.current || "?"} 段`,
+          ? `所有通道都在冷却，${formatWait(wait)} 后继续`
+          : `${label} 繁忙（${error.status || "临时故障"}），${formatWait(wait)} 后重试第 ${options.current || "?"} 段`,
         waitUntil: Date.now() + wait + 1500,
         ...extra
       });
@@ -1062,9 +2289,13 @@ async function transcribeOne(blob, options) {
   }
 }
 
-async function persistAsrProgress({ bvid, cid, tabId, fingerprint, parts, total, language, onProgress }) {
-  const ready = parts.filter(Boolean);
-  const cues = ready.length > 1 ? mergeChunkCues(ready) : (ready[0]?.cues || []);
+async function persistAsrProgress({ bvid, cid, tabId, fingerprint, parts, total, language, onProgress, job }) {
+  const ready = parts.filter(partIsComplete);
+  const textParts = ready.filter((item) => item.cues?.length);
+  // 总分片数大于 1 时，即使当前只有一个非静音分片，也必须加上
+  // 该分片在整条音轨中的 start。否则“前一片静音/失败”时，后一片字幕
+  // 会在任务进行期被错写到 00:00。
+  let cues = total > 1 ? mergeChunkCues(textParts) : (textParts[0]?.cues || []);
   const pending = ready.length < total;
   await saveAsrJob(bvid, cid, {
     fingerprint,
@@ -1073,22 +2304,25 @@ async function persistAsrProgress({ bvid, cid, tabId, fingerprint, parts, total,
     done: ready.length,
     pending
   });
+  let stored = null;
   if (cues.length) {
-    await saveCachedAsr(bvid, cid, {
+    stored = await saveCachedAsr(bvid, cid, {
       cues,
       language: language || "",
-      model: GROQ_MODEL,
+      model: job?.lastSttModel || job?.sttCfg?.model || GROQ_MODEL,
+      provider: job?.lastSttProvider || job?.sttCfg?.provider || "Groq",
       activeLan: "groq-asr",
       source: "groq",
       partial: pending
     });
+    cues = stored.cues || cues;
   }
   if (tabId && cues.length) {
     chrome.tabs.sendMessage(tabId, {
       type: "APPLY_ASR_CUES",
       cues,
-      activeLan: "groq-asr",
-      source: "groq",
+      activeLan: stored?.activeLan || "groq-asr",
+      source: stored?.source || "groq",
       partial: pending,
       bvid,
       cid
@@ -1100,9 +2334,15 @@ async function persistAsrProgress({ bvid, cid, tabId, fingerprint, parts, total,
       ? `已完成 ${ready.length}/${total} 段，可先看前面的字幕`
       : `已完成 ${ready.length}/${total} 段`,
     done: ready.length,
-    total,
+    total: Math.max(Number(total) || 0, ready.length),
+    current: pending ? ready.length + 1 : ready.length,
     cues,
+    source: stored?.source || "groq",
+    activeLan: stored?.activeLan || "groq-asr",
     partial: pending,
+    failed: job?.failedChunks || [],
+    paused: Boolean(job?.paused),
+    chunks: job ? snapshotAsrChunks(job, parts, pending ? ready.length + 1 : ready.length) : undefined,
     waitUntil: 0
   });
   return cues;
@@ -1117,26 +2357,28 @@ async function transcribeChunks(blob, {
   bvid,
   cid,
   tabId,
-  forceRestart
+  forceRestart,
+  job
 }) {
-  const maxChunk = BiliCaptionMp4.CHUNK_SECONDS || 8 * 60;
-  const mustSplit = blob.size > MAX_UPLOAD_BYTES || Number(duration) > maxChunk + MAX_CHUNK_SLACK;
-  const shouldSplit = mustSplit || Number(duration) > maxChunk + 5 || blob.size > maxChunkBytes();
+  const limits = asrChunkLimits(job);
+  const mustSplit = blob.size > Math.min(MAX_UPLOAD_BYTES, limits.maxBytes)
+    || Number(duration) > maxChunkSeconds(job);
+  const shouldSplit = !audioIsShort(duration, blob.size, job);
   let chunks = [];
   if (shouldSplit) {
     emitProgress(onProgress, {
-      message: `音频约 ${Math.round(Number(duration) || 0) || "?"} 秒，按 8 分钟且小于 24MB 切片…`
+      message: `音频约 ${Math.round(Number(duration) || 0) || "?"} 秒，按每段不超过 ${Math.floor(limits.maxSeconds / 60)} 分 ${limits.maxSeconds % 60 ? `${limits.maxSeconds % 60} 秒` : ""}切片…`
     });
     try {
-      chunks = await BiliCaptionMp4.splitAudio(blob);
+      chunks = await BiliCaptionMp4.splitAudio(blob, limits);
     } catch (error) {
       if (mustSplit) throw error;
     }
   }
   if (!chunks.length) {
-    const unknownLong = !(Number(duration) > 0) && blob.size > maxChunkBytes();
+    const unknownLong = !(Number(duration) > 0) && blob.size > maxChunkBytes(job);
     if (mustSplit || unknownLong) {
-      throw new Error("音频太长或无法切片。每段必须同时小于 24MB 且不超过约 8 分钟");
+      throw new Error("音频太长或无法按当前服务商限制切片");
     }
     chunks = [{
       blob,
@@ -1146,21 +2388,22 @@ async function transcribeChunks(blob, {
       overlap: 0
     }];
   }
-  const oversized = chunks.find((chunk) => !chunkFitsLimits(chunk));
+  const oversized = chunks.find((chunk) => !chunkFitsLimits(chunk, job));
   if (oversized) {
-    throw new Error(`切片后仍超限（${chunkLimitLabel(oversized)}）。每段必须同时小于 24MB 且不超过约 8 分钟`);
+    throw new Error(`切片后仍超过当前服务商限制（${chunkLimitLabel(oversized)}）`);
   }
 
-  const fingerprint = `${blob.size}:${Math.round(Number(duration) || 0)}:${chunks.length}:${chunks[0]?.filename || "bin"}`;
+  const fingerprint = `${blob.size}:${Math.round(Number(duration) || 0)}:${chunks.length}:${chunks[0]?.filename || "bin"}:${limits.maxSeconds}:${limits.maxBytes}`;
   appLog("info", "asr", `音频 ${mbOf(blob.size)}MB / ${Math.round(Number(duration) || 0)} 秒，切成 ${chunks.length} 段（${chunks[0]?.filename || "bin"}）`, {
     mb: mbOf(blob.size),
     chunks: chunks.length
   });
-  const saved = forceRestart ? null : await loadAsrJob(bvid, cid);
+  const loadedSaved = forceRestart ? null : await loadAsrJob(bvid, cid);
+  const saved = loadedSaved?.fingerprint === fingerprint ? loadedSaved : null;
   const cachedAsr = forceRestart ? null : await loadCachedAsr(bvid, cid);
   const parts = matchSavedParts(chunks, saved, cachedAsr?.cues || []);
 
-  const skipped = parts.filter(Boolean).length;
+  const skipped = parts.filter(partIsComplete).length;
   if (skipped) {
     appLog("info", "asr", `从断点继续，已有 ${skipped}/${chunks.length} 段`, { done: skipped, chunks: chunks.length });
     emitProgress(onProgress, {
@@ -1170,45 +2413,93 @@ async function transcribeChunks(blob, {
     });
   }
 
-  throwIfAborted(signal);
-  for (let i = 0; i < chunks.length; i += 1) {
+  if (job) {
+    job.duration = Number(duration) || job.duration || 0;
+    job.chunkPlan = chunks.map((chunk) => ({ start: chunk.start || 0, end: chunk.end || 0 }));
+    job.partsRef = parts;
+    job.failedChunks = job.failedChunks || [];
+    job.retryQueue = job.retryQueue || [];
+  }
+
+  const doneCount = () => parts.filter(partIsComplete).length;
+
+  const runChunk = async (i) => {
+    throwIfAborted(signal);
+    await waitIfAsrPaused(job, signal, onProgress, {
+      parts,
+      current: i + 1,
+      done: doneCount(),
+      total: chunks.length
+    });
     throwIfAborted(signal);
     const chunk = chunks[i];
-    const done = parts.filter(Boolean).length;
-    if (parts[i]) {
+    const done = doneCount();
+    if (partIsComplete(parts[i])) {
       emitProgress(onProgress, {
         message: `第 ${i + 1}/${chunks.length} 段已转写过，跳过`,
         done,
-        total: chunks.length
+        total: chunks.length,
+        chunks: snapshotAsrChunks(job, parts, i + 1)
       });
-      continue;
+      return;
     }
     emitProgress(onProgress, {
       stage: "upload",
       message: chunks.length > 1
-        ? `Groq 正在识别第 ${i + 1}/${chunks.length} 段（约 1–2 分钟）`
-        : `Groq 正在识别（${(chunk.blob.size / 1024 / 1024).toFixed(1)}MB，约 1–2 分钟）`,
+        ? `正在识别第 ${i + 1}/${chunks.length} 段（约 1–2 分钟）`
+        : `正在识别（${(chunk.blob.size / 1024 / 1024).toFixed(1)}MB，约 1–2 分钟）`,
       done,
       total: chunks.length,
       current: i + 1,
+      failed: job?.failedChunks || [],
+      chunks: snapshotAsrChunks(job, parts, i + 1),
       waitUntil: 0
     });
-    const result = await transcribeOne(chunk.blob, {
-      apiKey,
-      language,
-      signal,
-      filename: chunk.filename,
-      onProgress,
-      done,
-      total: chunks.length,
-      current: i + 1
-    });
-    parts[i] = {
-      i,
-      start: chunk.start || 0,
-      overlap: chunk.overlap || 0,
-      cues: segmentsToCues(result)
-    };
+    try {
+      const result = await transcribeOne(chunk.blob, {
+        apiKey,
+        language,
+        signal,
+        filename: chunk.filename,
+        duration: Math.max(0, Number(chunk.end) - Number(chunk.start)),
+        onProgress,
+        done,
+        total: chunks.length,
+        current: i + 1,
+        job
+      });
+      const cues = segmentsToCues(result);
+      parts[i] = {
+        i,
+        start: chunk.start || 0,
+        end: chunk.end || 0,
+        overlap: chunk.overlap || 0,
+        cues,
+        complete: true,
+        silent: cues.length === 0
+      };
+      if (job) job.failedChunks = (job.failedChunks || []).filter((n) => n !== i + 1);
+    } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError" || error?.canceled) throw error;
+      if (isFatalSttError(error)) throw error;
+      parts[i] = {
+        i,
+        start: chunk.start || 0,
+        overlap: chunk.overlap || 0,
+        failed: true
+      };
+      if (job && !job.failedChunks.includes(i + 1)) job.failedChunks.push(i + 1);
+      appLog("warn", "asr", `第 ${i + 1} 段失败：${error.message || error}`, { bvid, cid, chunk: i + 1 });
+      emitProgress(onProgress, {
+        stage: "upload",
+        message: `第 ${i + 1} 段失败，可稍后重试`,
+        done: doneCount(),
+        total: chunks.length,
+        current: i + 1,
+        failed: job?.failedChunks || [],
+        chunks: snapshotAsrChunks(job, parts, i + 1)
+      });
+    }
     await persistAsrProgress({
       bvid,
       cid,
@@ -1217,15 +2508,39 @@ async function transcribeChunks(blob, {
       parts,
       total: chunks.length,
       language,
-      onProgress
+      onProgress,
+      job
     });
+  };
+
+  throwIfAborted(signal);
+  for (let i = 0; i < chunks.length; i += 1) {
+    await runChunk(i);
   }
 
-  const ready = parts.filter(Boolean);
+  while (job && (job.failedChunks?.length || job.retryQueue?.length) && !signal?.aborted) {
+    if (job.retryQueue?.length) {
+      const next = job.retryQueue.shift();
+      if (next != null && next >= 0 && next < chunks.length) await runChunk(next);
+      continue;
+    }
+    emitProgress(onProgress, {
+      stage: "upload",
+      message: `${job.failedChunks.length} 段失败，可重试或取消`,
+      done: doneCount(),
+      total: chunks.length,
+      failed: job.failedChunks,
+      chunks: snapshotAsrChunks(job, parts, job.progress?.current),
+      waitUntil: 0
+    });
+    await sleep(400, signal);
+  }
+
+  const ready = parts.filter((part) => partIsComplete(part) && part.cues?.length);
   const cues = chunks.length > 1 ? mergeChunkCues(ready) : (ready[0]?.cues || []);
   if (!cues.length) {
     await clearAsrJob(bvid, cid);
-    throw new Error("Groq 没有识别出有效文本");
+    throw new Error("没有识别出有效文本");
   }
   await clearAsrJob(bvid, cid);
   return { text: cues.map((cue) => cue.content).join(""), segments: cues, words: [], cues };
@@ -1240,11 +2555,12 @@ async function transcribeOneIncoming(chunk, index, parts, {
   cid,
   tabId,
   duration,
-  totalHint
+  totalHint,
+  job
 }) {
   const total = Math.max(Number(totalHint) || 1, parts.length, index + 1);
-  const done = parts.filter(Boolean).length;
-  if (parts[index]) {
+  const done = parts.filter(partIsComplete).length;
+  if (partIsComplete(parts[index])) {
     emitProgress(onProgress, {
       message: `第 ${index + 1}/${total} 段已转写过，跳过`,
       done,
@@ -1252,58 +2568,107 @@ async function transcribeOneIncoming(chunk, index, parts, {
     });
     return;
   }
-  if (!chunkFitsLimits(chunk)) {
-    appLog("warn", "asr", `第 ${index + 1} 段 ${chunkLimitLabel(chunk)}，再切开后继续`);
-    const pieces = await BiliCaptionMp4.splitAudio(chunk.blob).catch(() => []);
-    if (!pieces.length || (pieces.length === 1 && (pieces[0].blob?.size || 0) >= (chunk.blob?.size || 1))) {
-      throw new Error(`切片后仍超限（${chunkLimitLabel(chunk)}）。每段必须同时小于 24MB 且不超过约 8 分钟`);
+  if (job) {
+    job.partsRef = parts;
+    job.failedChunks = job.failedChunks || [];
+    job.retryQueue = job.retryQueue || [];
+  }
+  try {
+    let inputs = [chunk];
+    const limits = asrChunkLimits(job);
+    if (!chunkFitsLimits(chunk, job)) {
+      appLog("warn", "asr", `第 ${index + 1} 段 ${chunkLimitLabel(chunk)}，再切开后继续`);
+      const pieces = await BiliCaptionMp4.splitAudio(chunk.blob, limits).catch(() => []);
+      if (!pieces.length || (pieces.length === 1 && (pieces[0].blob?.size || 0) >= (chunk.blob?.size || 1))) {
+        throw new Error(`切片后仍超限（${chunkLimitLabel(chunk)}）。每段必须同时小于 24MB 且不超过约 8 分钟`);
+      }
+      inputs = pieces.map((piece) => ({
+        ...piece,
+        start: Number(chunk.start) + Number(piece.start || 0),
+        end: Number(chunk.start) + Number(piece.end || 0)
+      }));
+      const oversized = inputs.find((piece) => !chunkFitsLimits(piece, job));
+      if (oversized) {
+        throw new Error(`切片后仍超限（${chunkLimitLabel(oversized)}）。每段必须同时小于 24MB 且不超过约 8 分钟`);
+      }
     }
-    for (let p = 0; p < pieces.length; p += 1) {
-      const piece = {
-        ...pieces[p],
-        start: Number(chunk.start) + Number(pieces[p].start || 0),
-        end: Number(chunk.start) + Number(pieces[p].end || 0)
-      };
-      await transcribeOneIncoming(piece, index + p, parts, {
+
+    const subparts = [];
+    for (let p = 0; p < inputs.length; p += 1) {
+      const input = inputs[p];
+      await waitIfAsrPaused(job, signal, onProgress, {
+        parts,
+        current: index + 1,
+        done,
+        total
+      });
+      throwIfAborted(signal);
+      emitProgress(onProgress, {
+        stage: "upload",
+        message: inputs.length > 1
+          ? `正在转写 ${index + 1}/${total} 的子段 ${p + 1}/${inputs.length}`
+          : (total > 1
+            ? `正在转写 ${index + 1}/${total}（边下边传）`
+            : `正在上传（${mbOf(input.blob.size)}MB）`),
+        done,
+        total,
+        current: index + 1,
+        failed: job?.failedChunks || [],
+        chunks: snapshotAsrChunks(job, parts, index + 1),
+        waitUntil: 0
+      });
+      const result = await transcribeOne(input.blob, {
         apiKey,
         language,
         signal,
+        filename: input.filename,
+        duration: Math.max(0, Number(input.end) - Number(input.start)),
         onProgress,
-        bvid,
-        cid,
-        tabId,
-        duration,
-        totalHint: Math.max(total, index + pieces.length)
+        done,
+        total,
+        current: index + 1,
+        job
+      });
+      subparts.push({
+        start: Math.max(0, Number(input.start) - Number(chunk.start || 0)),
+        overlap: Number(input.overlap) || 0,
+        cues: segmentsToCues(result)
       });
     }
-    return;
+    const cues = subparts.length > 1
+      ? mergeChunkCues(subparts)
+      : (subparts[0]?.cues || []);
+    parts[index] = {
+      i: index,
+      start: chunk.start || 0,
+      end: chunk.end || 0,
+      overlap: chunk.overlap || 0,
+      cues,
+      complete: true,
+      silent: cues.length === 0
+    };
+    if (job) job.failedChunks = (job.failedChunks || []).filter((n) => n !== index + 1);
+  } catch (error) {
+    if (signal?.aborted || error?.name === "AbortError" || error?.canceled) throw error;
+    if (isFatalSttError(error)) throw error;
+    parts[index] = {
+      i: index,
+      start: chunk.start || 0,
+      overlap: chunk.overlap || 0,
+      failed: true
+    };
+    if (job && !job.failedChunks.includes(index + 1)) job.failedChunks.push(index + 1);
+    appLog("warn", "asr", `第 ${index + 1} 段失败：${error.message || error}`, { bvid, cid, chunk: index + 1 });
+    emitProgress(onProgress, {
+      stage: "upload",
+      message: `第 ${index + 1} 段失败，可稍后重试`,
+      done: parts.filter(partIsComplete).length,
+      total,
+      current: index + 1,
+      failed: job?.failedChunks || [],
+      chunks: snapshotAsrChunks(job, parts, index + 1)
+    });
   }
-  emitProgress(onProgress, {
-    stage: "upload",
-    message: total > 1
-      ? `正在转写 ${index + 1}/${total}（边下边传）`
-      : `正在上传到 Groq（${mbOf(chunk.blob.size)}MB）`,
-    done,
-    total,
-    current: index + 1,
-    waitUntil: 0
-  });
-  const result = await transcribeOne(chunk.blob, {
-    apiKey,
-    language,
-    signal,
-    filename: chunk.filename,
-    onProgress,
-    done,
-    total,
-    current: index + 1
-  });
-  parts[index] = {
-    i: index,
-    start: chunk.start || 0,
-    overlap: chunk.overlap || 0,
-    cues: segmentsToCues(result)
-  };
   await persistAsrProgress({
     bvid,
     cid,
@@ -1312,7 +2677,8 @@ async function transcribeOneIncoming(chunk, index, parts, {
     parts,
     total,
     language,
-    onProgress
+    onProgress,
+    job
   });
 }
 
@@ -1325,94 +2691,166 @@ async function transcribeStreaming(stream, {
   bvid,
   cid,
   tabId,
-  forceRestart
+  forceRestart,
+  job
 }) {
-  emitProgress(onProgress, { stage: "download", message: "开始拉取音轨，切出一段就上传…" });
-  const { res, total: totalBytes, mime } = await openAudioDownload(stream, signal);
-  if (!res.body) {
-    const buf = await res.arrayBuffer();
-    return transcribeChunks(new Blob([buf], { type: mime }), {
-      apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart
+  const limits = asrChunkLimits(job);
+  const knownShort = audioIsShort(duration, 0, job);
+  emitProgress(onProgress, {
+    stage: "download",
+    message: knownShort ? "短视频整段下载，一次转写…" : "开始拉取音轨…"
+  });
+  if (knownShort) {
+    const blob = await downloadAudio(stream, (message) => {
+      emitProgress(onProgress, { stage: "download", message, total: 1 });
+    }, signal);
+    return transcribeChunks(blob, {
+      apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart, job
     });
   }
 
-  const estimated = estimatedChunkCount(duration);
+  const { res, total: totalBytes, mime } = await openAudioDownload(stream, signal);
+  if (!res.body || (totalBytes > 0 && audioIsShort(duration, totalBytes, job))) {
+    const buf = await res.arrayBuffer();
+    return transcribeChunks(new Blob([buf], { type: mime }), {
+      apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart, job
+    });
+  }
+
+  const estimated = estimatedChunkCount(duration, job);
   const saved = forceRestart ? null : await loadAsrJob(bvid, cid);
   const cachedAsr = forceRestart ? null : await loadCachedAsr(bvid, cid);
-  const reader = res.body.getReader();
   const chunks = [];
   const parts = [];
   let received = 0;
+  let body = res.body;
 
-  try {
-    for await (const item of BiliCaptionMp4.iterateFmp4Chunks(reader, {
-      signal,
-      onBytes(n) {
-        received = n;
-        if (n > MAX_DOWNLOAD_BYTES) {
-          reader.cancel().catch(() => {});
-          throw new Error("音频文件过大，请换更短视频");
-        }
-        const pct = totalBytes ? Math.min(99, Math.round((n / totalBytes) * 100)) : 0;
-        const total = Math.max(estimated, chunks.length || 1);
-        emitProgress(onProgress, {
-          stage: "download",
-          message: pct
-            ? `下载 ${pct}% · 已切 ${chunks.length}/${total} 段`
-            : `已下载 ${mbOf(n)}MB · 已切 ${chunks.length} 段`,
-          done: parts.filter(Boolean).length,
-          total
-        });
-      }
-    })) {
-      throwIfAborted(signal);
-      if (item.fallback) {
-        appLog("info", "asr", "音频不是分片封装，改走整段切片");
-        return transcribeChunks(item.blob, {
-          apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart
-        });
-      }
-      chunks.push(item);
-      const mapped = matchSavedParts(chunks, saved, cachedAsr?.cues || []);
-      for (let i = 0; i < mapped.length; i += 1) {
-        if (mapped[i] && !parts[i]) parts[i] = mapped[i];
-      }
-      const index = chunks.length - 1;
-      if (index === 0) {
-        appLog("info", "asr", `已切出第 1 段 ${mbOf(item.blob.size)}MB（${item.filename || "bin"}），开始边下边传`, {
-          mb: Number(mbOf(item.blob.size)),
-          estimated
-        });
-      }
-      await transcribeOneIncoming(item, index, parts, {
-        apiKey,
-        language,
+  if (job) {
+    job.duration = Number(duration) || job.duration || 0;
+    job.partsRef = parts;
+    job.chunkPlan = [];
+    job.failedChunks = job.failedChunks || [];
+    job.retryQueue = job.retryQueue || [];
+  }
+
+  // CDN 可能中途干净地断流（read 返回 done 但字节没收全）。
+  // 不校验就会把半截音频当完整视频广播 done，字幕缺后半段。
+  for (let attempt = 0; ; attempt += 1) {
+    const reader = body.getReader();
+    chunks.length = 0;
+    received = 0;
+    let streamBroken = false;
+    try {
+      for await (const item of BiliCaptionMp4.iterateFmp4Chunks(reader, {
         signal,
-        onProgress,
-        bvid,
-        cid,
-        tabId,
-        duration,
-        totalHint: Math.max(estimated, chunks.length)
+        maxBytes: limits.maxBytes,
+        maxSeconds: limits.maxSeconds,
+        onBytes(n) {
+          received = n;
+          if (n > MAX_DOWNLOAD_BYTES) {
+            reader.cancel().catch(() => {});
+            throw new Error("音频文件过大，请换更短视频");
+          }
+          const pct = totalBytes ? Math.min(99, Math.round((n / totalBytes) * 100)) : 0;
+          const total = Math.max(estimated, chunks.length || 1);
+          emitProgress(onProgress, {
+            stage: "download",
+            message: pct
+              ? `下载 ${pct}% · 已切 ${chunks.length}/${total} 段`
+              : `已下载 ${mbOf(n)}MB · 已切 ${chunks.length} 段`,
+            done: parts.filter(partIsComplete).length,
+            total
+          });
+        }
+      })) {
+        throwIfAborted(signal);
+        if (item.fallback) {
+          if (totalBytes > 0 && item.blob.size < totalBytes - 512 * 1024) {
+            throw new Error(`音频下载中断（${mbOf(item.blob.size)}MB/${mbOf(totalBytes)}MB），请点「生成字幕」重试`);
+          }
+          appLog("info", "asr", "音频不是分片封装，改走整段切片");
+          return transcribeChunks(item.blob, {
+            apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart, job
+          });
+        }
+        chunks.push(item);
+        if (job) job.chunkPlan[chunks.length - 1] = { start: item.start || 0, end: item.end || 0 };
+        const mapped = matchSavedParts(chunks, saved, cachedAsr?.cues || []);
+        for (let i = 0; i < mapped.length; i += 1) {
+          if (mapped[i] && !parts[i]) parts[i] = mapped[i];
+        }
+        const index = chunks.length - 1;
+        if (index === 0 && attempt === 0) {
+          appLog("info", "asr", `已切出第 1 段 ${mbOf(item.blob.size)}MB（${item.filename || "bin"}），开始边下边传`, {
+            mb: Number(mbOf(item.blob.size)),
+            estimated
+          });
+        }
+        await transcribeOneIncoming(item, index, parts, {
+          apiKey,
+          language,
+          signal,
+          onProgress,
+          bvid,
+          cid,
+          tabId,
+          duration,
+          totalHint: Math.max(estimated, chunks.length),
+          job
+        });
+      }
+    } catch (error) {
+      if (error?.name === "AbortError" || signal?.aborted) throw error;
+      if (/过大|下载中断/.test(error?.message || "")) throw error;
+      if (/DataView|Offset is outside|封装无法切片/i.test(error?.message || "")) {
+        appLog("warn", "asr", `边下边切失败，改走整段下载：${error.message || error}`);
+        const blob = await downloadAudio(stream, (message) => {
+          emitProgress(onProgress, { stage: "download", message });
+        }, signal);
+        return transcribeChunks(blob, {
+          apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart, job
+        });
+      }
+      const netBroken = error instanceof TypeError
+        || /Failed to fetch|network|connection|ERR_|BodyStream/i.test(error?.message || "");
+      if (!netBroken || attempt >= 2) throw error;
+      streamBroken = true;
+      appLog("warn", "asr", `音频流读取中断：${error.message || error}`, { attempt: attempt + 1 });
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // ignore
+      }
+    }
+
+    const lastEnd = chunks.length ? Number(chunks[chunks.length - 1].end) || 0 : 0;
+    const bytesShort = totalBytes > 0 && received < totalBytes - 512 * 1024;
+    const timeShort = Number(duration) > 0 && lastEnd > 0 && lastEnd < Number(duration) - 90;
+    if (!streamBroken && !bytesShort && !timeShort) break;
+
+    const doneN = parts.filter(partIsComplete).length;
+    if (attempt >= 2) {
+      throw new Error(`音频流中途断开（已收 ${mbOf(received)}MB${totalBytes ? `/${mbOf(totalBytes)}MB` : ""}），已保存 ${doneN} 段，点「生成字幕」继续`);
+    }
+    appLog("warn", "asr", `音频流提前结束（${mbOf(received)}MB${totalBytes ? `/${mbOf(totalBytes)}MB` : ""}，切到 ${Math.round(lastEnd)}s/${Math.round(Number(duration) || 0)}s），重新拉取续传`, {
+      attempt: attempt + 1,
+      done: doneN
+    });
+    emitProgress(onProgress, {
+      stage: "download",
+      message: `音频流断开，正在重新连接（第 ${attempt + 2} 次）…`,
+      done: doneN,
+      total: Math.max(estimated, chunks.length || 1)
+    });
+    const reopened = await openAudioDownload(stream, signal);
+    if (!reopened.res.body) {
+      const buf = await reopened.res.arrayBuffer();
+      return transcribeChunks(new Blob([buf], { type: reopened.mime || mime }), {
+        apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart, job
       });
     }
-  } catch (error) {
-    if (error?.name === "AbortError" || signal?.aborted) throw error;
-    if (/过大/.test(error?.message || "")) throw error;
-    if (!/DataView|Offset is outside|封装无法切片/i.test(error?.message || "")) throw error;
-    appLog("warn", "asr", `边下边切失败，改走整段下载：${error.message || error}`);
-    const blob = await downloadAudio(stream, (message) => {
-      emitProgress(onProgress, { stage: "download", message });
-    }, signal);
-    return transcribeChunks(blob, {
-      apiKey, language, signal, onProgress, duration, bvid, cid, tabId, forceRestart
-    });
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {
-      // ignore
-    }
+    body = reopened.res.body;
   }
 
   if (!chunks.length) {
@@ -1425,11 +2863,40 @@ async function transcribeStreaming(stream, {
     streamed: true
   });
 
-  const ready = parts.filter(Boolean);
+  if (job) {
+    job.chunkPlan = chunks.map((chunk) => ({ start: chunk.start || 0, end: chunk.end || 0 }));
+    job.partsRef = parts;
+    job.failedChunks = job.failedChunks || [];
+    job.retryQueue = job.retryQueue || [];
+  }
+
+  while (job && (job.failedChunks?.length || job.retryQueue?.length) && !signal?.aborted) {
+    if (job.retryQueue?.length) {
+      const next = job.retryQueue.shift();
+      if (next != null && chunks[next]) {
+        await transcribeOneIncoming(chunks[next], next, parts, {
+          apiKey, language, signal, onProgress, bvid, cid, tabId, duration, totalHint: chunks.length, job
+        });
+      }
+      continue;
+    }
+    emitProgress(onProgress, {
+      stage: "upload",
+      message: `${job.failedChunks.length} 段失败，可重试或取消`,
+      done: parts.filter(partIsComplete).length,
+      total: chunks.length,
+      failed: job.failedChunks,
+      chunks: snapshotAsrChunks(job, parts, job.progress?.current),
+      waitUntil: 0
+    });
+    await sleep(400, signal);
+  }
+
+  const ready = parts.filter((part) => partIsComplete(part) && part.cues?.length);
   const cues = chunks.length > 1 ? mergeChunkCues(ready) : (ready[0]?.cues || []);
   if (!cues.length) {
     await clearAsrJob(bvid, cid);
-    throw new Error("Groq 没有识别出有效文本");
+    throw new Error("没有识别出有效文本");
   }
   await clearAsrJob(bvid, cid);
   return { text: cues.map((cue) => cue.content).join(""), segments: cues, words: [], cues };
@@ -1466,11 +2933,11 @@ function startWorkerHeartbeat() {
   return () => clearInterval(timer);
 }
 
-async function transcribeWithGroq(blob, { apiKey, language, signal, filename, current, total }) {
+async function transcribeWithGroq(blob, { apiKey, model, language, signal, filename, current, total }) {
   const form = new FormData();
   const ext = filename?.includes(".") ? filename.split(".").pop() : guessExt(blob.type);
   form.append("file", blob, filename || `audio.${ext}`);
-  form.append("model", GROQ_MODEL);
+  form.append("model", model || GROQ_MODEL);
   form.append("response_format", "verbose_json");
   form.append("temperature", "0");
   form.append("timestamp_granularities[]", "segment");
@@ -1532,7 +2999,9 @@ async function transcribeWithGroq(blob, { apiKey, language, signal, filename, cu
     if ([408, 429, 500, 502, 503, 504].includes(res.status)) {
       throw groqTransientError(`Groq 错误 ${res.status}`, res.status, res.status === 429 ? 15000 : 8000);
     }
-    throw new Error(`Groq 返回异常：${text.slice(0, 200)}`);
+    const error = new Error(`Groq 返回异常：${text.slice(0, 200)}`);
+    error.status = res.status;
+    throw error;
   }
   if (!res.ok) {
     const raw = json?.error?.message || json?.message || `Groq 错误 ${res.status}`;
@@ -1543,7 +3012,9 @@ async function transcribeWithGroq(blob, { apiKey, language, signal, filename, cu
     if ([408, 500, 502, 503, 504].includes(res.status) || /bad gateway|unavailable|timeout|gateway/i.test(raw)) {
       throw groqTransientError(raw, res.status, 8000);
     }
-    throw new Error(raw);
+    const error = new Error(raw);
+    error.status = res.status;
+    throw error;
   }
   const cues = Array.isArray(json?.segments) ? json.segments.length : 0;
   appLog("info", "groq", `第 ${current || 1}/${total || 1} 段 Groq ${res.status}，${cues} 句，${Math.round(ms / 1000)} 秒`, {
@@ -1570,12 +3041,15 @@ function segmentsToCues(result) {
   const words = normalizeWords(result?.words);
   const segments = Array.isArray(result?.segments) ? result.segments : [];
   const cues = segments
-    .map((seg, index) => ({
-      from: Number(seg.start) || 0,
-      to: Number(seg.end) || 0,
-      content: String(seg.text || "").replace(/\s+/g, " ").trim(),
-      sid: index + 1
-    }))
+    .map((seg, index) => {
+      const from = Math.max(0, Number(seg.start) || 0);
+      return {
+        from,
+        to: Math.max(from + 0.15, Number(seg.end) || 0),
+        content: String(seg.text || "").replace(/\s+/g, " ").trim(),
+        sid: index + 1
+      };
+    })
     .filter((item) => item.content);
 
   // 有官方 segments 就用它当行，词级时间戳只在切开长段时对轴
@@ -1730,6 +3204,16 @@ function splitLongCue(cue, words) {
   return allocateTimesByWords(cue.from, cue.to, pieces, words);
 }
 
+function joinCueText(left, right) {
+  if (self.BiliCaptionTranslate?.joinCueText) {
+    return self.BiliCaptionTranslate.joinCueText(left, right);
+  }
+  const a = String(left || "").trimEnd();
+  const b = String(right || "").trimStart();
+  const needsSpace = /[A-Za-z0-9]$/.test(a) && /^[A-Za-z0-9]/.test(b);
+  return `${a}${needsSpace ? " " : ""}${b}`.replace(/\s+/g, " ").trim();
+}
+
 function mergeTinyCues(cues) {
   const out = [];
   for (const cue of cues) {
@@ -1743,7 +3227,7 @@ function mergeTinyCues(cues) {
     const nextStartsClause = CLAUSE_MARKERS.some((m) => cue.content.startsWith(m));
     const tiny = cueLen(prev.content) < 8 || cueLen(cue.content) < 6;
     if (tiny && !nextStartsClause && gap < 0.4 && mergedLen <= 40) {
-      prev.content = `${prev.content}${cue.content}`.replace(/\s+/g, " ").trim();
+      prev.content = joinCueText(prev.content, cue.content);
       prev.to = cue.to;
       continue;
     }
@@ -1769,7 +3253,7 @@ function stitchBrokenWraps(cues) {
     const gap = prev ? (Number(cue.from) || 0) - (Number(prev.to) || 0) : 99;
     const prevEnds = HARD_PUNCT.test(prev?.content?.slice(-1) || "");
     if (prev && !prevEnds && gap < 0.55 && cueLen(prev.content) <= 26) {
-      prev.content = `${prev.content}${cue.content}`.replace(/\s+/g, " ").trim();
+      prev.content = joinCueText(prev.content, cue.content);
       prev.to = cue.to;
       continue;
     }
@@ -1898,6 +3382,11 @@ function cancelAsrJob(jobId, extra = {}) {
   return true;
 }
 
+function boostAsrJob() {
+  // 通道切换已全自动：前面的通道限流会立即落到后面的通道，无需手动加速
+  return { ok: false, error: "通道切换已自动化，前面的通道限流时会自动切到后面的通道" };
+}
+
 async function generateAsr(input, sender) {
   const jobId = String(input.jobId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const controller = new AbortController();
@@ -1918,57 +3407,77 @@ async function generateAsr(input, sender) {
       cid: Number(input.cid) || 0
     });
 
-    const { groqApiKey, asrLanguage } = await chrome.storage.sync.get({
+    const storage = await BiliCaptionPrefs.loadSettings({
       groqApiKey: "",
+      sttKey: "",
+      sttProvider: "Groq",
+      sttCreds: {},
+      sttModel: "",
+      backupProvider: "不启用",
+      backupKey: "",
       asrLanguage: ""
     });
     throwIfAborted(signal);
-    if (!groqApiKey) {
-      throw new Error("请先在设置里填写 Groq API Key（console.groq.com）");
+    const P = self.BiliCaptionProviders;
+    // 预过滤掉不可用通道（没填 Key 的付费通道），链里至少留一条可用的
+    const channels = P.resolveChannels(storage).filter((cfg) => P.channelUsable(cfg));
+    if (!channels.length) {
+      throw new Error("请先在设置里添加并配置好转写通道（至少一条填好 Key，或用免 Key 的 ElevenLabs）");
     }
-
-    try {
-      await chrome.permissions.request({ origins: ["https://api.groq.com/*"] });
-    } catch {
-      // optional
-    }
+    const sttCfg = channels[0];
+    job.channels = channels;
+    job.channelCools = [];
+    job.deadChannels = [];
+    job.activeChannel = 0;
+    // 兼容存量引用（日志/缓存元信息用）
+    job.sttCfg = sttCfg;
+    job.backupCfg = null;
+    const compatibilityError = jobCompatibilityError(sttCfg);
+    if (compatibilityError) throw new Error(compatibilityError);
 
     const meta = await resolveVideoMeta(input);
     throwIfAborted(signal);
     job.bvid = meta.bvid || job.bvid;
     job.cid = meta.cid || job.cid;
-    const lockKey = `${meta.bvid || "bv"}:${meta.cid || 0}`;
+    const lockKey = asrLockKey(meta.bvid, meta.cid);
     const live = asrJobLocks.get(lockKey);
-    if (live) {
-      job.joined = true;
-      asrJobs.delete(jobId);
-      return live;
+    if (live && live.jobId !== jobId) {
+      const pending = live.work || await waitForAsrLockWork(lockKey);
+      if (pending) {
+        job.joined = true;
+        asrJobs.delete(jobId);
+        return pending;
+      }
     }
-
-    const existingJob = await loadAsrJob(meta.bvid, meta.cid);
-    const cachedAsr = await loadCachedAsr(meta.bvid, meta.cid);
-    const lastCueTo = Math.max(0, ...(cachedAsr?.cues || []).map((cue) => Number(cue.to) || 0));
-    const looksIncomplete = lastCueTo > 20 && Number(meta.duration) > 0 && lastCueTo < Number(meta.duration) - 90;
-    const resume = Boolean(
-      (existingJob?.parts?.length && existingJob.pending !== false)
-      || cachedAsr?.partial
-      || looksIncomplete
-    );
-    const forceRestart = Boolean(input.force) && !resume;
-    if (forceRestart) await clearAsrJob(meta.bvid, meta.cid);
-
-    const work = runAsrJob(job, {
-      meta,
-      signal,
-      groqApiKey,
-      asrLanguage,
-      forceRestart
-    });
-    asrJobLocks.set(lockKey, work);
+    asrJobLocks.set(lockKey, { jobId });
     try {
+      const existingJob = await loadAsrJob(meta.bvid, meta.cid);
+      const cachedAsr = await loadCachedAsr(meta.bvid, meta.cid);
+      const lastCueTo = maxCueField(cachedAsr?.cues);
+      const looksIncomplete = cachedAsr?.partial == null
+        && lastCueTo > 20
+        && Number(meta.duration) > 0
+        && lastCueTo < Number(meta.duration) - 90;
+      const resume = Boolean(
+        (existingJob?.parts?.length && existingJob.pending !== false)
+        || cachedAsr?.partial
+        || looksIncomplete
+      );
+      const forceRestart = Boolean(input.force) && !resume;
+      if (forceRestart) await clearAsrJob(meta.bvid, meta.cid);
+
+      const work = runAsrJob(job, {
+        meta,
+        signal,
+        groqApiKey: sttCfg.key || storage.groqApiKey,
+        asrLanguage: storage.asrLanguage,
+        forceRestart
+      });
+      asrJobLocks.set(lockKey, { jobId, work });
       return await work;
     } finally {
-      if (asrJobLocks.get(lockKey) === work) asrJobLocks.delete(lockKey);
+      const cur = asrJobLocks.get(lockKey);
+      if (cur?.jobId === jobId) asrJobLocks.delete(lockKey);
     }
   } catch (error) {
     if (signal.aborted || error?.name === "AbortError") {
@@ -2001,6 +3510,21 @@ async function generateAsr(input, sender) {
   }
 }
 
+function asrLockKey(bvid, cid) {
+  return `${bvid || "bv"}:${Number(cid) || 0}`;
+}
+
+async function waitForAsrLockWork(lockKey, timeoutMs = 2000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const live = asrJobLocks.get(lockKey);
+    if (live?.work) return live.work;
+    if (!live) return null;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  return asrJobLocks.get(lockKey)?.work || null;
+}
+
 function startAsr(input, sender) {
   const existing = findAsrJob({
     bvid: input.bvid,
@@ -2011,7 +3535,14 @@ function startAsr(input, sender) {
     return { started: true, joined: true, jobId: existing.jobId };
   }
 
+  const lockKey = (input.bvid || input.cid) ? asrLockKey(input.bvid, input.cid) : "";
+  if (lockKey && asrJobLocks.has(lockKey)) {
+    const live = asrJobLocks.get(lockKey);
+    return { started: true, joined: true, jobId: live?.jobId || "" };
+  }
+
   const jobId = String(input.jobId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  if (lockKey) asrJobLocks.set(lockKey, { jobId });
   generateAsr({ ...input, jobId }, sender).catch(() => {
     // 结果通过 ASR_PROGRESS 广播，避免单个消息请求持续数小时
   });
@@ -2037,25 +3568,29 @@ async function runAsrJob(job, { meta, signal, groqApiKey, asrLanguage, forceRest
       cid: meta.cid,
       tabId: job.tabId,
       forceRestart,
+      job,
       onProgress: (info) => {
         const extra = typeof info === "string" ? { message: info } : info;
-        jobBroadcast(job, { stage: extra.stage || "upload", ...extra });
+        const { job: _j, ...safe } = extra || {};
+        jobBroadcast(job, { stage: extra.stage || "upload", ...safe });
       }
     });
 
     throwIfAborted(signal);
-    const cues = result.cues?.length ? result.cues : segmentsToCues(result);
-    if (!cues.length) throw new Error("Groq 没有识别出有效文本");
+    let cues = result.cues?.length ? result.cues : segmentsToCues(result);
+    if (!cues.length) throw new Error(`${job.sttCfg?.provider || "转写服务"}没有识别出有效文本`);
 
     throwIfAborted(signal);
-    await saveCachedAsr(meta.bvid, meta.cid, {
+    const stored = await saveCachedAsr(meta.bvid, meta.cid, {
       cues,
       language: result.language || asrLanguage || "",
-      model: GROQ_MODEL,
+      model: job.lastSttModel || job.sttCfg?.model || GROQ_MODEL,
+      provider: job.lastSttProvider || job.sttCfg?.provider || "Groq",
       activeLan: "groq-asr",
       source: "groq",
       partial: false
     });
+    cues = stored.cues || cues;
 
     appLog("info", "asr", `生成完成 ${cues.length} 条`, { cues: cues.length, bvid: meta.bvid, cid: meta.cid });
     jobBroadcast(job, {
@@ -2064,16 +3599,19 @@ async function runAsrJob(job, { meta, signal, groqApiKey, asrLanguage, forceRest
       done: job.progress?.total || 1,
       total: job.progress?.total || 1,
       cues,
+      source: stored.source || "groq",
+      activeLan: stored.activeLan || "groq-asr",
       partial: false,
       waitUntil: 0
     });
 
     return {
       cues,
-      activeLan: "groq-asr",
-      source: "groq",
+      activeLan: stored.activeLan || "groq-asr",
+      source: stored.source || "groq",
       language: result.language || asrLanguage || "",
-      model: GROQ_MODEL,
+      model: job.lastSttModel || job.sttCfg?.model || GROQ_MODEL,
+      provider: job.lastSttProvider || job.sttCfg?.provider || "Groq",
       aid: meta.aid,
       cid: meta.cid,
       bvid: meta.bvid,
@@ -2093,6 +3631,23 @@ async function runAsrJob(job, { meta, signal, groqApiKey, asrLanguage, forceRest
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  const type = message?.type;
+  const handled = new Set([
+    ...CONTENT_MESSAGE_TYPES,
+    "GET_LOGS",
+    "CLEAR_LOGS",
+    "APPEND_LOG",
+    "START_TRANSLATE",
+    "CANCEL_TRANSLATE",
+    "CLEAR_VIDEO_CACHE"
+  ]);
+  if (handled.has(type) && !allowMessage(type, _sender)) {
+    sendResponse({ error: "无权调用" });
+    return true;
+  }
+  const tabId = isExtensionPage(_sender)
+    ? (Number(message?.tabId) || _sender.tab?.id || 0)
+    : (Number(_sender.tab?.id) || 0);
   const reply = (promise) => {
     Promise.resolve(promise)
       .then(sendResponse)
@@ -2112,10 +3667,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "SAVE_CUES_CACHE") {
     return reply(saveCachedAsr(message.bvid, message.cid, {
-      cues: message.cues || [],
+      cues: clampCues(message.cues),
       activeLan: message.activeLan || "",
       source: message.source || "groq"
     }).then(() => ({ ok: true })));
+  }
+  if (message?.type === "CLEAR_VIDEO_CACHE") {
+    return reply(clearVideoCache(message.bvid || "", Number(message.cid) || 0));
   }
   if (message?.type === "GET_LOGS") {
     return reply(getAppLogs().then((logs) => ({ logs })));
@@ -2131,12 +3689,41 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "CANCEL_ASR") {
-    cancelAsrJob(message.jobId, {
+    const ok = cancelAsrJob(message.jobId, {
       bvid: message.bvid,
       cid: message.cid,
       tabId: message.tabId
     });
-    sendResponse({ ok: true });
+    sendResponse({ ok });
+    return true;
+  }
+  if (message?.type === "BOOST_ASR") {
+    sendResponse(boostAsrJob({
+      jobId: message.jobId,
+      bvid: message.bvid,
+      cid: message.cid,
+      tabId: message.tabId
+    }));
+    return true;
+  }
+  if (message?.type === "PAUSE_ASR") {
+    sendResponse(pauseAsrJob({
+      jobId: message.jobId,
+      bvid: message.bvid,
+      cid: message.cid,
+      tabId: message.tabId
+    }, message.paused !== false));
+    return true;
+  }
+  if (message?.type === "RETRY_ASR_CHUNK") {
+    sendResponse(retryAsrChunks({
+      jobId: message.jobId,
+      bvid: message.bvid,
+      cid: message.cid,
+      tabId: message.tabId
+    }, {
+      index: message.index
+    }));
     return true;
   }
   if (message?.type === "FETCH_CUES") {
@@ -2152,7 +3739,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "GENERATE_ASR") {
     sendResponse(startAsr({
       jobId: message.jobId,
-      tabId: message.tabId || _sender.tab?.id,
+      tabId,
       aid: message.aid,
       cid: message.cid,
       bvid: message.bvid,
@@ -2165,10 +3752,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }, _sender));
     return true;
   }
+  if (message?.type === "GET_TRANSLATE_JOB") {
+    return reply(getTranslateJobStatus(message));
+  }
+  if (message?.type === "CANCEL_TRANSLATE") {
+    const ok = cancelTranslateJob(message.jobId, {
+      bvid: message.bvid,
+      cid: message.cid,
+      tabId: message.tabId
+    });
+    sendResponse({ ok });
+    return true;
+  }
+  if (message?.type === "START_TRANSLATE") {
+    return reply(startTranslate({
+      jobId: message.jobId,
+      tabId,
+      bvid: message.bvid,
+      cid: message.cid,
+      cues: clampCues(message.cues)
+    }, _sender));
+  }
   if (message?.type === "CLOSE_SIDE_PANEL") {
     return reply((async () => {
       const ctx = await resolvePanelContext(_sender);
-      if (ctx.tabId) immersiveByTab.set(ctx.tabId, { immersive: true, windowId: ctx.windowId });
       await hideChromeSidePanel(ctx.tabId);
       return { ok: true };
     })());
@@ -2176,7 +3783,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "RESTORE_SIDE_PANEL") {
     const tabId = _sender.tab?.id;
     const windowId = _sender.tab?.windowId;
-    if (tabId) immersiveByTab.set(tabId, { immersive: false, windowId });
     // 必须立刻 open()，前面不能 await，否则点「侧栏」会丢掉用户手势
     showChromeSidePanel(tabId, windowId)
       .then(() => sendResponse({ ok: true }))
