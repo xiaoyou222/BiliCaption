@@ -1286,8 +1286,6 @@ function renderAsrJobBar() {
   if (bar) {
     show(bar, showAsr);
     if (showAsr) {
-      const canBoost = Boolean(waiting && progress.canBoost && progress.waitKind === "quota");
-      show($("btnBoostAsr"), canBoost);
       const pauseBtn = $("btnPauseAsr");
       if (pauseBtn) {
         pauseBtn.textContent = generating ? (asrPaused ? "继续" : "暂停") : "继续生成";
@@ -1414,7 +1412,6 @@ function applyAsrProgress(info) {
     current: Number(info.current) > 0 ? Number(info.current) : prevCurrent,
     waitKind: info.stage === "wait" ? (info.waitKind || asrProgress?.waitKind || "") : "",
     canBoost: Boolean(info.canBoost),
-    boosted: Boolean(info.boosted),
     provider: info.provider || asrProgress?.provider || "",
     running: info.running !== false && info.stage !== "done",
     chunks: Array.isArray(info.chunks) ? info.chunks : asrProgress?.chunks,
@@ -3231,32 +3228,6 @@ ui.btnChunkFold?.addEventListener("click", (event) => {
   renderAsrJobBar();
 });
 $("btnStopOutline")?.addEventListener("click", stopOutline);
-$("btnBoostAsr")?.addEventListener("click", async () => {
-  try {
-    const result = await chrome.runtime.sendMessage({
-      type: "BOOST_ASR",
-      jobId: asrJobId,
-      bvid: state?.bvid,
-      cid: state?.cid,
-      tabId: boundTabId || myTabId
-    });
-    if (result?.error) {
-      flash(result.error);
-      return;
-    }
-    if (asrProgress) {
-      asrProgress.boosted = true;
-      asrProgress.canBoost = false;
-      asrProgress.waitUntil = 0;
-    }
-    renderAsrJobBar();
-    flash(result?.provider
-      ? `已用 ${result.provider} 顶上，主服务冷却好了会切回去`
-      : "已用备用服务顶上，主服务冷却好了会切回去");
-  } catch (error) {
-    flash(error.message || "加速失败");
-  }
-});
 $("btnGenOutline").addEventListener("click", generateOutline);
 $("btnRegenOutline").addEventListener("click", () => {
   outline = null;

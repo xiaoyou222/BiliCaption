@@ -30,14 +30,23 @@
           </div>
           <div class="channel-head">
             <span class="sub">转写通道</span>
-            <span class="hint">列表顺序即优先级：前面的限流或失效会自动切到后面的，冷却结束自动切回</span>
+            <span class="hint">列表顺序即优先级：靠前的先用，限流或失效自动顺延到下一条，冷却结束再切回</span>
           </div>
           <div id="channelList" class="channel-list"></div>
-          <div class="channel-add">
-            <select id="addChannelProvider"></select>
-            <button type="button" id="btnAddChannel" class="btn-ghost">+ 添加通道</button>
+          <div class="channel-new">
+            <span class="label">新增通道：填好参数并测试通过后才能加入列表</span>
+            <div class="channel-new-row">
+              <select id="sttAddProvider"></select>
+              <input id="addKey" type="password" placeholder="API Key" />
+            </div>
+            <div class="channel-new-row">
+              <input id="addModel" type="text" placeholder="模型（留空用默认）" />
+              <button type="button" id="runAddTest" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
+              <button type="button" id="addChannel" class="btn-ghost" disabled>+ 添加通道</button>
+            </div>
+            <p id="addNote" class="hint hidden"></p>
           </div>
-          <p class="hint">同一服务商可添加多条（多个账号轮换）；ElevenLabs 的 Key 选填，不填走免 Key 演示通道</p>
+          <p class="hint">同一服务商可添加多条（多账号轮换）；ElevenLabs 的 Key 选填，不填走免 Key 演示通道</p>
         </section>
 
         <section id="tab-sum" class="pane hidden">

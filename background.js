@@ -2037,10 +2037,6 @@ async function waitForQuota(ms, signal, onProgress, extra = {}) {
   try {
     while (Date.now() < end) {
       throwIfAborted(signal);
-      if (job?.skipWait) {
-        job.skipWait = false;
-        break;
-      }
       // 有别的通道恢复了就提前结束等待
       if (job && extra.waitKind === "quota" && pickAsrChannel(job)) break;
       const left = end - Date.now();
@@ -2943,7 +2939,6 @@ async function transcribeWithGroq(blob, { apiKey, model, language, signal, filen
   form.append("timestamp_granularities[]", "segment");
   form.append("timestamp_granularities[]", "word");
   if (language) form.append("language", language);
-  if (language === "zh") form.append("prompt", "请使用简体中文转写。");
 
   const started = Date.now();
   const timed = abortAfter(signal, 180000);
@@ -3266,16 +3261,22 @@ function toSimplified(text) {
   return self.BiliCaptionZh?.toSimplified?.(text) || String(text || "");
 }
 
+/** Whisper 的 prompt 是上一句转写上下文，不是系统指令；静音时会把这句原样念进字幕。 */
+function stripAsrInstructionLeak(text) {
+  return String(text || "").replace(/^(请使用简体中文转写[。．.！!？?\s]*)+/, "").trim();
+}
+
 function refineAsrCues(cues, words = []) {
   const source = looksLikeHardWrap(cues) ? stitchBrokenWraps(cues) : cues;
   const flat = [];
   for (const cue of source) {
     for (const part of splitLongCue(cue, words)) {
-      if (!part.content) continue;
+      const content = toSimplified(stripAsrInstructionLeak(part.content));
+      if (!content) continue;
       flat.push({
         from: part.from,
         to: part.to,
-        content: toSimplified(part.content),
+        content,
         sid: flat.length + 1
       });
     }

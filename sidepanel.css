@@ -631,19 +631,6 @@ html.float-embed #btnFloat { display: none !important; }
   text-align: right;
 }
 
-.asr-job-boost {
-  border: 1px solid rgba(240, 184, 77, .4);
-  background: transparent;
-  color: #F0B84D;
-  font-size: 10px;
-  line-height: 17px;
-  padding: 0 7px;
-  border-radius: 5px;
-  cursor: pointer;
-  flex: none;
-  font-weight: 400;
-}
-
 .job-seg-track {
   height: 3px;
   border-radius: 2px;

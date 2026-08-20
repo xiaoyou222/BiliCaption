@@ -101,124 +101,113 @@ function setTestBtn(id, state, idle = "测连通") {
 
 // ---- 转写通道列表：顺序即优先级 ----
 
-function channelTail(ch) {
-  const schema = P.schema(ch.provider);
-  const key = String(ch.key || "").trim();
-  if (key) return key.length > 9 ? `· ${key.slice(0, 3)}…${key.slice(-4)}` : `· ${key}`;
-  return schema.keyless ? "· 免 Key" : "· 未填 Key";
+// 设计稿形态：只读通道卡片（⣿拖拽排序 + 序号 + 服务商 + Key尾 + 模型 + 测试 + ✕），新增走下方表单
+let draggingChannel = null;
+let addTestState = null;
+
+function channelKeyTail(key) {
+  const raw = String(key || "").trim();
+  if (!raw) return "";
+  return raw.length > 9 ? `${raw.slice(0, 3)}…${raw.slice(-4)}` : raw;
 }
 
 function renderChannels() {
   const host = $("channelList");
   if (!host) return;
+  // 防御：过滤掉缺服务商的脏数据，绝不渲染空行
+  sttChannels = sttChannels.filter((ch) => ch && P.STT_PROVIDERS.includes(ch.provider));
   host.replaceChildren();
   sttChannels.forEach((ch, i) => {
     const schema = P.schema(ch.provider);
+    const key = String(ch.key || "").trim();
     const row = document.createElement("div");
     row.className = "channel-row";
+    row.draggable = true;
+    row.addEventListener("dragstart", (e) => {
+      draggingChannel = i;
+      row.classList.add("is-dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", String(i)); } catch { /* ignore */ }
+    });
+    row.addEventListener("dragover", (e) => e.preventDefault());
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = draggingChannel;
+      if (from == null || from === i) return;
+      const [moved] = sttChannels.splice(from, 1);
+      sttChannels.splice(i, 0, moved);
+      draggingChannel = null;
+      renderChannels();
+    });
+    row.addEventListener("dragend", () => {
+      draggingChannel = null;
+      row.classList.remove("is-dragging");
+    });
 
-    const rank = document.createElement("span");
-    rank.className = "channel-rank";
-    rank.textContent = String(i + 1);
-    rank.title = i === 0 ? "最高优先级（主通道）" : `优先级 ${i + 1}`;
-    row.appendChild(rank);
-
-    const name = document.createElement("div");
-    name.className = "channel-name";
-    const title = document.createElement("span");
-    title.className = "channel-provider";
-    title.textContent = ch.provider;
+    const handle = document.createElement("span");
+    handle.className = "channel-handle";
+    handle.textContent = "⣿";
+    handle.title = "拖动调整优先级";
+    const num = document.createElement("span");
+    num.className = `channel-rank${i === 0 ? " is-first" : ""}`;
+    num.textContent = String(i + 1);
+    const name = document.createElement("span");
+    name.className = "channel-provider";
+    name.textContent = ch.provider;
     const tail = document.createElement("span");
     tail.className = "channel-tail";
-    tail.textContent = channelTail(ch);
-    name.append(title, tail);
-    if (schema.keyless) {
-      name.title = "Key 选填：不填走免 Key 演示通道（按 IP 限次），填了走官方正式通道";
-    }
-    row.appendChild(name);
-
-    const keyInput = document.createElement("input");
-    keyInput.type = "password";
-    keyInput.className = "channel-key";
-    keyInput.placeholder = schema.keyless ? "API Key（选填）" : (schema.fields?.[0]?.[2] || "API Key");
-    keyInput.value = ch.key || "";
-    keyInput.addEventListener("input", () => {
-      ch.key = keyInput.value;
-      tail.textContent = channelTail(ch);
-    });
-    row.appendChild(keyInput);
-
-    const modelInput = document.createElement("input");
-    modelInput.type = "text";
-    modelInput.className = "channel-model";
-    modelInput.placeholder = schema.model || "默认模型";
-    modelInput.value = ch.model || "";
-    modelInput.title = "留空用该服务商默认模型";
-    modelInput.addEventListener("input", () => {
-      ch.model = modelInput.value;
-    });
-    row.appendChild(modelInput);
-
+    tail.textContent = channelKeyTail(key) || (schema.keyless ? "免 Key" : "未填 Key");
+    const spacer = document.createElement("div");
+    spacer.style.cssText = "flex:1;min-width:8px";
+    const model = document.createElement("span");
+    model.className = "channel-model-label";
+    model.textContent = String(ch.model || "").trim() || schema.model || "";
     const test = document.createElement("button");
     test.type = "button";
-    test.className = "btn-ghost channel-test";
-    const orb = document.createElement("span");
-    orb.className = "btn-orb think-host";
-    orb.hidden = true;
-    const label = document.createElement("span");
-    label.className = "btn-label";
-    label.textContent = "测连通";
-    test.append(orb, label);
+    test.className = "channel-test";
+    test.textContent = "测试";
     test.addEventListener("click", () => testChannel(i, test));
-    row.appendChild(test);
-
-    const ops = document.createElement("div");
-    ops.className = "channel-ops";
-    const up = document.createElement("button");
-    up.type = "button";
-    up.className = "channel-op";
-    up.textContent = "↑";
-    up.disabled = i === 0;
-    up.title = "提高优先级";
-    up.addEventListener("click", () => moveChannel(i, -1));
-    const down = document.createElement("button");
-    down.type = "button";
-    down.className = "channel-op";
-    down.textContent = "↓";
-    down.disabled = i === sttChannels.length - 1;
-    down.title = "降低优先级";
-    down.addEventListener("click", () => moveChannel(i, 1));
     const del = document.createElement("button");
     del.type = "button";
     del.className = "channel-op danger";
-    del.textContent = "×";
-    del.title = "删除该通道";
+    del.textContent = "✕";
+    del.title = "删除通道";
     del.addEventListener("click", () => {
       sttChannels.splice(i, 1);
       renderChannels();
     });
-    ops.append(up, down, del);
-    row.appendChild(ops);
-
+    row.append(handle, num, name, tail, spacer, model, test, del);
     host.appendChild(row);
   });
   if (!sttChannels.length) {
     const empty = document.createElement("p");
     empty.className = "hint";
-    empty.textContent = "还没有转写通道，先在下面选择服务商添加一条";
+    empty.textContent = "还没有转写通道，在下方填好参数并测试通过后添加";
     host.appendChild(empty);
   }
 }
 
-function moveChannel(i, delta) {
-  const j = i + delta;
-  if (j < 0 || j >= sttChannels.length) return;
-  [sttChannels[i], sttChannels[j]] = [sttChannels[j], sttChannels[i]];
-  renderChannels();
+function currentAddCfg() {
+  return P.normalizeChannel({
+    provider: $("sttAddProvider").value || P.STT_PROVIDERS[0],
+    key: $("addKey").value,
+    model: $("addModel").value,
+    url: ""
+  });
 }
 
+function setAddState(state, note) {
+  addTestState = state;
+  const btn = $("addChannel");
+  btn.disabled = state !== "ok";
+  const noteEl = $("addNote");
+  noteEl.textContent = note || "";
+  noteEl.classList.toggle("hidden", !note);
+}
+
+/** 新增区：服务商下拉 + 占位提示 */
 function renderAddChannelOptions() {
-  const sel = $("addChannelProvider");
+  const sel = $("sttAddProvider");
   if (!sel) return;
   sel.replaceChildren(...P.STT_PROVIDERS.map((p) => {
     const o = document.createElement("option");
@@ -226,6 +215,14 @@ function renderAddChannelOptions() {
     o.textContent = p;
     return o;
   }));
+  const syncHint = () => {
+    const schema = P.schema(sel.value);
+    $("addKey").placeholder = schema.keyless ? "API Key（选填，不填走免 Key 演示通道）" : (schema.fields?.[0]?.[2] || "API Key");
+    $("addModel").placeholder = schema.model ? `模型（留空用 ${schema.model}）` : "模型（留空用默认）";
+    setAddState(null, "");
+  };
+  sel.addEventListener("change", syncHint);
+  syncHint();
 }
 
 async function testChannel(i, btn) {
@@ -233,16 +230,22 @@ async function testChannel(i, btn) {
   if (!ch) return;
   const cfg = P.normalizeChannel(ch);
   if (!cfg) return;
-  setTestBtn(btn, "testing");
+  const prev = "测试";
+  btn.textContent = "测试中";
+  btn.disabled = true;
   try {
     const result = await Stt.testConnection(cfg);
-    setTestBtn(btn, "ok");
+    btn.textContent = "✓ 成功";
     btn.title = result?.label || "已连通";
     noteLog("info", "set", `通道 ${i + 1}（${ch.provider}）${result?.label || "测试成功"}`);
   } catch (error) {
-    setTestBtn(btn, "fail");
+    btn.textContent = "✗ 失败";
     btn.title = error.message || String(error);
     noteLog("error", "set", `通道 ${i + 1}（${ch.provider}）测试失败：${error.message || error}`);
+  } finally {
+    btn.disabled = false;
+    clearTimeout(btn._t);
+    btn._t = setTimeout(() => { btn.textContent = prev; }, 1600);
   }
 }
 
@@ -646,12 +649,35 @@ function noteLog(level, scope, message) {
 document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.addEventListener("click", () => setTab(btn.dataset.tab));
 });
-$("btnAddChannel").addEventListener("click", () => {
-  const provider = $("addChannelProvider").value || P.STT_PROVIDERS[0];
-  sttChannels.push({ provider, key: "", model: "", url: "" });
+$("runAddTest").addEventListener("click", async () => {
+  const cfg = currentAddCfg();
+  const btn = $("runAddTest");
+  const label = btn.querySelector(".btn-label");
+  setTestBtn(btn, "testing", "测试");
+  if (!cfg.key && !P.schema(cfg.provider).keyless) {
+    setAddState("nokey", "请先填写 API Key");
+    setTestBtn(btn, "fail", "测试");
+    return;
+  }
+  try {
+    await Stt.testConnection(cfg);
+    setTestBtn(btn, "ok", "测试");
+    setAddState("ok", "测试通过，可以添加");
+  } catch (error) {
+    setTestBtn(btn, "fail", "测试");
+    setAddState("fail", error.message || String(error));
+  }
+});
+$("addKey").addEventListener("input", () => setAddState(null, ""));
+$("addModel").addEventListener("input", () => setAddState(null, ""));
+$("addChannel").addEventListener("click", () => {
+  if (addTestState !== "ok") return;
+  const cfg = currentAddCfg();
+  sttChannels.push({ provider: cfg.provider, key: String(cfg.key || "").trim(), model: String($("addModel").value || "").trim(), url: "" });
+  $("addKey").value = "";
+  $("addModel").value = "";
+  setAddState(null, "");
   renderChannels();
-  const rows = $("channelList").querySelectorAll(".channel-row");
-  rows[rows.length - 1]?.querySelector(".channel-key")?.focus();
 });
 $("testSum").addEventListener("click", () => testKind("sum"));
 $("sumModel").addEventListener("focus", () => openCombo("sum"));
