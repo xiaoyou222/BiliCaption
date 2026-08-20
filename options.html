@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BiliCaption 设置</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="page-head">
+      <div class="page-title">
+        <span class="logo" aria-hidden="true"></span>
+        <span>BiliCaption 设置</span>
+      </div>
+      <span class="page-path">chrome-extension://bilicaption/options.html</span>
+    </header>
+
+    <section class="card">
+      <h2>转写服务</h2>
+      <div class="card-body">
+        <div class="field">
+          <span class="field-label">服务商</span>
+          <div class="field-stack">
+            <span class="static-value">Groq</span>
+            <span class="hint">目前只接通 Groq 转写，长视频会自动切片</span>
+          </div>
+        </div>
+        <div class="field top">
+          <label for="sttKey">API Key<span class="req">必填</span></label>
+          <div class="field-stack">
+            <input id="sttKey" type="password" placeholder="gsk_..." />
+            <span class="hint">仅保存在本机浏览器。免费档大约每天 8 小时音频，不是无限额度</span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">连通性</span>
+          <div class="test-row">
+            <button id="testStt" type="button" class="btn-test">测试连接</button>
+            <span id="sttTestMsg" class="test-msg"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>总结服务</h2>
+      <div class="card-body">
+        <div class="field">
+          <label for="sumProvider">服务商</label>
+          <select id="sumProvider">
+            <option value="OpenAI">OpenAI</option>
+            <option value="硅基流动">硅基流动</option>
+            <option value="自定义">自定义</option>
+          </select>
+        </div>
+        <div id="sumCustomFields" class="field-group hidden">
+          <div class="field">
+            <label for="sumUrl">接口地址</label>
+            <input id="sumUrl" type="url" placeholder="https://api.example.com/v1" />
+          </div>
+          <div class="field">
+            <label for="sumModel">模型</label>
+            <input id="sumModel" type="text" placeholder="llama-3.3-70b" />
+          </div>
+        </div>
+        <div id="sumKeyField" class="field">
+          <label for="sumKey">API Key</label>
+          <input id="sumKey" type="password" placeholder="sk-..." />
+        </div>
+        <div class="field top">
+          <label for="summaryPad">上下文</label>
+          <div class="field-stack">
+            <input id="summaryPad" type="number" min="0" max="50" step="1" value="10" />
+            <span class="hint">总结时上下各取多少条字幕，默认 10，可填 0–50</span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">连通性</span>
+          <div class="test-row">
+            <button id="testSum" type="button" class="btn-test">测试连接</button>
+            <span id="sumTestMsg" class="test-msg"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>快捷键</h2>
+      <div class="card-body">
+        <div class="field center">
+          <span class="field-label">划选</span>
+          <button id="recordKey" type="button">Shift</button>
+          <span class="hint">鼠标放在起点，按住后滑动</span>
+        </div>
+        <div class="field center">
+          <span class="field-label">倍速</span>
+          <div class="keys">
+            <span>Z 恢复 1.0</span>
+            <span>X −0.1</span>
+            <span>C +0.1</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="save-row">
+      <button id="saveSettings" type="button">保存</button>
+      <span id="settingsMsg"></span>
+    </div>
+
+    <section class="card log-card">
+      <div class="card-head">
+        <h2>运行日志</h2>
+        <div class="log-actions">
+          <select id="logFilter" aria-label="筛选日志">
+            <option value="all">全部</option>
+            <option value="warn">警告和错误</option>
+            <option value="error">仅错误</option>
+          </select>
+          <button id="copyLogs" type="button" class="btn-test">复制</button>
+          <button id="clearLogs" type="button" class="btn-test">清空</button>
+        </div>
+      </div>
+      <p class="log-hint">转写、下载、Groq 返回码和重试原因会记在这里。API Key 不会写入。最多保留 200 条。</p>
+      <div id="logEmpty" class="log-empty">还没有日志。在侧栏点一次「生成字幕」后，失败和重试会出现在这里。</div>
+      <div id="logList" class="log-list hidden"></div>
+    </section>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "BiliCaption",
+  "version": "0.4.0",
+  "description": "B 站侧边栏字幕：AI/CC、Groq 生成、倍速、导出、划选总结",
+  "action": {
+    "default_title": "打开 BiliCaption 侧边栏",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["sidePanel", "storage", "tabs", "scripting", "clipboardWrite", "declarativeNetRequest"],
+  "host_permissions": [
+    "*://*.bilibili.com/*",
+    "*://*.hdslb.com/*",
+    "*://*.bilivideo.com/*",
+    "*://*.bilivideo.cn/*",
+    "*://*.akamaized.net/*",
+    "https://api.groq.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://www.bilibili.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "sidepanel.html",
+        "sidepanel.css",
+        "sidepanel.js",
+        "lib/*"
+      ],
+      "matches": [
+        "*://www.bilibili.com/*"
+      ]
+    }
+  ]
+}

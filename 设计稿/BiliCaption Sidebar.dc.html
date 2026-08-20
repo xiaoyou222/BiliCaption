@@ -1,0 +1,1634 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
+html,body{margin:0;background:#0B0C0E;font-family:'Noto Sans SC',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#E7E9ED}
+a{color:#4D8EF0;text-decoration:none}a:hover{color:#79ACF5}
+input,button,textarea,select{font-family:inherit}
+input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;height:14px;accent-color:#4D8EF0}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:rgba(255,255,255,.18);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:#4D8EF0;margin-top:-4.5px;cursor:pointer;border:none}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:5px}::-webkit-scrollbar-track{background:transparent}
+@keyframes bcPulse{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes bcFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes bcOrbSpin{to{transform:rotate(360deg)}}
+@keyframes bcOrbPulse{0%,100%{opacity:.18;transform:var(--p) scale(.7)}45%{opacity:1;transform:var(--p) scale(1.25)}}
+@keyframes bcOrbGlow{0%,100%{opacity:.3;transform:scale(.92)}50%{opacity:.68;transform:scale(1.06)}}
+@keyframes bcCaret{0%,45%{opacity:1}50%,100%{opacity:0}}
+</style></helmet>
+
+<div style="height:100vh;overflow:hidden;display:flex;flex-direction:column;background:#0B0C0E">
+
+<div style="display:flex;align-items:center;gap:14px;padding:6px 18px;background:#15171B;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap;flex:none">
+  <span style="font-size:9.5px;letter-spacing:.16em;color:#6B7078;flex:none">DEMO</span>
+  <div style="display:flex;gap:5px;flex-wrap:wrap">
+    <sc-for list="{{ scenarios }}" as="s" hint-placeholder-count="10">
+      <button style="{{ s.style }}" onClick="{{ s.onClick }}">{{ s.label }}</button>
+    </sc-for>
+  </div>
+  <div style="flex:1;min-width:12px"></div>
+  <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;color:#565C66">面板 #121417 · 卡片 #17191D · 描边 rgba(255,255,255,.09) · 主色 #4D8EF0 · 圆角 7/10/12 · 间距 8/12/16</span>
+</div>
+
+<div ref="{{ stageRef }}" style="flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:8px 12px;background:#0B0C0E">
+
+  <sc-if value="{{ isLibraryCarrier }}" hint-placeholder-val="{{ false }}">
+    <div style="width:820px;height:560px;flex:none;box-sizing:border-box;background:#121417;border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden;display:flex;flex-direction:column">
+
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07)">
+        <span style="width:15px;height:15px;border-radius:4px;background:#4D8EF0;flex:none"></span>
+        <span style="font-size:13px;font-weight:600;color:#E7E9ED;flex:none">标记库</span>
+        <span style="{{ libSyncStyle }}"><span style="{{ libSyncDot }}"></span>{{ libSyncLabel }}</span>
+        <div style="flex:1;min-width:0"></div>
+        <input value="{{ libQuery }}" onChange="{{ onLibQuery }}" placeholder="搜索标记内容或视频…" style="width:200px;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:6px 10px;color:#E7E9ED;font-size:11.5px;outline:none">
+      </div>
+
+      <div style="flex:1;min-height:0;display:flex">
+        <div style="width:268px;flex:none;border-right:1px solid rgba(255,255,255,.07);overflow:auto;padding:8px">
+          <sc-for list="{{ libVideos }}" as="v" hint-placeholder-count="4">
+            <div style="{{ v.wrap }}" onClick="{{ v.onClick }}" onMouseEnter="{{ v.onEnter }}" onMouseLeave="{{ v.onLeave }}">
+              <div style="{{ v.thumb }}">{{ v.dur }}</div>
+              <div style="display:flex;flex-direction:column;gap:3px;min-width:0;flex:1">
+                <span style="{{ v.title }}">{{ v.titleLabel }}</span>
+                <span style="font-size:10.5px;color:#565C66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ v.meta }}</span>
+              </div>
+
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07)">
+            <span style="font-size:11px;color:#565C66;flex:1;min-width:0">{{ libCurCount }}</span>
+            <button style="{{ libBtn }}" onClick="{{ libOpenVideo }}">打开视频</button>
+            <button style="{{ libBtn }}" onClick="{{ libExport }}">导出</button>
+          </div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:8px 14px 12px">
+            <sc-for list="{{ libMarks }}" as="m" hint-placeholder-count="5">
+              <div style="{{ m.wrap }}" onClick="{{ m.onClick }}">
+                <span style="{{ m.time }}">{{ m.timeLabel }}</span>
+                <span style="{{ m.text }}">{{ m.textLabel }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isSettingsCarrier }}" hint-placeholder-val="{{ false }}">
+    <div style="width:820px;height:560px;flex:none;box-sizing:border-box;background:#121417;border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden;display:flex">
+
+      <div style="width:160px;flex:none;background:#15171A;border-right:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;padding:18px 10px;gap:2px">
+        <div style="display:flex;align-items:center;gap:8px;padding:0 8px 14px">
+          <span style="width:15px;height:15px;border-radius:4px;background:#4D8EF0;flex:none"></span>
+          <span style="font-size:12px;font-weight:600;color:#E7E9ED">BiliCaption</span>
+        </div>
+        <sc-for list="{{ settingsNav }}" as="n" hint-placeholder-count="4"><button style="{{ n.style }}" onClick="{{ n.onClick }}">{{ n.label }}</button></sc-for>
+        <div style="flex:1"></div>
+        <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;color:#3E434B;padding:0 8px">v1.4.2</span>
+      </div>
+
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+        <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:22px 26px;display:flex;flex-direction:column;gap:16px">
+
+          <sc-if value="{{ tabStt }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:13px;line-height:16px;font-weight:600;color:#E7E9ED">转写服务</span>
+              <span style="position:relative;display:inline-flex;align-items:center" onMouseEnter="{{ tipStt.onEnter }}" onMouseLeave="{{ tipStt.onLeave }}">
+                <span style="{{ tipStt.dotStyle }}">?</span>
+                <sc-if value="{{ tipStt.show }}" hint-placeholder-val="{{ false }}"><span style="{{ tipStt.bubbleStyle }}">{{ tipStt.text }}</span></sc-if>
+              </span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:11px;color:#8A9099">服务商</span>
+              <div style="display:flex;flex-wrap:wrap;background:#17191D;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:2px;gap:2px">
+                <sc-for list="{{ sttSeg }}" as="p" hint-placeholder-count="7"><button style="{{ p.style }}" onClick="{{ p.onClick }}">{{ p.label }}</button></sc-for>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:{{ sttCredCols }};gap:10px;align-content:start">
+              <sc-for list="{{ sttFields }}" as="f" hint-placeholder-count="1">
+                <div style="{{ f.wrap }}">
+                  <span style="font-size:11px;color:#8A9099">{{ f.label }}</span>
+                  <input type="password" value="{{ f.value }}" onChange="{{ f.onChange }}" placeholder="{{ f.placeholder }}" style="width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none">
+                </div>
+              </sc-for>
+              <div style="display:flex;align-items:flex-end;gap:10px">
+                <button style="{{ sttTestBtnStyle }}" onClick="{{ testStt }}">{{ sttTestLabel }}</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;max-width:280px">
+              <span style="font-size:11px;color:#8A9099">模型</span>
+              <div style="position:relative">
+                <input value="{{ sttModelText }}" onChange="{{ sttModelChange }}" onFocus="{{ sttModelOpen }}" placeholder="{{ sttModelPlaceholder }}" style="{{ sttModelInputStyle }}">
+                <span style="{{ sttModelCaretStyle }}" onClick="{{ sttModelOpen }}">⌄</span>
+                <sc-if value="{{ sttModelPanelOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;top:calc(100% + 4px);left:0;right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:4px;z-index:9;box-shadow:0 10px 28px rgba(0,0,0,.5);max-height:170px;overflow:auto">
+                    <div style="display:flex;align-items:center;gap:6px;padding:3px 7px 5px">
+                      <span style="font-size:10px;color:#565C66;flex:1;min-width:0">{{ sttModelHintLabel }}</span>
+                      <button style="border:none;background:transparent;color:#8A9099;font-size:10px;padding:0;cursor:pointer;flex:none" onClick="{{ sttModelRefresh }}">⟳ 刷新</button>
+                    </div>
+                    <sc-for list="{{ sttModelItems }}" as="m" hint-placeholder-count="3"><button style="{{ m.style }}" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:2px 0"></div>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <span style="font-size:11.5px;font-weight:500;color:#C7CBD1">备用服务商</span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <select value="{{ backupProvider }}" onChange="{{ onBackupProvider }}" style="{{ backupSelectStyle }}">
+                  <sc-for list="{{ backupOptions }}" as="p" hint-placeholder-count="7"><option value="{{ p }}">{{ p }}</option></sc-for>
+                </select>
+                <input type="password" value="{{ backupKey }}" onChange="{{ onBackupKey }}" placeholder="{{ backupKeyPlaceholder }}" style="{{ backupKeyStyle }}">
+                <button style="{{ backupTestBtnStyle }}" onClick="{{ testBackup }}">{{ backupTestLabel }}</button>
+              </div>
+              <span style="font-size:10.5px;color:#4A4F58">主服务商额度冷却时，可在进度条上一键切到备用</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabSum }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:13px;line-height:16px;font-weight:600;color:#E7E9ED">总结服务</span>
+              <span style="position:relative;display:inline-flex;align-items:center" onMouseEnter="{{ tipSum.onEnter }}" onMouseLeave="{{ tipSum.onLeave }}">
+                <span style="{{ tipSum.dotStyle }}">?</span>
+                <sc-if value="{{ tipSum.show }}" hint-placeholder-val="{{ false }}"><span style="{{ tipSum.bubbleStyle }}">{{ tipSum.text }}</span></sc-if>
+              </span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:11px;color:#8A9099">服务商</span>
+              <div style="display:flex;flex-wrap:wrap;background:#17191D;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:2px;gap:2px">
+                <sc-for list="{{ sumSeg }}" as="p" hint-placeholder-count="7"><button style="{{ p.style }}" onClick="{{ p.onClick }}">{{ p.label }}</button></sc-for>
+              </div>
+            </div>
+            <sc-if value="{{ sumIsCustom }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:11px;color:#8A9099">接口地址</span>
+                <input value="{{ sumUrl }}" onChange="{{ onSumUrl }}" placeholder="https://api.example.com/v1" style="width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none">
+              </div>
+            </sc-if>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:11px;color:#8A9099">API Key</span>
+              <div style="display:flex;gap:8px">
+                <input type="password" value="{{ sumKey }}" onChange="{{ onSumKey }}" placeholder="{{ sumKeyPlaceholder }}" style="width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none">
+                <button style="{{ sumTestBtnStyle }}" onClick="{{ testSum }}">{{ sumTestLabel }}</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;max-width:280px">
+              <span style="font-size:11px;color:#8A9099">模型</span>
+              <div style="position:relative">
+                <input value="{{ sumModelText }}" onChange="{{ sumModelChange }}" onFocus="{{ sumModelOpen }}" placeholder="{{ sumModelPlaceholder }}" style="{{ sumModelInputStyle }}">
+                <span style="{{ sumModelCaretStyle }}" onClick="{{ sumModelOpen }}">⌄</span>
+                <sc-if value="{{ sumModelPanelOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;top:calc(100% + 4px);left:0;right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:4px;z-index:9;box-shadow:0 10px 28px rgba(0,0,0,.5);max-height:170px;overflow:auto">
+                    <div style="display:flex;align-items:center;gap:6px;padding:3px 7px 5px">
+                      <span style="font-size:10px;color:#565C66;flex:1;min-width:0">{{ sumModelHintLabel }}</span>
+                      <button style="border:none;background:transparent;color:#8A9099;font-size:10px;padding:0;cursor:pointer;flex:none" onClick="{{ sumModelRefresh }}">⟳ 刷新</button>
+                    </div>
+                    <sc-for list="{{ sumModelItems }}" as="m" hint-placeholder-count="3"><button style="{{ m.style }}" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:11px;color:#8A9099">总结时带上的上下文条数</span>
+              <div style="display:inline-flex;align-items:stretch;align-self:flex-start;height:30px;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;overflow:hidden">
+                <button style="{{ ctxBtnL }}" onClick="{{ ctxDec }}">−</button>
+                <input value="{{ sumCtx }}" onChange="{{ onSumCtxInput }}" style="width:42px;box-sizing:border-box;background:transparent;border:none;padding:0;color:#E7E9ED;font-size:12px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none">
+                <button style="{{ ctxBtnR }}" onClick="{{ ctxInc }}">+</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabSync }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:13px;line-height:16px;font-weight:600;color:#E7E9ED">数据同步</span>
+              <span style="position:relative;display:inline-flex;align-items:center" onMouseEnter="{{ tipSync.onEnter }}" onMouseLeave="{{ tipSync.onLeave }}">
+                <span style="{{ tipSync.dotStyle }}">?</span>
+                <sc-if value="{{ tipSync.show }}" hint-placeholder-val="{{ false }}"><span style="{{ tipSync.bubbleStyle }}">{{ tipSync.text }}</span></sc-if>
+              </span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <button style="{{ syncToggleStyle }}" onClick="{{ toggleSync }}"><span style="{{ syncKnobStyle }}"></span></button>
+              <span style="font-size:11.5px;color:#C7CBD1">同步到我的 WebDAV</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <span style="font-size:11px;color:#8A9099">同步内容</span>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <sc-for list="{{ syncScope }}" as="c" hint-placeholder-count="3"><button style="{{ c.style }}" onClick="{{ c.onClick }}">{{ c.label }}</button></sc-for>
+              </div>
+              <sc-if value="{{ syncKeysOn }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:10.5px;color:#F0B84D">API Key 会以明文写入你的网盘文件，确认这个网盘只有你能访问</span>
+              </sc-if>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:11px;color:#8A9099">服务器地址</span>
+              <input value="{{ davUrl }}" onChange="{{ onDavUrl }}" placeholder="https://dav.example.com/bilicaption/" style="width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+                <span style="font-size:11px;color:#8A9099">用户名</span>
+                <input value="{{ davUser }}" onChange="{{ onDavUser }}" placeholder="me@example.com" style="width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none">
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+                <span style="font-size:11px;color:#8A9099">密码 / 应用密码</span>
+                <input type="password" value="{{ davPass }}" onChange="{{ onDavPass }}" placeholder="****" style="width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none">
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <button style="{{ davTestBtnStyle }}" onClick="{{ testDav }}">{{ davTestLabel }}</button>
+              <button style="{{ davSyncBtnStyle }}" onClick="{{ syncNow }}">立即同步</button>
+              <span style="font-size:10.5px;color:#4A4F58">{{ davStatusLabel }}</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabKeys }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:13px;font-weight:600;color:#E7E9ED">快捷键</div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-size:11px;color:#8A9099;width:88px;flex:none">划选（按住）</span>
+              <button onClick="{{ toggleRecordKey }}" style="{{ recordBtnStyle }}">{{ recordBtnLabel }}</button>
+              <span style="font-size:10.5px;color:#4A4F58">按住此键在字幕上拖动</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-size:11px;color:#8A9099;width:88px;flex:none">倍速</span>
+              <div style="display:flex;gap:5px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8A9099">
+                <span style="border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:3px 8px">Z 恢复 1×</span>
+                <span style="border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:3px 8px">X −0.1</span>
+                <span style="border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:3px 8px">C +0.1</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabLogs }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;font-weight:600;color:#E7E9ED;flex:1">运行日志</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#4A4F58">{{ logCountLabel }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="display:flex;background:#17191D;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:2px;gap:2px">
+                <sc-for list="{{ logFilterSeg }}" as="f" hint-placeholder-count="2"><button style="{{ f.style }}" onClick="{{ f.onClick }}">{{ f.label }}</button></sc-for>
+              </div>
+              <input value="{{ logQuery }}" onChange="{{ onLogQuery }}" placeholder="搜索…" style="flex:1;min-width:80px;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:5px 9px;color:#E7E9ED;font-size:11.5px;outline:none">
+              <button style="{{ logBtn }}" onClick="{{ exportLogs }}">导出</button>
+              <button style="{{ logBtn }}" onClick="{{ clearLogs }}">清空</button>
+            </div>
+            <div style="display:flex;flex-direction:column;margin:0 -26px">
+              <sc-for list="{{ logRows }}" as="g" hint-placeholder-count="6">
+                <div style="{{ g.wrap }}">
+                  <div style="display:flex;align-items:baseline;gap:9px;cursor:pointer" onClick="{{ g.onToggle }}">
+                    <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#565C66;flex:none">{{ g.time }}</span>
+                    <span style="{{ g.levelStyle }}">{{ g.level }}</span>
+                    <span style="font-size:10.5px;color:#8A9099;flex:none">{{ g.src }}</span>
+                    <span style="{{ g.msgStyle }}">{{ g.msg }}</span>
+                  </div>
+                  <sc-if value="{{ g.open }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;flex-direction:column;gap:4px;margin:7px 0 2px;padding:8px 10px;background:#17191D;border:1px solid rgba(255,255,255,.08);border-radius:7px">
+                      <sc-for list="{{ g.detail }}" as="d" hint-placeholder-count="4">
+                        <div style="display:flex;gap:10px">
+                          <span style="font-size:10px;color:#565C66;width:56px;flex:none">{{ d.k }}</span>
+                          <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;line-height:1.6;color:#9BA0AA;min-width:0;word-break:break-all">{{ d.v }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;padding:13px 26px;border-top:1px solid rgba(255,255,255,.07);background:#15171A">
+          <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:12px;font-weight:500;padding:7px 18px;border-radius:7px;cursor:pointer" onClick="{{ saveSettings }}">保存</button>
+          <span style="{{ savedStyle }}">{{ savedLabel }}</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isSidebarCarrier }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;flex-direction:column;gap:8px;align-self:center">
+      <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#565C66">{{ frameLabel }}</span>
+      <div style="{{ sidebarWrapStyle }}">
+      <div style="{{ sidebarInnerStyle }}">
+        <div style="flex:1;min-width:0;position:relative;background:#0F1013;padding:28px;overflow:hidden">
+          <div style="{{ playerStyle }}">
+            <div style="position:absolute;top:44%;left:0;right:0;transform:translateY(-50%);text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#3E4450;letter-spacing:.16em">PLAYER</div>
+            <sc-if value="{{ showOverlayText }}" hint-placeholder-val="{{ true }}">
+              <div style="position:absolute;left:6%;right:6%;bottom:52px;text-align:center">
+                <span style="display:inline-block;padding:5px 12px;border-radius:6px;background:rgba(8,10,13,.62);color:#FFFFFF;font-size:15px;line-height:1.6;font-weight:500;text-wrap:pretty">{{ currentText }}</span>
+              </div>
+            </sc-if>
+            <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 14px;background:linear-gradient(to top,rgba(0,0,0,.7),transparent);display:flex;align-items:center;gap:12px">
+              <button style="width:24px;height:24px;border-radius:50%;border:none;background:rgba(255,255,255,.92);color:#111;font-size:9px;cursor:pointer;flex:none" onClick="{{ togglePlay }}">{{ playGlyph }}</button>
+              <div style="flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.25);position:relative"><div style="{{ progressStyle }}"></div></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:rgba(255,255,255,.72);flex:none">{{ timeLabel }}</span>
+            </div>
+          </div>
+          <div style="margin-top:14px;font-size:15px;font-weight:500;color:#C7CBD1">{{ videoTitle }}</div>
+        </div>
+        <div style="{{ sidebarPanelStyle }}">
+          <div style="display:flex;align-items:center;gap:6px;padding:2px 12px 0;height:36px;flex:none;border-bottom:1px solid rgba(255,255,255,.08)">
+            <sc-if value="{{ loggedIn }}" hint-placeholder-val="{{ true }}">
+              <span style="width:6px;height:6px;border-radius:50%;background:#3ECF8E;flex:none"></span>
+              <sc-if value="{{ upVisible }}" hint-placeholder-val="{{ true }}">
+                <span style="font-size:10.5px;line-height:18px;color:#8A9099;flex:none;white-space:nowrap">{{ upName }}</span>
+              </sc-if>
+              <sc-if value="{{ vipVisible }}" hint-placeholder-val="{{ true }}">
+                <span style="font-size:9px;line-height:14px;font-weight:700;color:#F0B84D;background:rgba(240,184,77,.14);border:1px solid rgba(240,184,77,.35);border-radius:4px;padding:0 4px;flex:none">VIP</span>
+              </sc-if>
+            </sc-if>
+            <sc-if value="{{ notLoggedIn }}" hint-placeholder-val="{{ false }}">
+              <span style="width:6px;height:6px;border-radius:50%;background:#E2637E;flex:none"></span>
+              <span style="font-size:10.5px;color:#E2637E;flex:none;white-space:nowrap">未登录</span>
+            </sc-if>
+            <span style="font-size:12px;line-height:18px;color:#C7CBD1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:4px">{{ titleLabel }}</span>
+            <div style="position:relative;flex:none;display:flex;align-items:center">
+              <button style="{{ speedBtnStyle }}" onClick="{{ toggleSpeedMenu }}">{{ speedLabel }}</button>
+              <sc-if value="{{ speedMenuOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;top:calc(100% + 4px);right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:4px;display:flex;flex-direction:column;gap:1px;min-width:64px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                  <sc-for list="{{ speedOptions }}" as="sp" hint-placeholder-count="7"><button style="{{ sp.style }}" onClick="{{ sp.onClick }}">{{ sp.label }}</button></sc-for>
+                </div>
+              </sc-if>
+            </div>
+            <sc-if value="{{ showCarrierButtons }}" hint-placeholder-val="{{ true }}">
+              <button style="border:none;background:transparent;color:#8A9099;font-size:10.5px;line-height:18px;padding:0 6px;border-radius:5px;cursor:pointer;flex:none" onClick="{{ goFloat }}">浮窗</button>
+              <button style="{{ settingsBtnStyle }}" onClick="{{ toggleSettings }}">设置</button>
+            </sc-if>
+          </div>
+
+          <div style="display:flex;gap:2px;padding:4px 12px 0;flex:none;background:#121417;border-bottom:1px solid rgba(255,255,255,.08);align-items:center;flex-wrap:nowrap;overflow:hidden">
+            <sc-for list="{{ viewTabs }}" as="v" hint-placeholder-count="3"><button style="{{ v.style }}" onClick="{{ v.onClick }}">{{ v.label }}</button></sc-for>
+            <div style="flex:1"></div>
+            <sc-if value="{{ transActive }}" hint-placeholder-val="{{ false }}">
+              <div style="{{ pillStyle }}">
+                <span style="{{ pillTextStyle }}">{{ transLabel }}</span>
+                <sc-if value="{{ canBoost }}" hint-placeholder-val="{{ false }}">
+                  <span style="{{ pillDivStyle }}"></span>
+                  <button style="{{ boostBtnStyle }}" onClick="{{ boostTrans }}">加速</button>
+                </sc-if>
+                <span style="{{ pillDivStyle }}"></span>
+                <button style="{{ cancelPillStyle }}" onClick="{{ cancelTrans }}">取消</button>
+              </div>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ showCaptionsView }}" hint-placeholder-val="{{ true }}">
+            <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;padding:30px 26px;text-align:center">
+                <div style="font-size:13px;color:#C7CBD1">这个视频没有字幕</div>
+                <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:12px;font-weight:500;padding:9px 20px;border-radius:7px;cursor:pointer" onClick="{{ startGenerate }}">生成字幕</button>
+                <sc-if value="{{ needsKey }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11px;color:#6B7078">还没配置 API Key · <a href="#" onClick="{{ openSettingsLink }}">打开设置</a></div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ isGenerating }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px 24px;text-align:center">
+                <div style="position:relative;width:58px;height:58px;flex:none">
+                  <div style="position:absolute;inset:5px;border-radius:50%;background:radial-gradient(circle,rgba(77,142,240,.24),transparent 70%);animation:bcOrbGlow 2.4s infinite ease-in-out"></div>
+                  <div style="position:absolute;inset:0;animation:bcOrbSpin 7s linear infinite">
+                    <sc-for list="{{ orbDots }}" as="d" hint-placeholder-count="14"><span style="{{ d.style }}"></span></sc-for>
+                  </div>
+                </div>
+                <div style="font-size:12.5px;color:#9BA0AA">正在生成字幕… {{ genPctLabel }}</div>
+                <button style="border:1px solid rgba(255,255,255,.16);background:transparent;color:#8A9099;font-size:11.5px;padding:7px 18px;border-radius:6px;cursor:pointer" onClick="{{ cancelGenerate }}">取消</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:30px 26px;text-align:center">
+                <div style="font-size:13px;color:#C7CBD1">未登录 B 站</div>
+                <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:12px;font-weight:500;padding:9px 22px;border-radius:7px;cursor:pointer" onClick="{{ goLogin }}">去登录</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hasList }}" hint-placeholder-val="{{ true }}">
+              <sc-if value="{{ summaryOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="margin:8px 12px 0;padding:10px 12px;border:1px solid rgba(77,142,240,.4);background:#17191D;border-radius:9px;display:flex;flex-direction:column;gap:7px;flex:none">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:11px;color:#8A9099;flex:1;min-width:0">选区总结 · {{ selRangeLabel }}</span>
+                    <div style="display:flex;align-items:center;gap:10px;flex:none">
+                      <button style="{{ addMarkerBtnStyle }}" onClick="{{ addMarkerFromSummary }}">{{ addMarkerFromSummaryLabel }}</button>
+                      <button style="{{ copySummaryBtnStyle }}" onClick="{{ copySummary }}">{{ copySummaryLabel }}</button>
+                      <button style="border:none;background:transparent;color:#6B7078;font-size:12px;cursor:pointer;padding:0;flex:none" onClick="{{ closeSummary }}">×</button>
+                    </div>
+                  </div>
+                  <sc-if value="{{ sumStreaming }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size:11.5px;line-height:1.8;color:#9BA0AA;text-wrap:pretty">{{ summaryText }}</div>
+                  </sc-if>
+                  <sc-if value="{{ sumViewing }}" hint-placeholder-val="{{ true }}">
+                    <div style="{{ summaryViewStyle }}" onDoubleClick="{{ startSumEdit }}" title="双击可编辑">{{ summaryDraft }}</div>
+                  </sc-if>
+                  <sc-if value="{{ sumEditing }}" hint-placeholder-val="{{ false }}">
+                    <textarea value="{{ summaryDraft }}" onChange="{{ onSummaryDraft }}" onBlur="{{ endSumEdit }}" ref="{{ autoGrowFocus }}" style="{{ summaryTextareaStyle }}"></textarea>
+                  </sc-if>
+                </div>
+              </sc-if>
+
+              <div ref="{{ listRef }}" style="{{ listBoxStyle }}">
+                <sc-for list="{{ rows }}" as="r" hint-placeholder-count="9">
+                  <div style="{{ r.wrap }}" onClick="{{ r.onClick }}" onMouseDown="{{ r.onMouseDown }}" onMouseEnter="{{ r.onMouseEnter }}" ref="{{ r.ref }}">
+                    <span style="{{ r.time }}">{{ r.timeLabel }}</span>
+                    <span style="{{ r.text }}">{{ r.textLabel }}</span>
+                  </div>
+                </sc-for>
+                <div style="height:6px"></div>
+              </div>
+
+              <sc-if value="{{ selActive }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#17191D;display:flex;align-items:center;gap:7px;flex:none;flex-wrap:wrap">
+                  <span style="font-size:10.5px;color:#9BA0AA;flex:none">{{ selStatusLabel }}</span>
+                  <div style="flex:1"></div>
+                  <button style="border:1px solid rgba(255,255,255,.16);background:transparent;color:#C7CBD1;font-size:10.5px;padding:5px 10px;border-radius:6px;cursor:pointer" onClick="{{ copySel }}">{{ copySelLabel }}</button>
+                  <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:10.5px;padding:5px 10px;border-radius:6px;cursor:pointer" onClick="{{ summarize }}">总结</button>
+                  <button style="border:none;background:transparent;color:#6B7078;font-size:13px;padding:2px 6px;border-radius:6px;cursor:pointer" onClick="{{ clearSel }}">×</button>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ showActionBar }}" hint-placeholder-val="{{ true }}">
+              <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#15171A;display:flex;gap:6px;flex-wrap:wrap;flex:none;position:relative">
+                <sc-for list="{{ actions }}" as="a" hint-placeholder-count="3"><button style="{{ a.style }}" onClick="{{ a.onClick }}">{{ a.label }}</button></sc-for>
+                <div style="flex:1"></div>
+                <div style="position:relative">
+                  <button style="{{ moreBtnStyle }}" onClick="{{ toggleMore }}">更多 ⋯</button>
+                  <sc-if value="{{ moreOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;bottom:calc(100% + 6px);right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:2px;min-width:120px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                      <sc-for list="{{ moreActions }}" as="m" hint-placeholder-count="4"><button style="{{ m.style }}" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+              </sc-if>
+            </sc-if>
+          </sc-if>
+
+          <sc-if value="{{ showMarkersView }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ hasMarkers }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;min-height:0;overflow:auto;padding:10px 12px 6px;display:flex;flex-direction:column;gap:2px">
+                <sc-for list="{{ markers }}" as="mk" hint-placeholder-count="3">
+                  <div style="{{ mk.wrap }}" onClick="{{ mk.onJump }}" onMouseEnter="{{ mk.onEnter }}" onMouseLeave="{{ mk.onLeave }}">
+                    <span style="{{ mk.time }}">{{ mk.timeLabel }}</span>
+                    <div style="flex:1;min-width:0">
+                      <sc-if value="{{ mk.editing }}" hint-placeholder-val="{{ false }}">
+                        <textarea value="{{ mk.draft }}" onChange="{{ mk.onChange }}" onBlur="{{ mk.onCommit }}" placeholder="写点什么…" ref="{{ autoGrow }}" style="{{ mk.inputStyle }}"></textarea>
+                      </sc-if>
+                      <sc-if value="{{ mk.notEditing }}" hint-placeholder-val="{{ true }}">
+                        <span style="{{ mk.textStyle }}">{{ mk.textLabel }}</span>
+                      </sc-if>
+                    </div>
+                    <div style="{{ mk.toolsStyle }}">
+                      <button style="{{ mk.editStyle }}" onClick="{{ mk.onEdit }}">改</button>
+                      <button style="{{ mk.delStyle }}" onClick="{{ mk.onDelete }}">×</button>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#15171A;display:flex;gap:6px;align-items:center;flex:none;position:relative">
+                <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ addManualMarker }}">{{ addManualMarkerLabel }}</button>
+                <div style="flex:1"></div>
+                <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ goLibrary }}">标记库 ›</button>
+                <div style="position:relative">
+                  <button style="{{ markerMoreStyle }}" onClick="{{ toggleMarkerMore }}">更多 ⋯</button>
+                  <sc-if value="{{ markerMoreOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;bottom:calc(100% + 6px);right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:2px;min-width:110px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                      <sc-for list="{{ markerActions }}" as="a" hint-placeholder-count="3"><button style="{{ a.style }}" onClick="{{ a.onClick }}">{{ a.label }}</button></sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ noMarkers }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;padding:30px 26px;text-align:center">
+                <div style="font-size:13px;color:#C7CBD1">还没有标记</div>
+                <div style="font-size:11px;line-height:1.6;color:#6B7078;max-width:220px">划选字幕并总结后点"添加标记"插入，也可以手动添加</div>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ addManualMarker }}">{{ addManualMarkerLabel }}</button>
+                  <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ goLibrary }}">标记库 ›</button>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <sc-if value="{{ showOutlineView }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ hasChapters }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;min-height:0;overflow:auto;padding:10px 12px 6px;display:flex;flex-direction:column;gap:2px">
+                <sc-for list="{{ chapters }}" as="ch" hint-placeholder-count="4">
+                  <div style="{{ ch.wrap }}" onClick="{{ ch.onClick }}">
+                    <div style="display:flex;flex-direction:column;align-items:center;width:40px;flex:none">
+                      <span style="{{ ch.timeTop }}">{{ ch.startLabel }}</span>
+                      <div style="{{ ch.line }}"></div>
+                      <span style="{{ ch.timeBottom }}">{{ ch.endLabel }}</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:0;padding-bottom:4px">
+                      <span style="{{ ch.title }}">{{ ch.titleLabel }}</span>
+                      <span style="{{ ch.synopsis }}">{{ ch.synopsisLabel }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#15171A;display:flex;gap:6px;flex-wrap:wrap;flex:none">
+                <sc-for list="{{ outlineActions }}" as="o" hint-placeholder-count="3"><button style="{{ o.style }}" onClick="{{ o.onClick }}">{{ o.label }}</button></sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ noChapters }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:30px 26px;text-align:center">
+                <sc-if value="{{ streaming }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:relative;width:58px;height:58px;flex:none">
+                    <div style="position:absolute;inset:5px;border-radius:50%;background:radial-gradient(circle,rgba(77,142,240,.24),transparent 70%);animation:bcOrbGlow 2.4s infinite ease-in-out"></div>
+                    <div style="position:absolute;inset:0;animation:bcOrbSpin 7s linear infinite">
+                      <sc-for list="{{ orbDots }}" as="d" hint-placeholder-count="14"><span style="{{ d.style }}"></span></sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+                <div style="font-size:12.5px;color:#9BA0AA">{{ outlineEmptyLabel }}</div>
+                <sc-if value="{{ outlineIdle }}" hint-placeholder-val="{{ true }}">
+                  <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:12px;font-weight:500;padding:9px 20px;border-radius:7px;cursor:pointer" onClick="{{ genOutline }}">生成大纲</button>
+                </sc-if>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <sc-if value="{{ toastMsg }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:50%;bottom:64px;transform:translateX(-50%);padding:7px 14px;border-radius:8px;background:#F5F5F5;color:#121417;font-size:11px;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.3)">{{ toastMsg }}</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isFloatCarrier }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:8px;align-self:center">
+      <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#565C66">{{ frameLabel }}</span>
+      <div style="{{ floatWrapStyle }}">
+      <div style="{{ floatInnerStyle }}">
+
+        <sc-if value="{{ stageFullscreen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;background:#000">
+            <div style="position:absolute;top:44%;left:0;right:0;transform:translateY(-50%);text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#3E4450;letter-spacing:.16em">FULLSCREEN PLAYER</div>
+            <div style="position:absolute;top:0;left:0;right:0;height:48px;padding:0 16px;display:flex;align-items:center;background:linear-gradient(to bottom,rgba(0,0,0,.55),transparent);color:rgba(255,255,255,.8);font-size:12px">{{ videoTitle }}</div>
+            <sc-if value="{{ showOverlayText }}" hint-placeholder-val="{{ true }}">
+              <div style="position:absolute;left:8%;right:8%;bottom:100px;text-align:center">
+                <span style="display:inline-block;padding:6px 14px;border-radius:6px;background:rgba(8,10,13,.62);color:#FFFFFF;font-size:19px;line-height:1.6;font-weight:500;text-wrap:pretty">{{ currentText }}</span>
+              </div>
+            </sc-if>
+            <div style="position:absolute;left:0;right:0;bottom:0;height:70px;padding:0 18px;background:linear-gradient(to top,rgba(0,0,0,.75),transparent);display:flex;align-items:center;gap:14px">
+              <button style="width:28px;height:28px;border-radius:50%;border:none;background:rgba(255,255,255,.92);color:#111;font-size:10px;cursor:pointer;flex:none" onClick="{{ togglePlay }}">{{ playGlyph }}</button>
+              <div style="flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.25);position:relative"><div style="{{ progressStyle }}"></div></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:rgba(255,255,255,.72);flex:none">{{ timeLabel }}</span>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ stageNotFullscreen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:28px;height:100%;box-sizing:border-box">
+            <div style="{{ playerStyle }}">
+              <div style="position:absolute;top:44%;left:0;right:0;transform:translateY(-50%);text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#3E4450;letter-spacing:.16em">PLAYER</div>
+              <sc-if value="{{ showOverlayText }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:6%;right:6%;bottom:52px;text-align:center">
+                  <span style="display:inline-block;padding:5px 12px;border-radius:6px;background:rgba(8,10,13,.62);color:#FFFFFF;font-size:15px;line-height:1.6;font-weight:500;text-wrap:pretty">{{ currentText }}</span>
+                </div>
+              </sc-if>
+              <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 14px;background:linear-gradient(to top,rgba(0,0,0,.7),transparent);display:flex;align-items:center;gap:12px">
+                <button style="width:24px;height:24px;border-radius:50%;border:none;background:rgba(255,255,255,.92);color:#111;font-size:9px;cursor:pointer;flex:none" onClick="{{ togglePlay }}">{{ playGlyph }}</button>
+                <div style="flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.25);position:relative"><div style="{{ progressStyle }}"></div></div>
+                <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:rgba(255,255,255,.72);flex:none">{{ timeLabel }}</span>
+              </div>
+            </div>
+            <div style="margin-top:14px;font-size:15px;font-weight:500;color:#C7CBD1">{{ videoTitle }}</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ floatCollapsed }}" hint-placeholder-val="{{ false }}">
+          <div style="{{ collapsedStripStyle }}" onClick="{{ expandFloat }}">
+            <span style="{{ collapsedChevronStyle }}">{{ collapsedChevron }}</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ floatExpanded }}" hint-placeholder-val="{{ true }}">
+          <div style="{{ floatWindowStyle }}">
+            <div style="{{ snapHintStyle }}"></div>
+            <div style="display:flex;align-items:center;gap:8px;padding:0 10px;height:32px;flex:none;border-bottom:1px solid rgba(255,255,255,.08);cursor:move" onMouseDown="{{ startDrag }}">
+              <span style="font-size:11.5px;font-weight:600;color:#C7CBD1;flex:none">字幕</span>
+              <div style="flex:1"></div>
+              <input type="range" min="30" max="100" step="1" value="{{ floatOpacity }}" onChange="{{ onOpacity }}" onMouseDown="{{ stopProp }}" style="width:64px;flex:none">
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8A9099;flex:none;width:32px;text-align:right">{{ floatOpacity }}%</span>
+              <div style="width:1px;height:14px;background:rgba(255,255,255,.14);flex:none"></div>
+              <button style="border:none;background:transparent;color:#8A9099;font-size:11px;padding:4px 6px;border-radius:5px;cursor:pointer;flex:none" onMouseDown="{{ stopProp }}" onClick="{{ goSidebar }}">侧栏</button>
+              <button style="border:none;background:transparent;color:#8A9099;font-size:13px;padding:2px 6px;border-radius:5px;cursor:pointer;flex:none" onMouseDown="{{ stopProp }}" onClick="{{ collapseFloat }}">›</button>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;min-height:0;background:#121417;position:relative">
+              <div style="display:flex;align-items:center;gap:6px;padding:2px 12px 0;height:36px;flex:none;border-bottom:1px solid rgba(255,255,255,.08)">
+                <sc-if value="{{ loggedIn }}" hint-placeholder-val="{{ true }}">
+                  <span style="width:6px;height:6px;border-radius:50%;background:#3ECF8E;flex:none"></span>
+                  <sc-if value="{{ upVisible }}" hint-placeholder-val="{{ true }}">
+                    <span style="font-size:10.5px;line-height:18px;color:#8A9099;flex:none;white-space:nowrap">{{ upName }}</span>
+                  </sc-if>
+                  <sc-if value="{{ vipVisible }}" hint-placeholder-val="{{ true }}">
+                    <span style="font-size:9px;line-height:14px;font-weight:700;color:#F0B84D;background:rgba(240,184,77,.14);border:1px solid rgba(240,184,77,.35);border-radius:4px;padding:0 4px;flex:none">VIP</span>
+                  </sc-if>
+                </sc-if>
+                <sc-if value="{{ notLoggedIn }}" hint-placeholder-val="{{ false }}">
+                  <span style="width:6px;height:6px;border-radius:50%;background:#E2637E;flex:none"></span>
+                  <span style="font-size:10.5px;color:#E2637E;flex:none;white-space:nowrap">未登录</span>
+                </sc-if>
+                <span style="font-size:12px;line-height:18px;color:#C7CBD1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:4px">{{ titleLabel }}</span>
+                <div style="position:relative;flex:none;display:flex;align-items:center">
+                  <button style="{{ speedBtnStyle }}" onClick="{{ toggleSpeedMenu }}">{{ speedLabel }}</button>
+                  <sc-if value="{{ speedMenuOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;top:calc(100% + 4px);right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:4px;display:flex;flex-direction:column;gap:1px;min-width:64px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                      <sc-for list="{{ speedOptions }}" as="sp" hint-placeholder-count="7"><button style="{{ sp.style }}" onClick="{{ sp.onClick }}">{{ sp.label }}</button></sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ showCarrierButtons }}" hint-placeholder-val="{{ true }}">
+                  <button style="border:none;background:transparent;color:#8A9099;font-size:10.5px;line-height:18px;padding:0 6px;border-radius:5px;cursor:pointer;flex:none" onClick="{{ goFloat }}">浮窗</button>
+                  <button style="{{ settingsBtnStyle }}" onClick="{{ toggleSettings }}">设置</button>
+                </sc-if>
+              </div>
+
+              <div style="display:flex;gap:2px;padding:4px 12px 0;flex:none;background:#121417;border-bottom:1px solid rgba(255,255,255,.08);align-items:center;flex-wrap:nowrap;overflow:hidden">
+                <sc-for list="{{ viewTabs }}" as="v" hint-placeholder-count="3"><button style="{{ v.style }}" onClick="{{ v.onClick }}">{{ v.label }}</button></sc-for>
+                <div style="flex:1"></div>
+                <sc-if value="{{ transActive }}" hint-placeholder-val="{{ false }}">
+                  <div style="{{ pillStyle }}">
+                    <span style="{{ pillTextStyle }}">{{ transLabel }}</span>
+                    <sc-if value="{{ canBoost }}" hint-placeholder-val="{{ false }}">
+                      <span style="{{ pillDivStyle }}"></span>
+                      <button style="{{ boostBtnStyle }}" onClick="{{ boostTrans }}">加速</button>
+                    </sc-if>
+                    <span style="{{ pillDivStyle }}"></span>
+                    <button style="{{ cancelPillStyle }}" onClick="{{ cancelTrans }}">取消</button>
+                  </div>
+                </sc-if>
+              </div>
+
+              <sc-if value="{{ showCaptionsView }}" hint-placeholder-val="{{ true }}">
+                <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;padding:30px 26px;text-align:center">
+                    <div style="font-size:13px;color:#C7CBD1">这个视频没有字幕</div>
+                    <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:12px;font-weight:500;padding:9px 20px;border-radius:7px;cursor:pointer" onClick="{{ startGenerate }}">生成字幕</button>
+                    <sc-if value="{{ needsKey }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:11px;color:#6B7078">还没配置 API Key · <a href="#" onClick="{{ openSettingsLink }}">打开设置</a></div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ isGenerating }}" hint-placeholder-val="{{ false }}">
+                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px 24px;text-align:center">
+                    <div style="position:relative;width:58px;height:58px;flex:none">
+                      <div style="position:absolute;inset:5px;border-radius:50%;background:radial-gradient(circle,rgba(77,142,240,.24),transparent 70%);animation:bcOrbGlow 2.4s infinite ease-in-out"></div>
+                      <div style="position:absolute;inset:0;animation:bcOrbSpin 7s linear infinite">
+                        <sc-for list="{{ orbDots }}" as="d" hint-placeholder-count="14"><span style="{{ d.style }}"></span></sc-for>
+                      </div>
+                    </div>
+                    <div style="font-size:12.5px;color:#9BA0AA">正在生成字幕… {{ genPctLabel }}</div>
+                    <button style="border:1px solid rgba(255,255,255,.16);background:transparent;color:#8A9099;font-size:11.5px;padding:7px 18px;border-radius:6px;cursor:pointer" onClick="{{ cancelGenerate }}">取消</button>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:30px 26px;text-align:center">
+                    <div style="font-size:13px;color:#C7CBD1">未登录 B 站</div>
+                    <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:12px;font-weight:500;padding:9px 22px;border-radius:7px;cursor:pointer" onClick="{{ goLogin }}">去登录</button>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ hasList }}" hint-placeholder-val="{{ true }}">
+                  <sc-if value="{{ summaryOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="margin:8px 12px 0;padding:10px 12px;border:1px solid rgba(77,142,240,.4);background:#17191D;border-radius:9px;display:flex;flex-direction:column;gap:7px;flex:none">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:11px;color:#8A9099;flex:1;min-width:0">选区总结 · {{ selRangeLabel }}</span>
+                    <div style="display:flex;align-items:center;gap:10px;flex:none">
+                      <button style="{{ addMarkerBtnStyle }}" onClick="{{ addMarkerFromSummary }}">{{ addMarkerFromSummaryLabel }}</button>
+                      <button style="{{ copySummaryBtnStyle }}" onClick="{{ copySummary }}">{{ copySummaryLabel }}</button>
+                      <button style="border:none;background:transparent;color:#6B7078;font-size:12px;cursor:pointer;padding:0;flex:none" onClick="{{ closeSummary }}">×</button>
+                    </div>
+                  </div>
+                  <sc-if value="{{ sumStreaming }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size:11.5px;line-height:1.8;color:#9BA0AA;text-wrap:pretty">{{ summaryText }}</div>
+                  </sc-if>
+                  <sc-if value="{{ sumViewing }}" hint-placeholder-val="{{ true }}">
+                    <div style="{{ summaryViewStyle }}" onDoubleClick="{{ startSumEdit }}" title="双击可编辑">{{ summaryDraft }}</div>
+                  </sc-if>
+                  <sc-if value="{{ sumEditing }}" hint-placeholder-val="{{ false }}">
+                    <textarea value="{{ summaryDraft }}" onChange="{{ onSummaryDraft }}" onBlur="{{ endSumEdit }}" ref="{{ autoGrowFocus }}" style="{{ summaryTextareaStyle }}"></textarea>
+                  </sc-if>
+                </div>
+              </sc-if>
+
+              <div ref="{{ listRef }}" style="{{ listBoxStyle }}">
+                    <sc-for list="{{ rows }}" as="r" hint-placeholder-count="9">
+                      <div style="{{ r.wrap }}" onClick="{{ r.onClick }}" onMouseDown="{{ r.onMouseDown }}" onMouseEnter="{{ r.onMouseEnter }}" ref="{{ r.ref }}">
+                        <span style="{{ r.time }}">{{ r.timeLabel }}</span>
+                        <span style="{{ r.text }}">{{ r.textLabel }}</span>
+                      </div>
+                    </sc-for>
+                    <div style="height:6px"></div>
+                  </div>
+
+                  <sc-if value="{{ selActive }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#17191D;display:flex;align-items:center;gap:7px;flex:none;flex-wrap:wrap">
+                      <span style="font-size:10.5px;color:#9BA0AA;flex:none">{{ selStatusLabel }}</span>
+                      <div style="flex:1"></div>
+                      <button style="border:1px solid rgba(255,255,255,.16);background:transparent;color:#C7CBD1;font-size:10.5px;padding:5px 10px;border-radius:6px;cursor:pointer" onClick="{{ copySel }}">{{ copySelLabel }}</button>
+                      <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:10.5px;padding:5px 10px;border-radius:6px;cursor:pointer" onClick="{{ summarize }}">总结</button>
+                      <button style="border:none;background:transparent;color:#6B7078;font-size:13px;padding:2px 6px;border-radius:6px;cursor:pointer" onClick="{{ clearSel }}">×</button>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ showActionBar }}" hint-placeholder-val="{{ true }}">
+                  <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#15171A;display:flex;gap:6px;flex-wrap:wrap;flex:none;position:relative">
+                    <sc-for list="{{ actions }}" as="a" hint-placeholder-count="3"><button style="{{ a.style }}" onClick="{{ a.onClick }}">{{ a.label }}</button></sc-for>
+                    <div style="flex:1"></div>
+                    <div style="position:relative">
+                      <button style="{{ moreBtnStyle }}" onClick="{{ toggleMore }}">更多 ⋯</button>
+                      <sc-if value="{{ moreOpen }}" hint-placeholder-val="{{ false }}">
+                        <div style="position:absolute;bottom:calc(100% + 6px);right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:2px;min-width:120px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                          <sc-for list="{{ moreActions }}" as="m" hint-placeholder-count="4"><button style="{{ m.style }}" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                  </sc-if>
+                </sc-if>
+              </sc-if>
+
+              <sc-if value="{{ showMarkersView }}" hint-placeholder-val="{{ false }}">
+                <sc-if value="{{ hasMarkers }}" hint-placeholder-val="{{ false }}">
+                  <div style="flex:1;min-height:0;overflow:auto;padding:10px 12px 6px;display:flex;flex-direction:column;gap:2px">
+                    <sc-for list="{{ markers }}" as="mk" hint-placeholder-count="3">
+                      <div style="{{ mk.wrap }}" onClick="{{ mk.onJump }}" onMouseEnter="{{ mk.onEnter }}" onMouseLeave="{{ mk.onLeave }}">
+                        <span style="{{ mk.time }}">{{ mk.timeLabel }}</span>
+                        <div style="flex:1;min-width:0">
+                          <sc-if value="{{ mk.editing }}" hint-placeholder-val="{{ false }}">
+                            <textarea value="{{ mk.draft }}" onChange="{{ mk.onChange }}" onBlur="{{ mk.onCommit }}" placeholder="写点什么…" ref="{{ autoGrow }}" style="{{ mk.inputStyle }}"></textarea>
+                          </sc-if>
+                          <sc-if value="{{ mk.notEditing }}" hint-placeholder-val="{{ true }}">
+                            <span style="{{ mk.textStyle }}">{{ mk.textLabel }}</span>
+                          </sc-if>
+                        </div>
+                        <div style="{{ mk.toolsStyle }}">
+                          <button style="{{ mk.editStyle }}" onClick="{{ mk.onEdit }}">改</button>
+                          <button style="{{ mk.delStyle }}" onClick="{{ mk.onDelete }}">×</button>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#15171A;display:flex;gap:6px;align-items:center;flex:none;position:relative">
+                    <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ addManualMarker }}">{{ addManualMarkerLabel }}</button>
+                    <div style="flex:1"></div>
+                    <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ goLibrary }}">标记库 ›</button>
+                    <div style="position:relative">
+                      <button style="{{ markerMoreStyle }}" onClick="{{ toggleMarkerMore }}">更多 ⋯</button>
+                      <sc-if value="{{ markerMoreOpen }}" hint-placeholder-val="{{ false }}">
+                        <div style="position:absolute;bottom:calc(100% + 6px);right:0;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:2px;min-width:110px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+                          <sc-for list="{{ markerActions }}" as="a" hint-placeholder-count="3"><button style="{{ a.style }}" onClick="{{ a.onClick }}">{{ a.label }}</button></sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ noMarkers }}" hint-placeholder-val="{{ true }}">
+                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;padding:30px 26px;text-align:center">
+                    <div style="font-size:13px;color:#C7CBD1">还没有标记</div>
+                    <div style="font-size:11px;line-height:1.6;color:#6B7078;max-width:220px">划选字幕并总结后点"添加标记"插入，也可以手动添加</div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                      <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ addManualMarker }}">{{ addManualMarkerLabel }}</button>
+                      <button style="{{ addManualMarkerBtnStyle }}" onClick="{{ goLibrary }}">标记库 ›</button>
+                    </div>
+                  </div>
+                </sc-if>
+              </sc-if>
+
+              <sc-if value="{{ showOutlineView }}" hint-placeholder-val="{{ false }}">
+                <sc-if value="{{ hasChapters }}" hint-placeholder-val="{{ false }}">
+                  <div style="flex:1;min-height:0;overflow:auto;padding:10px 12px 6px;display:flex;flex-direction:column;gap:2px">
+                    <sc-for list="{{ chapters }}" as="ch" hint-placeholder-count="4">
+                      <div style="{{ ch.wrap }}" onClick="{{ ch.onClick }}">
+                        <div style="display:flex;flex-direction:column;align-items:center;width:40px;flex:none">
+                          <span style="{{ ch.timeTop }}">{{ ch.startLabel }}</span>
+                          <div style="{{ ch.line }}"></div>
+                          <span style="{{ ch.timeBottom }}">{{ ch.endLabel }}</span>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:3px;min-width:0;padding-bottom:4px">
+                          <span style="{{ ch.title }}">{{ ch.titleLabel }}</span>
+                          <span style="{{ ch.synopsis }}">{{ ch.synopsisLabel }}</span>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#15171A;display:flex;gap:6px;flex-wrap:wrap;flex:none">
+                    <sc-for list="{{ outlineActions }}" as="o" hint-placeholder-count="3"><button style="{{ o.style }}" onClick="{{ o.onClick }}">{{ o.label }}</button></sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ noChapters }}" hint-placeholder-val="{{ true }}">
+                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:30px 26px;text-align:center">
+                    <sc-if value="{{ streaming }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:relative;width:58px;height:58px;flex:none">
+                        <div style="position:absolute;inset:5px;border-radius:50%;background:radial-gradient(circle,rgba(77,142,240,.24),transparent 70%);animation:bcOrbGlow 2.4s infinite ease-in-out"></div>
+                        <div style="position:absolute;inset:0;animation:bcOrbSpin 7s linear infinite">
+                          <sc-for list="{{ orbDots }}" as="d" hint-placeholder-count="14"><span style="{{ d.style }}"></span></sc-for>
+                        </div>
+                      </div>
+                    </sc-if>
+                    <div style="font-size:12.5px;color:#9BA0AA">{{ outlineEmptyLabel }}</div>
+                    <sc-if value="{{ outlineIdle }}" hint-placeholder-val="{{ true }}">
+                      <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-size:12px;font-weight:500;padding:9px 20px;border-radius:7px;cursor:pointer" onClick="{{ genOutline }}">生成大纲</button>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </sc-if>
+
+              <sc-if value="{{ toastMsg }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;left:50%;bottom:64px;transform:translateX(-50%);padding:7px 14px;border-radius:8px;background:#F5F5F5;color:#121417;font-size:11px;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.3)">{{ toastMsg }}</div>
+              </sc-if>
+            </div>
+            <div style="position:absolute;right:-4px;top:8px;bottom:8px;width:8px;cursor:ew-resize" onMouseDown="{{ resizeE }}"></div>
+            <div style="position:absolute;left:8px;right:8px;bottom:-4px;height:8px;cursor:ns-resize" onMouseDown="{{ resizeS }}"></div>
+            <div style="position:absolute;left:-4px;top:8px;bottom:8px;width:8px;cursor:ew-resize" onMouseDown="{{ resizeW }}"></div>
+            <div style="position:absolute;left:8px;right:8px;top:-4px;height:8px;cursor:ns-resize" onMouseDown="{{ resizeN }}"></div>
+            <div style="position:absolute;right:-5px;bottom:-5px;width:14px;height:14px;cursor:nwse-resize" onMouseDown="{{ resizeSE }}"></div>
+            <div style="position:absolute;left:-5px;bottom:-5px;width:14px;height:14px;cursor:nesw-resize" onMouseDown="{{ resizeSW }}"></div>
+            <div style="position:absolute;right:-5px;top:-5px;width:14px;height:14px;cursor:nesw-resize" onMouseDown="{{ resizeNE }}"></div>
+            <div style="position:absolute;left:-5px;top:-5px;width:14px;height:14px;cursor:nwse-resize" onMouseDown="{{ resizeNW }}"></div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+    </div>
+  </sc-if>
+
+</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const LINES = [
+  [34,'先把默认的立方体删掉，我们从一个平面开始。'],
+  [41,'在修改器面板里添加 Geometry Nodes，右边会出现节点编辑器。'],
+  [48,'这里的 Group Input 和 Group Output，是整个节点树的入口和出口。'],
+  [57,'注意，几何节点里的"字段"不是一个具体数值，而是对每个元素分别求值的函数。'],
+  [66,'所以当你把 Position 接到 Set Position 上时，它其实是逐点计算的。'],
+  [74,'我们先加一个 Distribute Points on Faces，把平面变成点云。'],
+  [82,'密度调到 20，可以看到点是随机分布的，但每次刷新都不一样。'],
+  [90,'想固定下来就改 Seed，随机但可复现。'],
+  [97,'接下来用 Instance on Points，在每个点上放一个球。'],
+  [105,'实例是轻量的，几万个也不卡；真要改网格再 Realize Instances。'],
+  [114,'缩放接一个 Random Value，范围给 0.3 到 1.2，大小就有变化了。'],
+  [123,'到这里程序化的骨架就搭好了，剩下的都是在这条链上加节点。'],
+  [131,'下一节我们把属性写进顶点，再用它驱动材质。'],
+  [140,'如果你卡在字段那一步，把节点连线时的提示文字读一遍会有帮助。']
+];
+const CHAPTERS = [
+  {start:0, end:48, title:'环境搭建与节点入门', synopsis:'从空白场景开始，加入 Geometry Nodes 修改器，认识 Group Input / Output 的作用。'},
+  {start:48, end:97, title:'字段与点云分布', synopsis:'字段是逐元素求值的函数，不是固定数值；用 Distribute Points on Faces 生成点云，Seed 固定随机结果。'},
+  {start:97, end:131, title:'实例化与随机变化', synopsis:'用 Instance on Points 批量放置物体，配合 Random Value 让缩放产生随机差异。'},
+  {start:131, end:168, title:'总结与下一步', synopsis:'程序化建模的骨架已搭好，下一节把属性写入顶点并驱动材质。'}
+];
+const STT_PROVIDERS = ['Groq','OpenAI','硅基流动','阿里云百炼','腾讯云','讯飞','Deepgram'];
+const FETCHABLE = {'Groq':1,'OpenAI':1,'硅基流动':1,'阿里云百炼':1,'Deepgram':1,'DeepSeek':1,'智谱 GLM':1,'Kimi':1,'通义千问':1,'OpenRouter':1,'自定义':1};
+const MODEL_LISTS = {
+  'Groq':['whisper-large-v3-turbo','whisper-large-v3','distil-whisper-large-v3-en'],
+  'OpenAI':['gpt-4o-transcribe','gpt-4o-mini-transcribe','whisper-1'],
+  '硅基流动':['FunAudioLLM/SenseVoiceSmall','iic/SenseVoice'],
+  '阿里云百炼':['paraformer-v2','paraformer-realtime-v2','sensevoice-v1'],
+  'Deepgram':['nova-3','nova-2','whisper-large'],
+  'DeepSeek':['deepseek-chat','deepseek-reasoner'],
+  '智谱 GLM':['glm-4-flash','glm-4-plus','glm-4-air'],
+  'Kimi':['moonshot-v1-8k','moonshot-v1-32k','kimi-k2'],
+  '通义千问':['qwen-plus','qwen-turbo','qwen-max'],
+  'OpenRouter':['openai/gpt-4o-mini','deepseek/deepseek-chat','google/gemini-2.0-flash'],
+  '自定义':[]
+};
+const STT_SCHEMA = {
+  'Groq':{url:'https://api.groq.com/openai/v1',model:'whisper-large-v3-turbo',fields:[['key','API Key','gsk_...']]},
+  'OpenAI':{url:'https://api.openai.com/v1',model:'gpt-4o-transcribe',fields:[['key','API Key','sk-...']]},
+  '硅基流动':{url:'https://api.siliconflow.cn/v1',model:'FunAudioLLM/SenseVoiceSmall',fields:[['key','API Key','sk-...']]},
+  '阿里云百炼':{url:'https://dashscope.aliyuncs.com/api/v1',model:'paraformer-v2',fields:[['key','API Key','sk-...']]},
+  '腾讯云':{url:'https://asr.cloud.tencent.com/asr/flash/v1',model:'16k_zh',fields:[['appid','AppID','1259223***'],['secretId','SecretId','AKID...'],['secretKey','SecretKey','****']]},
+  '讯飞':{url:'https://raasr.xfyun.cn/v2/api',model:'lfasr 标准版',fields:[['appid','AppID','595f23df'],['key','APIKey','d9f4aa7ea6d9...']]},
+  'Deepgram':{url:'https://api.deepgram.com/v1',model:'nova-3',fields:[['key','API Key','****']]}
+};
+const SUM_PROVIDERS = ['OpenAI','DeepSeek','智谱 GLM','Kimi','通义千问','OpenRouter','自定义'];
+const SUM_URLS = {'OpenAI':'https://api.openai.com/v1','DeepSeek':'https://api.deepseek.com/v1','智谱 GLM':'https://open.bigmodel.cn/api/paas/v4','Kimi':'https://api.moonshot.cn/v1','通义千问':'https://dashscope.aliyuncs.com/compatible-mode/v1','OpenRouter':'https://openrouter.ai/api/v1','自定义':''};
+const STT_URLS = {'Groq':'https://api.groq.com/openai/v1','OpenAI':'https://api.openai.com/v1','自定义':''};
+const STT_MODELS = {'Groq':'whisper-large-v3-turbo','OpenAI':'whisper-1','自定义':'whisper-large-v3'};
+const SUM_MODELS = {'OpenAI':'gpt-4o-mini','DeepSeek':'deepseek-chat','智谱 GLM':'glm-4-flash','Kimi':'moonshot-v1-8k','通义千问':'qwen-plus','OpenRouter':'openai/gpt-4o-mini','自定义':'llama-3.3-70b'};
+const SUM_KEY_HINT = {'OpenAI':'sk-...','DeepSeek':'sk-...','智谱 GLM':'xxxxx.xxxxx','Kimi':'sk-...','通义千问':'sk-...','OpenRouter':'sk-or-v1-...','自定义':'sk-...'};
+const SUMMARY_TEXT = '字段（Field）不是一个具体数值，而是对几何体每个元素分别求值的函数。把 Position 接进 Set Position 时，是逐点计算的；Distribute Points on Faces 的随机分布靠 Seed 固定，改 Seed 就能保证可复现。';
+const SPEEDS = [0.5,0.75,1,1.25,1.5,2,3];
+const PAGE_W = 1040, PAGE_H = 640;
+const fmt = s => String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const BTN = 'border:1px solid rgba(255,255,255,.16);background:transparent;color:#9BA0AA;font-size:10.5px;padding:6px 10px;border-radius:6px;cursor:pointer';
+const BTN_ON = 'border:1px solid rgba(77,142,240,.45);background:rgba(77,142,240,.14);color:#4D8EF0;font-weight:500;font-size:10.5px;padding:6px 10px;border-radius:6px;cursor:pointer';
+const BTN_PRIMARY = 'border:none;background:#4D8EF0;color:#FFFFFF;font-weight:500;font-size:10.5px;padding:6px 10px;border-radius:6px;cursor:pointer';
+const SEG = on => 'border:none;font-size:11.5px;padding:5px 11px;border-radius:6px;cursor:pointer;white-space:nowrap;'+(on?'background:rgba(77,142,240,.16);color:#4D8EF0;font-weight:500':'background:transparent;color:#8A9099');
+const DEMO = 'border:1px solid rgba(255,255,255,.14);background:transparent;color:#9BA0AA;font-size:10.5px;padding:4px 9px;border-radius:6px;cursor:pointer';
+const DEMO_ON = 'border:1px solid transparent;background:#4D8EF0;color:#FFFFFF;font-size:10.5px;padding:4px 9px;border-radius:6px;cursor:pointer;font-weight:500';
+
+const LOGS = [
+  {id:'L1', t:'14:22:07', level:'ERROR', src:'转写', msg:'Groq 返回 429：额度冷却，剩余 2 分 32 秒',
+    detail:[['接口','https://api.groq.com/openai/v1/audio/transcriptions'],['状态','429 Too Many Requests'],['耗时','812 ms'],['响应','{"error":{"code":"rate_limit_exceeded","message":"Limit 7200s of audio per hour"}}'],['Key','gsk_…9f2a']]},
+  {id:'L2', t:'14:22:05', level:'INFO', src:'转写', msg:'分片 15/32 提交（00:21:04–00:22:36）',
+    detail:[['分片','15 / 32'],['时间段','00:21:04 – 00:22:36'],['音频','1.42 MB / 92 s']]},
+  {id:'L3', t:'14:21:58', level:'WARN', src:'总结', msg:'上下文超出 8k，已截断到最近 10 条字幕',
+    detail:[['模型','gpt-4o-mini'],['输入','8 412 tokens → 6 180 tokens'],['策略','保留最近 10 条']]},
+  {id:'L4', t:'14:21:40', level:'INFO', src:'总结', msg:'选区总结完成（00:57–01:45）',
+    detail:[['模型','gpt-4o-mini'],['耗时','2 140 ms'],['输出','218 字']]},
+  {id:'L5', t:'14:20:12', level:'ERROR', src:'B站接口', msg:'字幕列表为空：视频未开启 CC 字幕',
+    detail:[['接口','https://api.bilibili.com/x/player/v2?bvid=BV1x94y1Q7Kd'],['状态','200 OK'],['响应','{"subtitle":{"subtitles":[]}}']]},
+  {id:'L6', t:'14:20:09', level:'INFO', src:'B站接口', msg:'已识别视频 BV1x94y1Q7Kd · P3 · 168 s',
+    detail:[['BV 号','BV1x94y1Q7Kd'],['分P','3'],['时长','168 s']]}
+];
+const LIBRARY = [
+  {bv:'BV1x94y1Q7Kd', part:'P3', dur:'02:48', title:'【教程】Blender 几何节点入门 · 从零做程序化建模', up:'几何笔记', when:'今天',
+   marks:[[57,'字段是逐元素求值的函数，不是固定数值；Position 接进 Set Position 是逐点计算的。'],[97,'Instance on Points 批量放置，配 Random Value 做随机缩放。'],[131,'程序化骨架搭完，下一步把属性写进顶点驱动材质。']]},
+  {bv:'BV1Ub4y1k7pF', part:'P1', dur:'18:22', title:'Rust 所有权与借用检查器：一次讲透', up:'代码温度', when:'昨天',
+   marks:[[214,'借用检查发生在编译期，运行时零开销。'],[642,'&mut 唯一性是为了排除数据竞争，而不是防止别名。']]},
+  {bv:'BV1Gs411f7Wu', part:'P2', dur:'46:10', title:'纪录片《寻找中式建筑的模数》', up:'见筑', when:'3 天前',
+   marks:[[930,'斗拱的模数以"材"为基准，宋《营造法式》分八等。'],[1780,'柱高与开间的比例关系决定了整栋建筑的观感。'],[2402,'现代复原案例：用参数化建模还原材分制。']]},
+  {bv:'BV1kM4y1P7Rr', part:'P1', dur:'09:37', title:'一小时搞懂扩散模型的采样过程', up:'AI 拆解室', when:'上周',
+   marks:[[126,'DDIM 采样把随机项去掉，因此可复现。']]}
+];
+const SCENARIOS = [
+  ['sidebar','侧栏 · 默认'],['selection','侧栏 · 划选+总结'],['empty','侧栏 · 无字幕'],
+  ['generating','侧栏 · 生成中'],['outline','侧栏 · 大纲'],['error','侧栏 · 未登录'],
+  ['cooldown','侧栏 · 额度冷却'],['library','标记库'],['settings','设置页'],['logs','日志页'],['float-expanded','浮窗 · 展开'],['float-collapsed','浮窗 · 收起贴边'],
+  ['float-overlay','浮窗 · 叠加播放器']
+];
+const FRAME_LABELS = {
+  cooldown:'浏览器侧栏 · 分片转写中遇到额度冷却，可一键加速', logs:'', library:'',
+  sidebar:'浏览器侧栏 · 默认', selection:'浏览器侧栏 · 划选 + 总结卡片', empty:'浏览器侧栏 · 无字幕空态',
+  generating:'浏览器侧栏 · 生成中', outline:'浏览器侧栏 · 大纲', error:'浏览器侧栏 · 未登录',
+  'float-expanded':'页面浮窗 · 展开（可拖 / 可调边角 / 透明度）', 'float-collapsed':'页面浮窗 · 收起贴边',
+  'float-overlay':'页面浮窗 · 叠加在全屏播放器上，避开顶部与底部进度条'
+};
+
+class Component extends DCLogic {
+  state = {
+    scenario:'sidebar', playing:true, t:66, speed:1, speedMenuOpen:false,
+    loggedIn:true, upName:'几何笔记', isVip:true,
+    view:'captions', showOverlay:true,
+    selStart:null, selEnd:null, selMode:false, anchor:null, dragSelecting:false, dragMoved:false,
+    summaryOpen:false, sumStreaming:false, sumChars:0, summaryDraft:SUMMARY_TEXT, sumEditing:false, copiedSummary:false, copiedSel:false,
+    fullSummary:null, streaming:false, streamIdx:0, streamChars:0,
+    gen:38, moreOpen:false, toast:null, markers:[], hoverMarker:null,
+    sttProvider:'Groq', sttKey:'gsk_live_9f2a...', sttCreds:{Groq:{key:'gsk_live_9f2a...'}}, sttUrl:'', sttModel:'', sttTest:null,
+    sumProvider:'OpenAI', sumKey:'', sumUrl:'', sumModel:'', sumCtx:10, sumTest:null,
+    recordingKey:false, selKey:'Shift', saved:null,
+    floatX:600, floatY:56, floatW:360, floatH:440, floatOpacity:82,
+    floatCollapsed:false, floatCollapsedEdge:'right', floatSnapped:null,
+    stageScale:0.5, settingsH:730, hoverTip:null,
+    transActive:false, transDone:15, transTotal:32, coolLeft:152, boosted:false,
+    backupProvider:'OpenAI', backupKey:'', backupTest:null,
+    logFilter:'全部', logQuery:'', logOpen:{L1:true}, settingsTab:'stt',
+    libSelected:0, libQuery:'', libHover:null, libMenu:null, markerMoreOpen:false,
+    syncOn:true, syncMarks:true, syncConfig:true, syncKeys:false, davUrl:'https://dav.jianguoyun.com/dav/bilicaption/', davUser:'me@example.com', davPass:'', davTest:null, davSyncing:false, davLast:'2 分钟前',
+    modelPanel:null, sttModelText:'whisper-large-v3-turbo', sumModelText:'gpt-4o-mini',
+    sttFetch:'idle', sumFetch:'idle'
+  };
+
+  componentDidMount(){
+    this.tick = setInterval(()=>{
+      const s = this.state;
+      if(s.playing) this.setState({t:(s.t + s.speed/2) % 168});
+      if(s.scenario==='generating') this.setState({gen:(s.gen+3)%100});
+      if(s.transActive){
+        if(s.coolLeft>0 && !s.boosted) this.setState({coolLeft:Math.max(0,s.coolLeft-0.5)});
+        else if(s.transDone<s.transTotal) this.setState({transDone:s.transDone+1});
+      }
+    },500);
+    this._onMouseUp = ()=>{ if(this.state.dragSelecting) this.setState({dragSelecting:false}); };
+    window.addEventListener('mouseup', this._onMouseUp);
+    this._onResize = ()=>this.recalcScale();
+    window.addEventListener('resize', this._onResize);
+    this.recalcScale();
+  }
+  recalcScale(){
+    const el = this._stageEl;
+    if(!el) { setTimeout(()=>this.recalcScale(), 60); return; }
+    const w = el.clientWidth - 24, h = el.clientHeight - 24;
+    const sc = this.state.scenario;
+    const nativeW = sc==='settings' ? 600 : (sc.indexOf('float')===0 ? 1040 : 1400);
+    const nativeH = sc==='settings' ? 760 : 640;
+    const scale = Math.max(0.3, Math.min(1, w/nativeW, h/nativeH));
+    if(Math.abs(scale - this.state.stageScale) > 0.01) this.setState({stageScale:scale});
+  }
+  componentDidUpdate(){
+    const el = this._curEl, box = this._listEl;
+    if(el && box){
+      const target = el.offsetTop - box.clientHeight/2 + el.offsetHeight/2;
+      const max = box.scrollHeight - box.clientHeight;
+      const next = Math.max(0, Math.min(max, target));
+      if(Math.abs(box.scrollTop - next) > 6) box.scrollTop = next;
+    }
+    this.recalcScale();
+  }
+  componentWillUnmount(){ clearInterval(this.tick); window.removeEventListener('mouseup', this._onMouseUp); window.removeEventListener('resize', this._onResize); }
+
+  go(sc){
+    const p = { scenario:sc, moreOpen:false, speedMenuOpen:false, selStart:null, selEnd:null, anchor:null,
+      selMode:false, summaryOpen:false, view:'captions', loggedIn:true, gen:38, t:66, speed:1, saved:null };
+    if(sc==='selection'){ p.selStart=3; p.selEnd=5; p.summaryOpen=true; p.speed=1.5; }
+    if(sc==='error') p.loggedIn=false;
+    p.transActive = sc==='cooldown';
+    if(sc==='cooldown'){ p.transDone=15; p.transTotal=32; p.coolLeft=152; p.boosted=false; }
+    if(sc==='logs'){ p.scenario='settings'; p.settingsTab='logs'; this.setState(p); return; }
+    if(sc==='settings') p.settingsTab='stt';
+    if(sc==='outline'){ p.view='outline'; this.setState(p); this.startOutlineStream(); return; }
+    if(sc==='float-expanded'){ p.floatCollapsed=false; p.floatX=600; p.floatY=56; p.floatW=360; p.floatH=440; p.floatOpacity=82; }
+    if(sc==='float-collapsed'){ p.floatCollapsed=true; p.floatCollapsedEdge='right'; p.floatX=600; p.floatY=56; p.floatW=360; p.floatH=440; }
+    if(sc==='float-overlay'){ p.floatCollapsed=false; p.floatX=640; p.floatY=72; p.floatW=330; p.floatH=420; p.floatOpacity=88; }
+    this.setState(p);
+  }
+
+  curIdx(){ const t=this.state.t; let i=0; for(let k=0;k<LINES.length;k++) if(LINES[k][0]<=t) i=k; return i; }
+
+  rowClick(i){
+    const s = this.state;
+    if(s.dragMoved){ this.setState({dragMoved:false}); return; }
+    if(s.selMode){
+      if(s.selStart===null) this.setState({selStart:i, selEnd:i});
+      else { const a=Math.min(s.selStart,i), b=Math.max(s.selStart,i); this.setState({selStart:a, selEnd:b, selMode:false}); }
+      return;
+    }
+    this.setState({t:LINES[i][0], anchor:i, selStart:null, selEnd:null, summaryOpen:false});
+  }
+  rowMouseDown(i){
+    if(this.state.selMode) return;
+    this.setState({anchor:i, dragSelecting:true, dragMoved:false});
+  }
+  rowMouseEnter(i){
+    const s = this.state;
+    if(s.dragSelecting && s.anchor!==null && i!==s.anchor)
+      this.setState({selStart:Math.min(s.anchor,i), selEnd:Math.max(s.anchor,i), dragMoved:true, summaryOpen:false, playing:false});
+  }
+
+  genOutline(){ this.startOutlineStream(); }
+  startOutlineStream(){
+    clearInterval(this._stream);
+    this.setState({fullSummary:null, streaming:true, streamIdx:0, streamChars:0});
+    this._stream = setInterval(()=>{
+      const s = this.state;
+      if(!s.streaming){ clearInterval(this._stream); return; }
+      const ch = CHAPTERS[s.streamIdx];
+      if(!ch){ clearInterval(this._stream); this.setState({streaming:false, fullSummary:CHAPTERS}); return; }
+      const next = s.streamChars + 3;
+      if(next >= ch.synopsis.length){
+        const done = s.streamIdx + 1;
+        if(done >= CHAPTERS.length){ clearInterval(this._stream); this.setState({streaming:false, fullSummary:CHAPTERS, streamIdx:done, streamChars:0}); }
+        else this.setState({streamIdx:done, streamChars:0});
+      } else this.setState({streamChars:next});
+    }, 22);
+  }
+  startSummaryStream(){
+    clearInterval(this._sumStream);
+    this.setState({summaryOpen:true, sumStreaming:true, sumChars:0, summaryDraft:SUMMARY_TEXT, sumEditing:false});
+    this._sumStream = setInterval(()=>{
+      const s = this.state;
+      if(!s.sumStreaming){ clearInterval(this._sumStream); return; }
+      const next = s.sumChars + 3;
+      if(next >= SUMMARY_TEXT.length){ clearInterval(this._sumStream); this.setState({sumChars:SUMMARY_TEXT.length, sumStreaming:false}); }
+      else this.setState({sumChars:next});
+    }, 18);
+  }
+  flash(msg){ this.setState({toast:msg}); clearTimeout(this._ft); this._ft=setTimeout(()=>this.setState({toast:null}),1500); }
+
+  tip(id, text){
+    const on = this.state.hoverTip===id;
+    return {
+      text, show:on,
+      dotStyle:'width:11px;height:11px;border-radius:50%;border:1px solid rgba(255,255,255,.2);color:'+(on?'#C7CBD1':'#6B7078')+';font-size:8px;line-height:9px;text-align:center;cursor:help;flex:none',
+      bubbleStyle:'position:absolute;left:18px;top:-4px;white-space:nowrap;background:#22252B;border:1px solid rgba(255,255,255,.14);border-radius:6px;padding:4px 8px;font-size:10.5px;color:#C7CBD1;box-shadow:0 6px 18px rgba(0,0,0,.45);z-index:8',
+      onEnter:()=>this.setState({hoverTip:id}), onLeave:()=>this.setState({hoverTip:null})
+    };
+  }
+  hasKey(kind){
+    const s=this.state;
+    if(kind==='sum') return !!s.sumKey.trim();
+    const box = s.sttCreds[s.sttProvider]||{};
+    return Object.keys(box).some(k=>String(box[k]||'').trim());
+  }
+  fetchModels(kind){
+    const provider = kind==='stt' ? this.state.sttProvider : this.state.sumProvider;
+    if(!this.hasKey(kind)){ this.setState(kind==='stt'?{sttFetch:'nokey'}:{sumFetch:'nokey'}); return; }
+    if(!FETCHABLE[provider]){ this.setState(kind==='stt'?{sttFetch:'ok'}:{sumFetch:'ok'}); return; }
+    this.setState(kind==='stt'?{sttFetch:'loading'}:{sumFetch:'loading'});
+    setTimeout(()=>this.setState(kind==='stt'?{sttFetch:'ok'}:{sumFetch:'ok'}), 700);
+  }
+  hasMarkerAt(time){ return this.state.markers.some(m=>Math.floor(m.time)===Math.floor(time)); }
+  addMarkerFromSummary(){
+    const s = this.state;
+    const selA = s.selStart, selB = s.selEnd===null?s.selStart:s.selEnd;
+    if(selA===null) return;
+    const time = LINES[Math.min(selA,selB)][0];
+    if(this.hasMarkerAt(time)){ this.flash('该时间点标记已存在'); return; }
+    const text = (s.summaryDraft===null ? SUMMARY_TEXT : s.summaryDraft).trim();
+    const id = Date.now();
+    const markers = [...s.markers, {id, time, text, editing:false, draft:text}].sort((a,b)=>a.time-b.time);
+    this.setState({markers});
+    this.flash('已添加标记 · '+fmt(time));
+  }
+  addManualMarker(){
+    const time = Math.floor(this.state.t);
+    if(this.hasMarkerAt(time)){ this.flash('该时间点标记已存在'); return; }
+    const id = Date.now();
+    const markers = [...this.state.markers, {id, time, text:'', editing:true, draft:''}].sort((a,b)=>a.time-b.time);
+    this.setState({markers, view:'markers'});
+  }
+  editMarker(id){ this.setState({markers:this.state.markers.map(m=>m.id===id?{...m, editing:true, draft:m.text}:m)}); }
+  changeMarker(id,val){ this.setState({markers:this.state.markers.map(m=>m.id===id?{...m, draft:val}:m)}); }
+  commitMarker(id){
+    const markers = this.state.markers
+      .map(m=>m.id===id?{...m, text:m.draft.trim(), editing:false}:m)
+      .filter(m=>m.id!==id || m.draft.trim().length>0);
+    this.setState({markers});
+  }
+  deleteMarker(id){ this.setState({markers:this.state.markers.filter(m=>m.id!==id)}); }
+  jumpMarker(time){ this.setState({t:time}); }
+
+  startDragGeneric(onMove){
+    const onUp = ()=>{ window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', onUp); this.setState({floatSnapped:null}); };
+    const move = ev => onMove(ev);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', onUp);
+  }
+  startDrag(e){
+    e.preventDefault();
+    const s = this.state, sx=e.clientX, sy=e.clientY, ox=s.floatX, oy=s.floatY;
+    this.startDragGeneric(ev=>{
+      const w=this.state.floatW, h=this.state.floatH, sc=this.state.stageScale;
+      let x = clamp(ox+(ev.clientX-sx)/sc, 0, PAGE_W-w), y = clamp(oy+(ev.clientY-sy)/sc, 0, PAGE_H-h);
+      let snap = null;
+      if(x<=26){ x=0; snap='left'; } else if(x+w>=PAGE_W-26){ x=PAGE_W-w; snap='right'; }
+      if(y<=26){ y=0; snap=snap||'top'; } else if(y+h>=PAGE_H-26){ y=PAGE_H-h; snap=snap||'bottom'; }
+      this.setState({floatX:x, floatY:y, floatSnapped:snap});
+    });
+  }
+  startResize(edge){
+    return e => {
+      e.preventDefault(); e.stopPropagation();
+      const s = this.state, sx=e.clientX, sy=e.clientY;
+      const orig = {x:s.floatX, y:s.floatY, w:s.floatW, h:s.floatH};
+      this.startDragGeneric(ev=>{
+        const fs = this.state.stageScale;
+        const dx = (ev.clientX-sx)/fs, dy = (ev.clientY-sy)/fs;
+        let {x,y,w,h} = orig;
+        if(edge.includes('e')) w = clamp(orig.w+dx, 280, 520);
+        if(edge.includes('s')) h = clamp(orig.h+dy, 320, 600);
+        if(edge.includes('w')){ w = clamp(orig.w-dx, 280, 520); x = orig.x+(orig.w-w); }
+        if(edge.includes('n')){ h = clamp(orig.h-dy, 320, 600); y = orig.y+(orig.h-h); }
+        x = clamp(x, 0, PAGE_W-w); y = clamp(y, 0, PAGE_H-h);
+        this.setState({floatX:x, floatY:y, floatW:w, floatH:h});
+      });
+    };
+  }
+
+  renderVals(){
+    const s = this.state, sc = s.scenario;
+    const isSettingsCarrier = sc==='settings';
+    const isLogsCarrier = sc==='logs';
+    const isLibraryCarrier = sc==='library';
+    const isFloatCarrier = sc.indexOf('float')===0;
+    const isSidebarCarrier = !isSettingsCarrier && !isLogsCarrier && !isLibraryCarrier && !isFloatCarrier;
+    const stageFullscreen = sc==='float-overlay';
+
+    const empty = sc==='empty', gen = sc==='generating', err = sc==='error' || !s.loggedIn;
+    const hasList = !empty && !gen && !err;
+    const idx = this.curIdx();
+    const selA = s.selStart, selB = s.selEnd===null?s.selStart:s.selEnd;
+    const selActive = hasList && selA!==null && s.view==='captions';
+    const generated = true;
+
+    const modelItems = (kind, provider) => {
+      const fetchState = kind==='stt' ? s.sttFetch : s.sumFetch;
+      const rowHint='width:100%;border:none;background:transparent;text-align:left;font-size:11px;padding:6px 8px;color:#6B7078;cursor:default';
+      if(fetchState==='nokey') return [{label:'先填写上面的 Key，才能拉取模型列表', style:rowHint, onClick:()=>{}}];
+      const text = (kind==='stt' ? s.sttModelText : s.sumModelText).trim();
+      const rowBase='width:100%;border:none;background:transparent;text-align:left;font-size:11.5px;padding:6px 8px;border-radius:6px;cursor:pointer;font-family:\'JetBrains Mono\',ui-monospace,monospace;';
+      if(fetchState==='loading') return [{label:'正在拉取模型列表…', style:rowBase+'color:#6B7078;cursor:default', onClick:()=>{}}];
+      const all = MODEL_LISTS[provider]||[];
+      const list = all.filter(m=>!text||m.toLowerCase().indexOf(text.toLowerCase())>-1);
+      const items = list.map(m=>({ label:m, style:rowBase+(m===text?'background:rgba(77,142,240,.14);color:#4D8EF0':'color:#C7CBD1'),
+        onClick:()=>this.setState(kind==='stt'?{sttModelText:m, modelPanel:null}:{sumModelText:m, modelPanel:null}) }));
+      if(text && all.indexOf(text)<0) items.push({ label:'使用自定义模型 “'+text+'”', style:rowBase+'color:#79ACF5;font-family:inherit',
+        onClick:()=>this.setState({modelPanel:null}) });
+      if(!items.length) items.push({label: all.length?'没有匹配的模型':'没有可用列表，直接输入模型名', style:rowBase+'color:#6B7078;cursor:default', onClick:()=>{}});
+      return items;
+    };
+    const q = s.logQuery.trim();
+    const logRows = LOGS.filter(l=>(s.logFilter==='全部'||l.level!=='INFO') && (!q||(l.msg+l.src).indexOf(q)>-1)).map(l=>{
+      const open = !!s.logOpen[l.id];
+      const c = l.level==='ERROR'?'#E2637E':l.level==='WARN'?'#F0B84D':'#6B7078';
+      return {
+        time:l.t, level:l.level, src:l.src, msg:l.msg, open, chevron: open?'▾':'▸',
+        wrap:'padding:9px 26px;border-bottom:1px solid rgba(255,255,255,.05);'+(open?'background:rgba(255,255,255,.02)':''),
+        levelStyle:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:9px;font-weight:500;letter-spacing:.04em;color:'+c+';border:1px solid '+c+'44;border-radius:4px;padding:1px 5px;flex:none',
+        msgStyle:'font-size:11.5px;line-height:16px;color:'+(l.level==='INFO'?'#9BA0AA':'#C7CBD1')+';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
+        detail:l.detail.map(([k,v])=>({k,v})),
+        onToggle:()=>this.setState({logOpen:{...this.state.logOpen,[l.id]:!open}})
+      };
+    });
+    const scenarios = SCENARIOS.map(([k,label])=>{
+      const on = k==='logs' ? (sc==='settings' && s.settingsTab==='logs')
+        : k==='settings' ? (sc==='settings' && s.settingsTab!=='logs') : sc===k;
+      return {label, style: on?DEMO_ON:DEMO, onClick:()=>this.go(k)};
+    });
+
+    const upVisible = s.loggedIn && s.upName.length<=10;
+    const speedLabel = (Math.abs(s.speed-1)<0.01 ? '1' : (s.speed+'')) + '×';
+    const speedOptions = SPEEDS.map(v=>({
+      label: v+'×',
+      style:'border:none;background:'+(Math.abs(s.speed-v)<0.01?'rgba(77,142,240,.14)':'transparent')+';color:'+(Math.abs(s.speed-v)<0.01?'#4D8EF0':'#C7CBD1')+';font-size:11px;padding:6px 9px;border-radius:5px;cursor:pointer;text-align:left;white-space:nowrap',
+      onClick:()=>this.setState({speed:v, speedMenuOpen:false})
+    }));
+
+    const rows = LINES.map((l,i)=>{
+      const cur = hasList && s.view==='captions' && i===idx;
+      const inSel = selActive && i>=Math.min(selA,selB) && i<=Math.max(selA,selB);
+      let wrap = 'display:flex;gap:8px;padding-top:5px;padding-right:8px;padding-bottom:5px;padding-left:8px;border-radius:6px;cursor:pointer;';
+      if(inSel) wrap += 'background:rgba(77,142,240,.16);';
+      if(cur) wrap += 'background-image:linear-gradient(#4D8EF0,#4D8EF0);background-size:2px calc(100% - 12px);background-position:left 6px;background-repeat:no-repeat;';
+      return {
+        timeLabel: fmt(l[0]), textLabel: l[1],
+        time:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10px;line-height:18px;width:31px;flex:none;'+(cur?'color:#4D8EF0;font-weight:500':'color:#565C66'),
+        text:'font-size:12.5px;line-height:18px;text-wrap:pretty;'+(cur?'color:#F0F1F3':'color:#9BA0AA'),
+        showSummary: hasList && s.summaryOpen && s.view==='captions' && selA!==null && i===Math.max(selA,selB),
+        wrap, onClick:()=>this.rowClick(i), onMouseDown:()=>this.rowMouseDown(i), onMouseEnter:()=>this.rowMouseEnter(i),
+        ref: cur ? (el=>{ this._curEl = el; }) : null
+      };
+    });
+
+    const orbDots = Array.from({length:14},(_,i)=>({style:'position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2.5px;border-radius:50%;background:#4D8EF0;--p:rotate('+(i*(360/14))+'deg) translateY(-23px);transform:rotate('+(i*(360/14))+'deg) translateY(-23px);animation:bcOrbPulse 1.5s '+(i*0.085).toFixed(2)+'s infinite ease-in-out'}));
+
+    const actions = [
+      [s.selMode ? (s.selStart===null?'点起点…':'点终点…') : '划选',
+        ()=>this.setState({selMode:!s.selMode, selStart:null, selEnd:null, summaryOpen:false, anchor:null, playing: s.selMode ? s.playing : false}), s.selMode],
+      ['标记', ()=>this.addManualMarker(), false],
+      ['显示字幕', ()=>this.setState({showOverlay:!s.showOverlay}), s.showOverlay]
+    ].map(([label,fn,on])=>({ label, onClick:fn, style: on?BTN_ON:BTN }));
+
+    const moreActions = [
+      [generated?'重新生成字幕':'生成字幕', ()=>{ this.setState({scenario:'generating', gen:0, moreOpen:false}); }],
+      ['下载 SRT', ()=>{ this.flash('已保存 BV1x94y1Q7Kd-P3.srt'); this.setState({moreOpen:false}); }],
+      ['下载纯文本', ()=>{ this.flash('已保存 BV1x94y1Q7Kd-P3.txt'); this.setState({moreOpen:false}); }],
+      ['译成中文', ()=>{ this.flash('已是中文字幕'); this.setState({moreOpen:false}); }]
+    ].map(([label,fn])=>({ label, onClick:fn, style:'border:none;background:transparent;color:#C7CBD1;font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap' }));
+
+    const selCount = selActive ? Math.abs(selB-selA)+1 : 0;
+    const activeChIdx = s.fullSummary ? CHAPTERS.findIndex(c=>s.t>=c.start && s.t<c.end) : -1;
+    const streamSrc = s.streaming ? CHAPTERS.slice(0, s.streamIdx+1) : (s.fullSummary||[]);
+    const chapters = streamSrc.map((c,i)=>{
+      const active = i===activeChIdx;
+      const timeColor = active ? '#79ACF5' : '#565C66';
+      return {
+        startLabel: fmt(c.start), endLabel: fmt(c.end), titleLabel: c.title,
+        synopsisLabel: (s.streaming && i===s.streamIdx) ? c.synopsis.slice(0, s.streamChars)+'▍' : c.synopsis,
+        wrap:'display:flex;gap:11px;padding:9px 8px;border-radius:8px;cursor:pointer;'+(active?'background:rgba(77,142,240,.14)':''),
+        timeTop:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:9.5px;line-height:18px;color:'+timeColor,
+        timeBottom:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:9.5px;line-height:18px;color:'+timeColor,
+        line:'width:1px;flex:1;min-height:14px;margin:2px 0;background:'+(active?'#4D8EF0':'rgba(255,255,255,.16)'),
+        title:'font-size:12.5px;line-height:18px;font-weight:500;color:'+(active?'#F0F1F3':'#C7CBD1'),
+        synopsis:'font-size:11px;line-height:17px;color:#8A9099;text-wrap:pretty',
+        onClick:()=>this.setState({t:c.start})
+      };
+    });
+    const outlineActions = [
+      [s.streaming?'停止生成':'复制大纲', ()=>{ if(s.streaming){ clearInterval(this._stream); this.setState({streaming:false}); } else this.flash('大纲已复制（含时间戳）'); }, true],
+      ['下载 Markdown', ()=>this.flash('已保存 BV1x94y1Q7Kd-P3-outline.md'), false],
+      ['重新生成', ()=>this.startOutlineStream(), false]
+    ].map(([label,fn,primary])=>({ label, onClick:fn, style: primary?BTN_PRIMARY:BTN }));
+
+    const snapEdge = s.floatSnapped;
+    const snapHintStyle = snapEdge ? ('position:absolute;pointer-events:none;background:rgba(77,142,240,.5);'+
+      (snapEdge==='left'?'left:0;top:0;width:3px;height:100%;':snapEdge==='right'?'right:0;top:0;width:3px;height:100%;':
+       snapEdge==='top'?'top:0;left:0;height:3px;width:100%;':'bottom:0;left:0;height:3px;width:100%;')) : 'display:none';
+    const collapsedEdge = s.floatCollapsedEdge;
+    const collapsedStripStyle = 'position:absolute;'+(collapsedEdge==='right'?'right:0;border-radius:10px 0 0 10px;':'left:0;border-radius:0 10px 10px 0;')+
+      'top:'+clamp(s.floatY,20,PAGE_H-140)+'px;width:20px;height:120px;background:#17191D;border:1px solid rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:5';
+    const collapsedChevron = collapsedEdge==='right' ? '‹' : '›';
+
+    const scaleV = s.stageScale;
+    const sidebarWrapStyle = 'width:'+Math.round(1400*scaleV)+'px;height:'+Math.round(640*scaleV)+'px;overflow:hidden';
+    const sidebarInnerStyle = 'width:1400px;height:640px;display:flex;border:1px solid rgba(255,255,255,.08);border-radius:10px;overflow:hidden;transform:scale('+scaleV+');transform-origin:top left';
+    const floatWrapStyle = 'width:'+Math.round(1040*scaleV)+'px;height:'+Math.round(640*scaleV)+'px;overflow:hidden';
+    const floatInnerStyle = 'width:1040px;height:640px;position:relative;border:1px solid rgba(255,255,255,.08);border-radius:10px;overflow:hidden;background:#0F1013;transform:scale('+scaleV+');transform-origin:top left';
+
+    return {
+      scenarios,
+      stageRef: el=>{ this._stageEl = el; },
+      sidebarWrapStyle, sidebarInnerStyle, floatWrapStyle, floatInnerStyle,
+      settingsRef: el=>{ this._settingsEl = el; if(el){ const hh = el.offsetHeight; if(hh && hh!==this.state.settingsH) setTimeout(()=>this.setState({settingsH:hh}),0); } },
+      settingsWrapStyle:'width:'+Math.round(600*scaleV)+'px;height:'+Math.ceil(s.settingsH*scaleV)+'px;overflow:hidden',
+      settingsInnerStyle:'width:600px;box-sizing:border-box;background:#121417;border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;transform:scale('+scaleV+');transform-origin:top left',
+      frameLabel: FRAME_LABELS[sc] || '',
+      isSettingsCarrier, isLogsCarrier, isLibraryCarrier, isSidebarCarrier, isFloatCarrier, stageFullscreen, stageNotFullscreen: !stageFullscreen,
+      playerStyle:'position:relative;width:100%;aspect-ratio:16/9;background:#15171B;border-radius:8px;overflow:hidden',
+      showOverlayText: hasList && s.showOverlay,
+      currentText: LINES[idx][1],
+      togglePlay:()=>this.setState({playing:!s.playing}), playGlyph: s.playing?'❙❙':'▶',
+      progressStyle:'position:absolute;left:0;top:0;bottom:0;width:'+(s.t/168*100).toFixed(1)+'%;background:#6FA6F2;border-radius:2px',
+      timeLabel: fmt(s.t)+' / '+fmt(168),
+      videoTitle:'【教程】Blender 几何节点入门 · 从零做程序化建模',
+      sidebarPanelStyle:'flex:none;width:360px;background:#121417;border-left:1px solid rgba(255,255,255,.09);display:flex;flex-direction:column;min-height:0;position:relative',
+
+      floatCollapsed: s.floatCollapsed, floatExpanded: !s.floatCollapsed,
+      collapsedStripStyle, expandFloat:()=>this.setState({floatCollapsed:false}), collapsedChevronStyle:'color:#8A9099;font-size:13px', collapsedChevron,
+      floatWindowStyle:'position:absolute;left:'+s.floatX+'px;top:'+s.floatY+'px;width:'+s.floatW+'px;height:'+s.floatH+'px;background:#121417;border:1px solid rgba(255,255,255,.18);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 16px 46px rgba(0,0,0,.55);opacity:'+(s.floatOpacity/100)+';z-index:4',
+      snapHintStyle,
+      floatOpacity: s.floatOpacity, onOpacity:e=>this.setState({floatOpacity:+e.target.value}),
+      stopProp:e=>e.stopPropagation(),
+      goSidebar:()=>this.go('sidebar'), collapseFloat:()=>{ const s2=this.state; const edge=(s2.floatX+s2.floatW/2)<PAGE_W/2?'left':'right'; this.setState({floatCollapsed:true, floatCollapsedEdge:edge}); },
+      startDrag:e=>this.startDrag(e),
+      resizeE:this.startResize('e'), resizeS:this.startResize('s'), resizeW:this.startResize('w'), resizeN:this.startResize('n'),
+      resizeSE:this.startResize('se'), resizeSW:this.startResize('sw'), resizeNE:this.startResize('ne'), resizeNW:this.startResize('nw'),
+
+      loggedIn: s.loggedIn, notLoggedIn: !s.loggedIn,
+      upVisible, upName: s.upName, vipVisible: s.loggedIn && s.isVip,
+      titleLabel:'【教程】Blender 几何节点入门 · 从零做程序化建模',
+      speedBtnStyle:'border:none;background:transparent;color:'+(Math.abs(s.speed-1)<0.01?'#8A9099':'#4D8EF0')+';font-size:11px;line-height:18px;padding:0 6px;border-radius:5px;cursor:pointer;font-family:\'JetBrains Mono\',ui-monospace,monospace',
+      toggleSpeedMenu:()=>this.setState({speedMenuOpen:!s.speedMenuOpen}),
+      speedLabel, speedMenuOpen: s.speedMenuOpen, speedOptions,
+      showCarrierButtons: isSidebarCarrier,
+      goFloat:()=>this.go('float-expanded'),
+      settingsBtnStyle:'border:none;font-size:10.5px;line-height:18px;padding:0 7px;border-radius:5px;cursor:pointer;'+(sc==='settings'?'background:rgba(77,142,240,.14);color:#4D8EF0':'background:transparent;color:#8A9099'),
+      toggleSettings:()=>this.go(sc==='settings'?'sidebar':'settings'),
+
+      viewTabs: [['captions','字幕'],['outline','大纲'],['markers','标记']].map(([k,label])=>({
+        label,
+        style:'border:none;background:transparent;padding:7px 8px;margin-bottom:-1px;flex:none;white-space:nowrap;font-size:11.5px;cursor:pointer;background-repeat:no-repeat;background-position:center bottom;'+(s.view===k?'color:#F0F1F3;font-weight:500;background-image:linear-gradient(#4D8EF0,#4D8EF0);background-size:calc(100% - 16px) 2px':'color:#8A9099'),
+        onClick:()=>this.setState({view:k})
+      })),
+      showCaptionsView: s.view==='captions', showOutlineView: s.view==='outline',
+      isEmpty: empty, isGenerating: gen, isError: err, hasList,
+      orbDots, genPctLabel: s.gen+'%',
+      cancelGenerate:()=>this.go('empty'), startGenerate:()=>this.setState({scenario:'generating', gen:0}),
+      needsKey: !s.sttKey.trim(), openSettingsLink:e=>{ e.preventDefault(); this.go('settings'); },
+      goLogin:e=>{ this.flash('会打开 B 站登录页'); },
+
+      summaryOpen: hasList && s.summaryOpen && s.view==='captions',
+      selRangeLabel: selActive ? fmt(LINES[Math.min(selA,selB)][0])+'–'+fmt(LINES[Math.max(selA,selB)][0]) : (s.selStart!==null? fmt(LINES[s.selStart][0])+'–'+fmt(LINES[s.selStart][0]) : ''),
+      copySummary:()=>{ this.setState({copiedSummary:true}); setTimeout(()=>this.setState({copiedSummary:false}),1400); },
+      copySummaryLabel: s.copiedSummary?'已复制':'复制',
+      closeSummary:()=>this.setState({summaryOpen:false}),
+      summaryText: s.sumStreaming ? SUMMARY_TEXT.slice(0,s.sumChars)+'▍' : SUMMARY_TEXT,
+      addMarkerBtnStyle:'border:1px solid rgba(77,142,240,.45);background:transparent;color:#4D8EF0;font-size:10.5px;line-height:16px;padding:1px 8px;border-radius:5px;cursor:pointer;flex:none',
+      copySummaryBtnStyle:'border:1px solid rgba(255,255,255,.16);background:transparent;color:#9BA0AA;font-size:10.5px;line-height:16px;padding:1px 8px;border-radius:5px;cursor:pointer;flex:none',
+      addMarkerFromSummaryLabel:'+ 标记', addMarkerFromSummary:()=>this.addMarkerFromSummary(),
+      sumStreaming: s.sumStreaming,
+      sumViewing: !s.sumStreaming && !s.sumEditing, sumEditing: !s.sumStreaming && s.sumEditing,
+      startSumEdit:()=>this.setState({sumEditing:true}), endSumEdit:()=>this.setState({sumEditing:false}),
+      summaryViewStyle:'font-size:11.5px;line-height:1.8;color:#9BA0AA;text-wrap:pretty;cursor:text',
+      autoGrowFocus: el=>{ if(el){ el.style.height='auto'; el.style.height = el.scrollHeight+'px'; if(!el.dataset.f){ el.dataset.f='1'; el.focus(); } } },
+      summaryDraft: s.summaryDraft===null?SUMMARY_TEXT:s.summaryDraft,
+      onSummaryDraft:e=>this.setState({summaryDraft:e.target.value}),
+      autoGrow: el=>{ if(el){ el.style.height='auto'; el.style.height = el.scrollHeight+'px'; } },
+      summaryTextareaStyle:'width:100%;box-sizing:border-box;overflow:hidden;resize:none;background:#141619;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 9px;color:#C7CBD1;font-size:11.5px;line-height:1.8;outline:none;font-family:inherit',
+
+      listRef: el=>{ this._listEl = el; },
+      listBoxStyle:'flex:1 1 0;overflow:auto;padding:8px 8px 6px;min-height:0;'+(s.selMode?'cursor:crosshair;':''),
+      rows,
+      selActive,
+      selStatusLabel: selActive ? '已选 '+selCount+' 句 · '+fmt(LINES[Math.min(selA,selB)][0])+'–'+fmt(LINES[Math.max(selA,selB)][0]) : '',
+      copySel:()=>{ this.setState({copiedSel:true}); setTimeout(()=>this.setState({copiedSel:false}),1400); },
+      copySelLabel: s.copiedSel?'已复制':'复制',
+      summarize:()=>this.startSummaryStream(),
+      clearSel:()=>this.setState({selStart:null, selEnd:null, anchor:null, summaryOpen:false}),
+
+      showActionBar: !selActive,
+      actions, moreOpen: s.moreOpen, toggleMore:()=>this.setState({moreOpen:!s.moreOpen}),
+      moreBtnStyle:'border:1px solid rgba(255,255,255,.16);background:'+(s.moreOpen?'#1D2025':'transparent')+';color:#9BA0AA;font-size:10.5px;padding:6px 10px;border-radius:6px;cursor:pointer',
+      moreActions,
+
+      showMarkersView: s.view==='markers',
+      hasMarkers: s.view==='markers' && s.markers.length>0,
+      noMarkers: s.view==='markers' && s.markers.length===0,
+      markers: s.markers.map(m=>({
+        id:m.id, timeLabel:fmt(m.time), textLabel: m.text || '（空）',
+        wrap:'position:relative;display:flex;gap:11px;padding:8px;border-radius:8px;align-items:flex-start;cursor:pointer;'+(s.hoverMarker===m.id&&!m.editing?'background:rgba(255,255,255,.05)':''),
+        toolsStyle:'position:absolute;right:5px;top:5px;display:flex;gap:2px;background:#1C1F24;border-radius:6px;padding:1px 2px;box-shadow:0 2px 8px rgba(0,0,0,.35);transition:opacity .12s;'+(s.hoverMarker===m.id?'opacity:1':'opacity:0;pointer-events:none'),
+        onEnter:()=>this.setState({hoverMarker:m.id}), onLeave:()=>this.setState({hoverMarker:null}),
+        time:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10.5px;line-height:19px;color:#79ACF5;width:34px;flex:none',
+        textStyle:'display:block;font-size:11.5px;line-height:19px;color:'+(m.text?'#C7CBD1':'#565C66')+';text-wrap:pretty',
+        editing:m.editing, notEditing:!m.editing, draft:m.draft,
+        inputStyle:'width:100%;box-sizing:border-box;overflow:hidden;resize:none;background:#17191D;border:1px solid rgba(77,142,240,.45);border-radius:7px;padding:7px 9px;color:#E7E9ED;font-size:11.5px;line-height:19px;outline:none;font-family:inherit',
+        editStyle:'border:none;background:transparent;color:#6B7078;font-size:10.5px;line-height:19px;padding:0 4px;border-radius:5px;cursor:pointer',
+        delStyle:'border:none;background:transparent;color:#6B7078;font-size:12px;line-height:19px;padding:0 4px;border-radius:5px;cursor:pointer',
+        onJump:()=>{ if(!m.editing) this.jumpMarker(m.time); },
+        onEdit:e=>{ e.stopPropagation(); this.editMarker(m.id); },
+        onDelete:e=>{ e.stopPropagation(); this.deleteMarker(m.id); },
+        onChange:e=>this.changeMarker(m.id, e.target.value), onCommit:()=>this.commitMarker(m.id)
+      })),
+      addManualMarkerBtnStyle:BTN, addManualMarkerLabel:'+ 标记 '+fmt(s.t), addManualMarker:()=>this.addManualMarker(),
+      markerMoreOpen: s.markerMoreOpen, toggleMarkerMore:()=>this.setState({markerMoreOpen:!s.markerMoreOpen}),
+      markerMoreStyle:'border:1px solid rgba(255,255,255,.16);background:'+(s.markerMoreOpen?'#1D2025':'transparent')+';color:#9BA0AA;font-size:10.5px;padding:6px 10px;border-radius:6px;cursor:pointer',
+      markerActions: [
+        ['复制', ()=>this.flash('已复制 '+s.markers.length+' 条标记（时间戳为可点链接）')],
+        ['导出 MD', ()=>this.flash('已保存 …-marks.md · 时间戳带 ?t= 可跳回 B 站')],
+        ['导出 CSV', ()=>this.flash('已保存 …-marks.csv · 含 URL 列')]
+      ].map(([label,fn])=>({label, onClick:()=>{ fn(); this.setState({markerMoreOpen:false}); },
+        style:'border:none;background:transparent;color:#C7CBD1;font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap'})),
+
+      hasChapters: hasList && s.view==='outline' && chapters.length>0,
+      noChapters: hasList && s.view==='outline' && chapters.length===0,
+      chapters, outlineActions,
+      streaming: s.streaming, outlineIdle: !s.streaming,
+      outlineEmptyLabel: s.streaming ? 'AI 正在阅读全文字幕…' : '还没有生成大纲',
+      genOutline:()=>this.genOutline(),
+
+      toastMsg: s.toast,
+
+      tipStt: this.tip('stt','没有字幕时，把视频音频转成字幕'),
+      tipSum: this.tip('sum','用于生成选区总结和大纲'),
+      tipKey: this.tip('key','仅保存在本机浏览器，不会上传'),
+      tipKeys: this.tip('keys','按住此键在字幕上拖动即可划选'),
+      sttSeg: STT_PROVIDERS.map(p=>({ label:p, style:SEG(s.sttProvider===p), onClick:()=>this.setState({sttProvider:p, saved:null, sttTest:null}) })),
+      sttFields: (STT_SCHEMA[s.sttProvider]||{fields:[]}).fields.map(([k,label,ph])=>({
+        label, placeholder:ph, value:(s.sttCreds[s.sttProvider]||{})[k]||'',
+        wrap:'display:flex;flex-direction:column;gap:6px;min-width:0',
+        onChange:e=>{ const cur=this.state.sttCreds; const box={...(cur[this.state.sttProvider]||{})}; box[k]=e.target.value; this.setState({sttCreds:{...cur,[this.state.sttProvider]:box}, saved:null, sttTest:null}); }
+      })),
+      sttCredCols: ((STT_SCHEMA[s.sttProvider]||{fields:[]}).fields.length>1) ? '1fr 1fr' : '1fr auto',
+      sttUrlValue: (STT_SCHEMA[s.sttProvider]||{}).url||'',
+      sttModelText: s.sttModelText,
+      sttModelChange: e=>this.setState({sttModelText:e.target.value, saved:null}),
+      sttModelOpen: ()=>{ this.setState({modelPanel:'stt'}); if(this.state.sttFetch==='idle'||this.state.sttFetch==='nokey') this.fetchModels('stt'); },
+      sttModelRefresh: ()=>this.fetchModels('stt'),
+      sttModelPlaceholder: (STT_SCHEMA[s.sttProvider]||{}).model||'',
+      sttModelPanelOpen: s.modelPanel==='stt',
+      sttModelInputStyle: "width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,"+(s.modelPanel==='stt'?'.3':'.14')+");border-radius:7px;padding:8px 24px 8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none",
+      sttModelCaretStyle: 'position:absolute;right:9px;top:7px;font-size:11px;color:#6B7078;cursor:pointer',
+      sttModelHintLabel: s.sttFetch==='nokey' ? '未填写 Key' : !FETCHABLE[s.sttProvider] ? '该服务商不提供模型列表，直接输入' : (s.sttFetch==='loading' ? '正在拉取…' : s.sttFetch==='fail' ? '拉取失败 401 · 可直接输入' : '共 '+(MODEL_LISTS[s.sttProvider]||[]).length+' 个可用模型'),
+      sttModelItems: modelItems('stt', s.sttProvider),
+      backupOptions: ['不启用'].concat(STT_PROVIDERS.filter(p=>p!==s.sttProvider)),
+      backupProvider: s.backupProvider,
+      onBackupProvider: e=>this.setState({backupProvider:e.target.value, backupTest:null, saved:null}),
+      backupSelectStyle:'flex:none;width:110px;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:7px 8px;color:'+(s.backupProvider==='不启用'?'#6B7078':'#E7E9ED')+';font-size:11.5px;outline:none',
+      backupKey:s.backupKey, onBackupKey:e=>this.setState({backupKey:e.target.value, backupTest:null}),
+      backupKeyPlaceholder:'备用服务商的 '+(((STT_SCHEMA[s.backupProvider]||{fields:[['key','API Key']]}).fields[0]||[])[1]||'API Key'),
+      backupKeyStyle:"flex:1;min-width:0;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none",
+      backupTestBtnStyle:'border:1px solid rgba(255,255,255,.16);background:transparent;color:'+(s.backupTest==='ok'?'#3ECF8E':s.backupTest==='fail'?'#E2637E':'#9BA0AA')+';font-size:11px;padding:0 12px;height:33px;border-radius:7px;cursor:pointer;flex:none;white-space:nowrap',
+      backupTestLabel: s.backupTest==='testing'?'测试中…':s.backupTest==='ok'?'✓ 已连通':s.backupTest==='fail'?'✕ 失败':'测连通',
+      testBackup:()=>{ if(!s.backupKey.trim()){ this.setState({backupTest:'fail'}); return; } this.setState({backupTest:'testing'}); setTimeout(()=>this.setState({backupTest:'ok'}),650); },
+
+      transActive: s.transActive,
+      transLabel: (s.coolLeft>0 && !s.boosted)
+        ? '冷却 '+Math.floor(s.coolLeft/60)+':'+String(Math.floor(s.coolLeft%60)).padStart(2,'0')+' · '+s.transDone+'/'+s.transTotal
+        : (s.boosted?'加速 · ':'转写 · ')+s.transDone+'/'+s.transTotal,
+      pillStyle:'display:flex;align-items:center;gap:6px;flex:none;min-width:0;margin-bottom:4px;padding:2px 7px;border-radius:999px;'+((s.coolLeft>0&&!s.boosted)?'background:rgba(240,184,77,.10);border:1px solid rgba(240,184,77,.32)':'background:rgba(77,142,240,.10);border:1px solid rgba(77,142,240,.32)'),
+      pillTextStyle:'font-size:10px;white-space:nowrap;color:'+((s.coolLeft>0&&!s.boosted)?'#F0B84D':'#79ACF5'),
+      pillDivStyle:'width:1px;height:10px;flex:none;background:'+((s.coolLeft>0&&!s.boosted)?'rgba(240,184,77,.32)':'rgba(77,142,240,.32)'),
+      canBoost: s.coolLeft>0 && !s.boosted,
+      boostBtnStyle:'border:none;background:transparent;color:#F0B84D;font-size:10px;line-height:14px;padding:0;cursor:pointer;flex:none;font-weight:500',
+      cancelPillStyle:'border:none;background:transparent;color:#8A9099;font-size:10px;line-height:14px;padding:0;cursor:pointer;flex:none',
+      boostTrans:()=>{ this.setState({boosted:true}); this.flash('已切到备用服务商 · '+this.state.backupProvider); },
+      cancelTrans:()=>this.setState({transActive:false}),
+
+      isLogsCarrier2:false,
+      libSummaryLabel: LIBRARY.length+' 个视频 · '+LIBRARY.reduce((n,v)=>n+v.marks.length,0)+' 条标记',
+      libSyncStyle:'display:flex;align-items:center;gap:5px;flex:none;font-size:10.5px;color:'+(s.syncOn?'#6B7078':'#4A4F58'),
+      libSyncDot:'width:5px;height:5px;border-radius:50%;background:'+(s.syncOn?'#3ECF8E':'#565C66'),
+      libSyncLabel: s.syncOn ? 'WebDAV 已同步 · '+s.davLast : '未开启同步',
+      libQuery: s.libQuery, onLibQuery:e=>this.setState({libQuery:e.target.value}),
+      libVideos: LIBRARY.map((v,i)=>({
+        titleLabel:v.title, meta:v.up+' · '+v.part+' · '+v.marks.length+' 条 · '+v.when, dur:v.dur,
+        wrap:'position:relative;display:flex;gap:9px;padding:8px;border-radius:8px;cursor:pointer;margin-bottom:2px;'+(s.libSelected===i?'background:rgba(77,142,240,.14)':(s.libHover===i?'background:rgba(255,255,255,.04)':'')),
+        thumb:'width:56px;height:34px;flex:none;border-radius:5px;background:#1B1E23;border:1px solid rgba(255,255,255,.07);display:flex;align-items:flex-end;justify-content:flex-end;padding:2px 3px;font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:8.5px;color:#565C66',
+        title:'font-size:11.5px;line-height:15px;color:'+(s.libSelected===i?'#F0F1F3':'#C7CBD1')+';display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden',
+        onClick:()=>this.setState({libSelected:i}),
+        onEnter:()=>this.setState({libHover:i}), onLeave:()=>this.setState({libHover:null}),
+        tools:'position:absolute;right:5px;top:5px;width:20px;height:20px;border:none;border-radius:5px;background:'+(s.libMenu===i?'#22252B':'transparent')+';color:#9BA0AA;font-size:12px;line-height:18px;padding:0;cursor:pointer;transition:opacity .12s;'+((s.libHover===i||s.libMenu===i)?'opacity:1':'opacity:0;pointer-events:none'),
+        onMenu:e=>{ e.stopPropagation(); this.setState({libMenu: s.libMenu===i?null:i}); },
+        menuOpen: s.libMenu===i,
+        menu: [
+          ['打开视频', ()=>this.flash('打开 bilibili.com/video/'+v.bv)],
+          ['导出 Markdown', ()=>this.flash('已保存 '+v.bv+'-marks.md')],
+          ['删除全部标记', ()=>this.flash('已删除 '+v.bv+' 的 '+v.marks.length+' 条标记')]
+        ].map(([label,fn])=>({label, style:'border:none;background:transparent;color:#C7CBD1;font-size:11px;padding:6px 9px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap',
+          onClick:e=>{ e.stopPropagation(); fn(); this.setState({libMenu:null}); }}))
+      })),
+      libCurTitle: (LIBRARY[s.libSelected]||{}).title||'',
+      libCurCount: ((LIBRARY[s.libSelected]||{marks:[]}).marks.length)+' 条标记',
+      libCurMeta: (LIBRARY[s.libSelected]||{}).bv+' · '+(LIBRARY[s.libSelected]||{}).part+' · '+((LIBRARY[s.libSelected]||{marks:[]}).marks.length)+' 条 · '+((LIBRARY[s.libSelected]||{}).when||''),
+      libBtn:'border:1px solid rgba(255,255,255,.14);background:transparent;color:#9BA0AA;font-size:11px;line-height:26px;padding:0 10px;border-radius:6px;cursor:pointer;flex:none',
+      libOpenVideo:()=>this.flash('打开 bilibili.com/video/'+(LIBRARY[s.libSelected]||{}).bv),
+      libExport:()=>this.flash('已保存 '+(LIBRARY[s.libSelected]||{}).bv+'-marks.md'),
+      libMarks: ((LIBRARY[s.libSelected]||{marks:[]}).marks)
+        .filter(m=>!s.libQuery.trim()||m[1].indexOf(s.libQuery.trim())>-1)
+        .map(m=>({
+          timeLabel:fmt(m[0]), textLabel:m[1],
+          wrap:'display:flex;gap:11px;align-items:flex-start;padding:8px;border-radius:8px;cursor:pointer',
+          time:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10.5px;line-height:19px;color:#79ACF5;width:38px;flex:none',
+          text:'font-size:11.5px;line-height:19px;color:#C7CBD1;text-wrap:pretty;flex:1;min-width:0',
+          onClick:()=>this.flash('跳到 '+(LIBRARY[s.libSelected]||{}).bv+' · '+fmt(m[0]))
+        })),
+      goLibrary:()=>this.go('library'),
+      settingsNav: [['stt','转写服务'],['sum','总结服务'],['sync','数据同步'],['keys','快捷键'],['logs','运行日志']].map(([k,label])=>({
+        label,
+        style:'border:none;text-align:left;font-size:11.5px;padding:7px 8px;border-radius:6px;cursor:pointer;'+(s.settingsTab===k?'background:rgba(77,142,240,.14);color:#4D8EF0;font-weight:500':'background:transparent;color:#8A9099'),
+        onClick:()=>this.setState({settingsTab:k})
+      })),
+      tabStt: s.settingsTab==='stt', tabSum: s.settingsTab==='sum', tabSync: s.settingsTab==='sync', tabKeys: s.settingsTab==='keys', tabLogs: s.settingsTab==='logs',
+      tipSync: this.tip('sync','标记只上传到你自己的 WebDAV，不经过任何第三方'),
+      syncOn: s.syncOn, toggleSync:()=>this.setState({syncOn:!s.syncOn}),
+      syncToggleStyle:'width:34px;height:19px;border:none;border-radius:999px;padding:2px;cursor:pointer;display:flex;justify-content:'+(s.syncOn?'flex-end':'flex-start')+';background:'+(s.syncOn?'#4D8EF0':'rgba(255,255,255,.14)'),
+      syncKnobStyle:'width:15px;height:15px;border-radius:50%;background:#fff;display:block',
+      davUrl:s.davUrl, onDavUrl:e=>this.setState({davUrl:e.target.value, davTest:null, saved:null}),
+      davUser:s.davUser, onDavUser:e=>this.setState({davUser:e.target.value, davTest:null}),
+      davPass:s.davPass, onDavPass:e=>this.setState({davPass:e.target.value, davTest:null}),
+      davTestBtnStyle:'border:1px solid rgba(255,255,255,.16);background:transparent;color:'+(s.davTest==='ok'?'#3ECF8E':s.davTest==='fail'?'#E2637E':'#9BA0AA')+';font-size:11px;padding:0 12px;height:31px;border-radius:7px;cursor:pointer;flex:none',
+      davTestLabel: s.davTest==='testing'?'测试中…':s.davTest==='ok'?'✓ 已连通':s.davTest==='fail'?'✕ 连接失败':'测连通',
+      testDav:()=>{ if(!s.davUrl.trim()){ this.setState({davTest:'fail'}); return; } this.setState({davTest:'testing'}); setTimeout(()=>this.setState({davTest:'ok'}),650); },
+      davSyncBtnStyle:'border:1px solid rgba(255,255,255,.16);background:transparent;color:#9BA0AA;font-size:11px;padding:0 12px;height:31px;border-radius:7px;cursor:pointer;flex:none',
+      syncNow:()=>{ this.setState({davSyncing:true}); setTimeout(()=>this.setState({davSyncing:false, davLast:'刚刚'}),700); },
+      davStatusLabel: s.davSyncing ? '同步中…' : (s.syncOn ? '上次同步 '+s.davLast : '同步已关闭'),
+      davPathLabel: (s.syncKeys||s.syncConfig ? '/bilicaption/config.json · ' : '')+'/bilicaption/marks/BV1x94y1Q7Kd-P3.json',
+      syncKeysOn: s.syncKeys,
+      syncScope: [
+        ['标记', 'syncMarks'], ['设置（服务商 / 模型 / 快捷键）','syncConfig'], ['API Key','syncKeys']
+      ].map(([label,k])=>({
+        label: (s[k]?'✓ ':'') + label,
+        style:'border:1px solid '+(s[k]?'rgba(77,142,240,.45)':'rgba(255,255,255,.14)')+';background:transparent;color:'+(s[k]?'#4D8EF0':'#9BA0AA')+';font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer',
+        onClick:()=>this.setState({[k]:!s[k]})
+      })),
+      backToSettings:()=>this.setState({settingsTab:'stt'}),
+      goLogs:()=>{ this.go('settings'); setTimeout(()=>this.setState({settingsTab:'logs'}),0); },
+      logCountLabel: LOGS.length+' 条 · 最近 24 小时',
+      logFilterSeg: ['全部','异常'].map(f=>({ label:f, style:SEG(s.logFilter===f), onClick:()=>this.setState({logFilter:f}) })),
+      logQuery: s.logQuery, onLogQuery:e=>this.setState({logQuery:e.target.value}),
+      logBtn:'border:1px solid rgba(255,255,255,.14);background:transparent;color:#9BA0AA;font-size:11px;line-height:26px;padding:0 10px;border-radius:6px;cursor:pointer;flex:none',
+      copyLogs:()=>this.flash('已复制 '+LOGS.length+' 条日志'), copyLogsLabel:'复制全部',
+      exportLogs:()=>this.flash('已保存 bilicaption-2026-08-20.log'),
+      clearLogs:()=>this.flash('日志已清空'),
+      sumSeg: SUM_PROVIDERS.map(p=>({ label:p, style:SEG(s.sumProvider===p), onClick:()=>this.setState({sumProvider:p, saved:null, sumTest:null}) })),
+      hasLogs: logRows.length>0, noLogs: logRows.length===0, logRows,
+      sttProviderOptions: STT_PROVIDERS, sttProvider: s.sttProvider,
+      onSttProvider:e=>this.setState({sttProvider:e.target.value, saved:null, sttTest:null}),
+      sttIsCustom: s.sttProvider==='自定义',
+      sttUrl:s.sttUrl, onSttUrl:e=>this.setState({sttUrl:e.target.value, saved:null}),
+      sttModel:s.sttModel, onSttModel:e=>this.setState({sttModel:e.target.value, saved:null}),
+      sttKey:s.sttKey, onSttKey:e=>this.setState({sttKey:e.target.value, saved:null, sttTest:null}),
+      sttKeyPlaceholder: s.sttProvider==='Groq' ? 'gsk_...' : 'sk-...',
+      sttTestBtnStyle:'border:1px solid rgba(255,255,255,.16);background:transparent;color:'+(s.sttTest==='ok'?'#3ECF8E':s.sttTest==='fail'?'#E2637E':'#9BA0AA')+';font-size:11px;padding:0 12px;height:33px;border-radius:7px;cursor:pointer;flex:none;white-space:nowrap',
+      sttTestLabel: s.sttTest==='testing'?'测试中…':s.sttTest==='ok'?'✓ 已连通':s.sttTest==='fail'?'✕ 失败':'测连通',
+      testStt:()=>{ if(!s.sttKey.trim()){ this.setState({sttTest:'fail'}); return; } this.setState({sttTest:'testing'}); setTimeout(()=>this.setState({sttTest:'ok'}),650); },
+
+      sumProviderOptions: SUM_PROVIDERS, sumProvider: s.sumProvider,
+      onSumProvider:e=>this.setState({sumProvider:e.target.value, saved:null, sumTest:null}),
+      sumIsCustom: s.sumProvider==='自定义', sumIsBuiltin: false,
+      sttUrlValue: s.sttProvider==='自定义' ? s.sttUrl : STT_URLS[s.sttProvider],
+      sttUrlLocked: s.sttProvider!=='自定义',
+      sttUrlStyle:"width:100%;box-sizing:border-box;background:"+(s.sttProvider==='自定义'?'#17191D':'#141619')+";border:1px solid rgba(255,255,255,"+(s.sttProvider==='自定义'?'.14':'.08')+");border-radius:7px;padding:8px 10px;color:"+(s.sttProvider==='自定义'?'#E7E9ED':'#6B7078')+";font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none;cursor:"+(s.sttProvider==='自定义'?'text':'default'),
+      sttModelPlaceholder: STT_MODELS[s.sttProvider]||'',
+      sumGridCols: s.sumProvider==='自定义' ? '1fr 250px' : '250px',
+      sumUrlValue: s.sumProvider==='自定义' ? s.sumUrl : SUM_URLS[s.sumProvider],
+      sumUrlLocked: s.sumProvider!=='自定义',
+      sumUrlStyle:"width:100%;box-sizing:border-box;background:"+(s.sumProvider==='自定义'?'#17191D':'#141619')+";border:1px solid rgba(255,255,255,"+(s.sumProvider==='自定义'?'.14':'.08')+");border-radius:7px;padding:8px 10px;color:"+(s.sumProvider==='自定义'?'#E7E9ED':'#6B7078')+";font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none;cursor:"+(s.sumProvider==='自定义'?'text':'default'),
+      sumKeyPlaceholder: SUM_KEY_HINT[s.sumProvider]||'sk-...',
+      sumModelText: s.sumModelText,
+      sumModelChange: e=>this.setState({sumModelText:e.target.value, saved:null}),
+      sumModelOpen: ()=>{ this.setState({modelPanel:'sum'}); if(this.state.sumFetch==='idle'||this.state.sumFetch==='nokey') this.fetchModels('sum'); },
+      sumModelRefresh: ()=>this.fetchModels('sum'),
+      sumModelPlaceholder: SUM_MODELS[s.sumProvider]||'',
+      sumModelPanelOpen: s.modelPanel==='sum',
+      sumModelInputStyle: "width:100%;box-sizing:border-box;background:#17191D;border:1px solid rgba(255,255,255,"+(s.modelPanel==='sum'?'.3':'.14')+");border-radius:7px;padding:8px 24px 8px 10px;color:#E7E9ED;font-size:12px;font-family:'JetBrains Mono',ui-monospace,monospace;outline:none",
+      sumModelCaretStyle: 'position:absolute;right:9px;top:7px;font-size:11px;color:#6B7078;cursor:pointer',
+      sumModelHintLabel: s.sumFetch==='nokey' ? '未填写 Key' : !FETCHABLE[s.sumProvider] ? '该服务商不提供模型列表，直接输入' : (s.sumFetch==='loading' ? '正在拉取…' : s.sumFetch==='fail' ? '拉取失败 401 · 可直接输入' : '共 '+(MODEL_LISTS[s.sumProvider]||[]).length+' 个可用模型'),
+      sumModelItems: modelItems('sum', s.sumProvider),
+      sumNeedsKey: true,
+      sumUrl:s.sumUrl, onSumUrl:e=>this.setState({sumUrl:e.target.value, saved:null}),
+      sumModel:s.sumModel, onSumModel:e=>this.setState({sumModel:e.target.value, saved:null}),
+      sumKey:s.sumKey, onSumKey:e=>this.setState({sumKey:e.target.value, saved:null, sumTest:null}),
+      sumTestBtnStyle:'border:1px solid rgba(255,255,255,.16);background:transparent;color:'+(s.sumTest==='ok'?'#3ECF8E':s.sumTest==='fail'?'#E2637E':'#9BA0AA')+';font-size:11px;padding:0 12px;height:33px;border-radius:7px;cursor:pointer;flex:none;white-space:nowrap',
+      sumTestLabel: s.sumTest==='testing'?'测试中…':s.sumTest==='ok'?'✓ 已连通':s.sumTest==='fail'?'✕ 失败':'测连通',
+      testSum:()=>{ if(!s.sumKey.trim()){ this.setState({sumTest:'fail'}); return; } this.setState({sumTest:'testing'}); setTimeout(()=>this.setState({sumTest:'ok'}),650); },
+      sumCtx: s.sumCtx,
+      onSumCtxInput:e=>{ const v=parseInt(e.target.value,10); this.setState({sumCtx: isNaN(v)?0:clamp(v,0,50)}); },
+      ctxDec:()=>this.setState({sumCtx:clamp(s.sumCtx-1,0,50)}), ctxInc:()=>this.setState({sumCtx:clamp(s.sumCtx+1,0,50)}),
+      ctxBtnL:'width:26px;border:none;border-right:1px solid rgba(255,255,255,.12);background:transparent;color:#9BA0AA;font-size:13px;line-height:28px;padding:0;cursor:pointer',
+      ctxBtnR:'width:26px;border:none;border-left:1px solid rgba(255,255,255,.12);background:transparent;color:#9BA0AA;font-size:13px;line-height:28px;padding:0;cursor:pointer',
+
+      recordBtnLabel: s.recordingKey ? '按下新按键…' : s.selKey,
+      recordBtnStyle:'border:1px solid '+(s.recordingKey?'#4D8EF0':'rgba(255,255,255,.16)')+';background:'+(s.recordingKey?'rgba(77,142,240,.14)':'transparent')+';color:'+(s.recordingKey?'#4D8EF0':'#C7CBD1')+';font-size:10.5px;padding:4px 10px;border-radius:6px;cursor:pointer;font-family:\'JetBrains Mono\',ui-monospace,monospace',
+      toggleRecordKey:()=>this.setState({recordingKey:!s.recordingKey}),
+
+      saveSettings:()=>{ const ok = s.sttProvider==='自定义' ? (s.sttUrl.trim()&&s.sttKey.trim()) : s.sttKey.trim(); this.setState({saved: ok?'ok':'fail'}); },
+      savedLabel: s.saved==='ok'?'已保存':s.saved==='fail'?'保存失败：Key 不能为空':'',
+      savedStyle:'font-size:10.5px;color:'+(s.saved==='fail'?'#E2637E':'#3ECF8E')
+    };
+  }
+}
+
+</script>
+</body>
+</html>

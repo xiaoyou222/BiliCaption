@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BiliCaption</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <div class="panel">
+    <header class="header">
+      <span id="loginDot" class="login-dot"></span>
+      <span id="userName" class="header-user hidden"></span>
+      <span id="vipChip" class="vip-chip hidden">VIP</span>
+      <span id="loginLabel" class="login-label hidden">未登录</span>
+      <div id="headerTitle" class="header-title">等待视频</div>
+      <div class="header-actions">
+        <div id="speedSelect" class="speed-wrap hidden">
+          <button id="speedBtn" type="button" class="speed-btn" aria-label="倍速" aria-haspopup="listbox" aria-expanded="false">
+            <span id="speedValue">1×</span>
+          </button>
+          <div id="speedMenu" class="speed-menu hidden" role="listbox"></div>
+        </div>
+        <button id="btnFloat" type="button">浮窗</button>
+        <button id="btnSettings" type="button">设置</button>
+      </div>
+    </header>
+
+    <div id="noVideoView" class="state-view">
+      <div class="empty-icon"></div>
+      <div id="noVideoTitle" class="empty-title">正在读取当前标签…</div>
+      <div id="lastVideoHint" class="empty-meta"></div>
+    </div>
+
+    <div id="videoView" class="video-view hidden">
+      <div id="controlRow" class="track-speed hidden">
+        <select id="trackSelect" class="hidden"></select>
+      </div>
+
+      <div id="viewTabs" class="view-tabs hidden">
+        <button type="button" data-view="captions" class="active">字幕</button>
+        <button type="button" data-view="outline">大纲</button>
+        <div id="jobPill" class="job-pill hidden">
+          <div id="asrJobBar" class="asr-job-bar hidden">
+            <span id="asrJobTitle" class="asr-job-title">转写中</span>
+            <div class="asr-job-track" aria-hidden="true">
+              <div id="asrJobFill" class="asr-job-fill"></div>
+            </div>
+            <button id="btnCancelAsrJob" type="button" class="asr-job-cancel">取消</button>
+          </div>
+          <div id="trJobBar" class="asr-job-bar hidden">
+            <span id="trJobTitle" class="asr-job-title">翻译中</span>
+            <div class="asr-job-track" aria-hidden="true">
+              <div id="trJobFill" class="asr-job-fill"></div>
+            </div>
+            <button id="btnCancelTrJob" type="button" class="asr-job-cancel">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="emptyView" class="state-view hidden">
+        <div class="empty-icon"></div>
+        <div class="empty-title">这个视频没有字幕</div>
+        <button id="btnGenerateEmpty" type="button" class="btn-primary lg">生成字幕</button>
+        <div id="emptyKeyHint" class="empty-note hidden">还没配置 API Key · <button type="button" id="openSettingsLink" class="link-btn">打开设置</button></div>
+        <div id="emptyEstimate" class="empty-meta"></div>
+      </div>
+
+      <div id="generatingView" class="gen-view hidden">
+        <div id="genThink" class="think-host"></div>
+        <button id="btnCancelGen" type="button" class="btn-ghost">取消</button>
+      </div>
+
+      <div id="errorView" class="state-view hidden">
+        <div class="empty-icon"></div>
+        <div id="errorTitle" class="empty-title">未登录 B 站</div>
+        <button id="errorPrimary" type="button" class="btn-primary lg">去登录</button>
+      </div>
+
+      <div id="outlineEmpty" class="state-view hidden">
+        <div class="empty-icon" id="outlineEmptyIcon"></div>
+        <div id="outlineEmptyLabel" class="empty-title">还没有生成大纲</div>
+        <button id="btnGenOutline" type="button" class="btn-primary lg">生成大纲</button>
+      </div>
+
+      <div id="outlineHead" class="outline-head hidden">
+        <div id="outlineThink" class="think-host"></div>
+      </div>
+
+      <div id="outlineList" class="outline hidden"></div>
+
+      <div id="summaryBox" class="summary hidden">
+        <div class="summary-head">
+          <div class="summary-title-row">
+            <span id="summaryTitle">选区总结</span>
+            <span id="summaryMeta" class="summary-meta"></span>
+          </div>
+          <div class="summary-actions">
+            <button id="btnCopySummary" type="button" class="link-btn">复制</button>
+            <button id="btnCloseSummary" type="button" class="summary-close" aria-label="关闭">×</button>
+          </div>
+        </div>
+        <div id="summaryThink" class="think-host hidden"></div>
+        <p id="summaryText"></p>
+      </div>
+
+      <div id="cueWrap" class="cue-wrap hidden">
+        <div id="cueList" class="cues"></div>
+      </div>
+
+      <div id="selectBar" class="select-bar hidden">
+        <span id="selectInfo">点两行字幕作为起止</span>
+        <div class="select-actions">
+          <button id="btnCopy" type="button" class="btn-outline">复制</button>
+          <button id="btnSummary" type="button" class="btn-primary">总结</button>
+          <button id="btnClearSelect" type="button" class="btn-text">清除</button>
+        </div>
+      </div>
+
+      <div id="outlineBar" class="action-bar hidden">
+        <button id="btnCopyOutline" type="button" class="btn-primary">复制大纲</button>
+        <button id="btnOutlineMd" type="button" class="btn-outline">下载 Markdown</button>
+        <button id="btnRegenOutline" type="button" class="btn-outline">重新生成</button>
+      </div>
+
+      <div id="actionBar" class="action-bar hidden">
+        <button id="btnGenerate" type="button" class="btn-primary">生成字幕</button>
+        <button id="btnSelect" type="button" class="btn-outline">划选</button>
+        <button id="btnOverlay" type="button" class="btn-outline">显示字幕</button>
+        <div class="more-wrap">
+          <button id="btnMore" type="button" class="btn-outline">更多 ⋯</button>
+          <div id="moreMenu" class="more-menu hidden">
+            <button id="btnSrt" type="button">下载 SRT</button>
+            <button id="btnTxt" type="button">纯文本</button>
+            <button id="btnTranslate" type="button">译成中文</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="selectTrail" class="select-trail hidden" aria-hidden="true"></canvas>
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="lib/thinking-orbs-engine.js"></script>
+  <script src="lib/thinking-orb.js"></script>
+  <script src="lib/zh-simp.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
