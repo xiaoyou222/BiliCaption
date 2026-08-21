@@ -33,6 +33,7 @@ const ui = {
   jobPillOrb: $("jobPillOrb"),
   jobPillBody: $("jobPillBody"),
   asrJobBar: $("asrJobBar"),
+  asrSwitchNote: $("asrSwitchNote"),
   asrSegOrb: $("asrSegOrb"),
   asrJobTitle: $("asrJobTitle"),
   asrJobFill: $("asrJobFill"),
@@ -127,6 +128,8 @@ let panelWindowId = 0;
 let asrJobId = "";
 let myTabId = 0;
 let asrProgress = null;
+let asrSwitchNote = "";
+let asrSwitchNoteTimer = 0;
 let asrWaitTimer = 0;
 let asrWatchTimer = 0;
 let asrMissingChecks = 0;
@@ -772,8 +775,11 @@ function openExtensionPage(file, query = "") {
   });
 }
 
+const SETTINGS_TABS = ["stt", "sum", "sync", "keys", "logs"];
+
 function openSettings(tab) {
-  const query = tab ? `?tab=${encodeURIComponent(tab)}` : "";
+  const name = SETTINGS_TABS.includes(tab) ? tab : "";
+  const query = name ? `?tab=${encodeURIComponent(name)}` : "";
   openExtensionPage("options.html", query);
 }
 
@@ -1114,11 +1120,12 @@ function renderChunkRows(host, rows) {
       });
       row.appendChild(retry);
     } else {
-      // HANDOFF：「转写中」那一片内嵌 13px connecting 点阵球
+      const st = document.createElement("span");
+      st.className = `chunk-status ${c.status}`;
       if (c.status === "run") {
         const orbHost = document.createElement("span");
         orbHost.className = "chunk-orb";
-        row.appendChild(orbHost);
+        st.appendChild(orbHost);
         host._chunkOrbStops.push(startOrb(orbHost, {
           state: "connecting",
           size: 13,
@@ -1127,9 +1134,9 @@ function renderChunkRows(host, rows) {
           label: ""
         }));
       }
-      const st = document.createElement("span");
-      st.className = `chunk-status ${c.status}`;
-      st.textContent = chunkStatusLabel(c.status);
+      const label = document.createElement("span");
+      label.textContent = chunkStatusLabel(c.status);
+      st.appendChild(label);
       row.appendChild(st);
     }
     host.appendChild(row);
@@ -1154,8 +1161,9 @@ function pillMorphEnd(pill, done) {
     clearTimeout(timer);
     done();
   };
+  // 宽和高谁先结束都行，只认 height，避免宽度先到就把展开类拆掉，箭头会在最后一帧抖一下
   const onEnd = (e) => {
-    if (e.target === pill && (e.propertyName === "height" || e.propertyName === "width")) finish();
+    if (e.target === pill && e.propertyName === "height") finish();
   };
   pill.addEventListener("transitionend", onEnd);
   const timer = setTimeout(finish, PILL_MORPH_MS + 80);
@@ -1168,13 +1176,15 @@ function expandJobPill() {
   if (startW > 24) jobPillChipW = startW;
   jobPillOpen = true;
   jobPillAnimating = true;
-  // 先把展开态内容渲染出来并测量目标尺寸（body 显示、296 宽）。
+  // 先把展开态内容渲染出来并测量最终盒（含边框），避免结束时从 px 切回 max-content 跳一下
   renderAsrJobBar();
   pill.style.transition = "none";
   pill.style.width = "";
   pill.style.height = "auto";
-  const targetW = Math.ceil(pill.getBoundingClientRect().width);
-  const targetH = Math.min(pill.scrollHeight, PILL_MAX_H());
+  pill.offsetHeight;
+  const openBox = pill.getBoundingClientRect();
+  const targetW = openBox.width;
+  const targetH = Math.min(openBox.height, PILL_MAX_H());
   // 从收起尺寸起步
   pill.style.width = `${startW}px`;
   pill.style.height = "20px";
@@ -1202,6 +1212,7 @@ function collapseJobPill() {
   const chipW = jobPillChipW > 24 ? jobPillChipW : 80;
   jobPillAnimating = true;
   pill.classList.add("is-collapsing");
+  renderAsrJobBar();
   pill.style.transition = "none";
   pill.style.width = `${startW}px`;
   pill.style.height = `${startH}px`;
@@ -1262,14 +1273,12 @@ function renderAsrJobBar() {
     return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
   })();
 
+  const collapsing = Boolean(pill?.classList.contains("is-collapsing"));
   if (ui.jobPillLabel) {
-    if (jobPillOpen) ui.jobPillLabel.textContent = "后台任务";
+    if (jobPillOpen && !collapsing) ui.jobPillLabel.textContent = "后台任务";
     else if (showAsr && showTr) ui.jobPillLabel.textContent = "2 个任务";
     else if (showAsr && waiting) ui.jobPillLabel.textContent = `冷却 ${coolLabel}`;
     else if (showAsr) ui.jobPillLabel.textContent = asrTotal ? `转写 ${asrShown}/${asrTotal}` : "转写中";
-    else if (showTr && translateProgress.stage === "regroup") {
-      ui.jobPillLabel.textContent = trTotal ? `断句 ${trDone}/${trTotal}` : "优化断句";
-    }
     else if (showTr) ui.jobPillLabel.textContent = trTotal ? `翻译 ${trDone}/${trTotal}` : "翻译中";
   }
 
@@ -1278,13 +1287,14 @@ function renderAsrJobBar() {
     show(pill, visible);
     pill.classList.toggle("is-wait", waiting);
     if (ui.jobPillHead) ui.jobPillHead.setAttribute("aria-expanded", jobPillOpen && visible ? "true" : "false");
-    pill.classList.toggle("is-open", jobPillOpen && visible);
+    if (!collapsing) pill.classList.toggle("is-open", jobPillOpen && visible);
     if (visible && !jobPillOpen && !jobPillAnimating) cacheJobPillChipWidth(pill);
   }
-  showPillOrb(false);
+    showPillOrb(Boolean((showAsr && generating && !waiting && !asrPaused) || showTr));
 
   if (bar) {
     show(bar, showAsr);
+    if (!showAsr && ui.asrSwitchNote) show(ui.asrSwitchNote, false);
     if (showAsr) {
       const pauseBtn = $("btnPauseAsr");
       if (pauseBtn) {
@@ -1293,11 +1303,16 @@ function renderAsrJobBar() {
         show(pauseBtn, generating || partial);
       }
       show($("btnCancelAsrJob"), generating || partial);
-      showAsrSegOrb(generating && !waiting && !asrPaused);
+      showAsrSegOrb(false);
+      if (ui.asrSwitchNote) {
+        const on = Boolean(asrSwitchNote);
+        ui.asrSwitchNote.textContent = asrSwitchNote;
+        show(ui.asrSwitchNote, on);
+      }
       if (ui.asrJobTitle) {
         const activeProvider = String(asrProgress?.provider || "").trim();
         ui.asrJobTitle.textContent = waiting
-          ? `转写中 · 冷却 ${coolLabel}`
+          ? `所有通道都在冷却，${coolLabel} 后继续`
           : asrPaused
             ? "已暂停"
             : generating
@@ -1336,7 +1351,7 @@ function renderAsrJobBar() {
   if (trBar) {
     show(trBar, showTr);
     if (showTr) {
-      if (ui.trJobTitle) ui.trJobTitle.textContent = translateProgress.stage === "regroup" ? "优化断句" : "翻译中";
+      if (ui.trJobTitle) ui.trJobTitle.textContent = "翻译中";
       if (ui.trSegPct) ui.trSegPct.textContent = trTotal ? `${trDone}/${trTotal}` : "";
     }
   }
@@ -1394,6 +1409,16 @@ async function retryAsrChunk(index) {
   }
 }
 
+function setAsrSwitchNote(text) {
+  asrSwitchNote = String(text || "").replace(/（冷却结束自动切回）$/, "").trim();
+  clearTimeout(asrSwitchNoteTimer);
+  if (!asrSwitchNote) return;
+  asrSwitchNoteTimer = setTimeout(() => {
+    asrSwitchNote = "";
+    renderAsrJobBar();
+  }, 8000);
+}
+
 function applyAsrProgress(info) {
   if (!info || !sameAsrVideo(info)) return;
   const hadCues = Boolean(state?.cues?.length);
@@ -1418,6 +1443,8 @@ function applyAsrProgress(info) {
     failed: Array.isArray(info.failed) ? info.failed : asrProgress?.failed || [],
     paused: info.paused != null ? Boolean(info.paused) : asrProgress?.paused
   };
+  const noteMsg = String(info.message || "");
+  if (/已切到/.test(noteMsg)) setAsrSwitchNote(noteMsg);
   if (info.paused != null) asrPaused = Boolean(info.paused);
   if (info.cues?.length) {
     const cues = applyRememberedTranslations(info.cues);
@@ -2875,7 +2902,6 @@ async function summarizeSelection() {
   if (cueScrollRaf) cancelAnimationFrame(cueScrollRaf);
   cueScrollRaf = 0;
   show(ui.summaryBox, true);
-  ui.summaryBox?.classList.add("is-beam");
   syncSelectChrome(true);
   ui.summaryTitle.textContent = "选区总结";
   ui.summaryMeta.textContent = span;
@@ -2894,7 +2920,6 @@ async function summarizeSelection() {
       }
     });
     ui.summaryText.classList.remove("streaming");
-    ui.summaryBox?.classList.remove("is-beam");
     showSummaryThinking(false);
     setSummaryBody(result);
     ui.summaryMeta.textContent = span;
@@ -2902,7 +2927,6 @@ async function summarizeSelection() {
   } catch (error) {
     showSummaryThinking(false);
     ui.summaryText.classList.remove("streaming");
-    ui.summaryBox?.classList.remove("is-beam");
     ui.summaryText.textContent = error.message || String(error);
   }
 }
@@ -2983,7 +3007,7 @@ async function translateCues() {
     translateProgress = {
       done: Number(started.done) || 0,
       total: Number(started.total) || 0,
-      stage: started.stage || "regroup"
+      stage: started.stage || "run"
     };
     if (started.cues?.length) {
       rememberCuesFromJob(started.cues);
@@ -3535,6 +3559,8 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       generating = false;
       asrProgress = null;
       asrJobId = "";
+      asrSwitchNote = "";
+      clearTimeout(asrSwitchNoteTimer);
       clearInterval(asrWaitTimer);
       stopAsrWatch();
       if (message.cues?.length) {
@@ -3565,6 +3591,8 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       asrProgress = null;
       asrJobId = "";
       asrStopReason = "";
+      asrSwitchNote = "";
+      clearTimeout(asrSwitchNoteTimer);
       clearInterval(asrWaitTimer);
       stopAsrWatch();
       if (message.cues?.length) {

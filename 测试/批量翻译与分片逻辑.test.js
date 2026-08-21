@@ -116,6 +116,8 @@ test("短英文字幕会进入翻译，品牌名和中文行不会被误判", ()
   assert.equal(T.needsTranslation("npm install"), false);
   assert.equal(T.needsTranslation("API"), false);
   assert.equal(T.needsTranslation("这是 OpenAI API"), false);
+  assert.equal(T.needsTranslation("ThereisoneparticularGitHubrepothatI'vebeeneyeing"), true);
+  assert.equal(T.needsTranslation("TypeScript"), false);
 });
 
 test("编号完整时按编号映射", () => {
@@ -182,6 +184,16 @@ test("英文短字幕合并时保留单词间空格，中文仍自然拼接", ()
   const B = loadBackground();
   assert.equal(B.joinCueText("Hello", "world"), "Hello world");
   assert.equal(B.joinCueText("你好", "世界"), "你好世界");
+  const glued = B.segmentsToCues({
+    duration: 1.5,
+    words: [
+      { word: "There", start: 0, end: 0.2 },
+      { word: "is", start: 0.2, end: 0.4 },
+      { word: "one", start: 0.4, end: 0.55 },
+      { word: "repo.", start: 0.55, end: 0.9 }
+    ]
+  });
+  assert.match(glued.map((cue) => cue.content).join(" "), /There is one repo/);
 });
 
 test("分片重叠区只去除真实重复，不会误删静音后的新句子", () => {
@@ -432,10 +444,10 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.match(panel, /type: "CLEAR_VIDEO_CACHE"/);
   assert.doesNotMatch(background, /transcribeOneIncoming\(piece,\s*index \+ p/);
   assert.match(css, /\.chunk-done\s*\{[\s\S]*?overflow-x:\s*hidden/);
-  assert.match(background, /stage:\s*"regroup"/);
-  assert.match(background, /return \{ started: true, jobId, done: 0, total: regroupTotal, stage: "regroup", cues \}/);
-  assert.match(panel, /优化断句/);
-  assert.match(panel, /stage: started\.stage \|\| "regroup"/);
+  assert.match(background, /return \{ started: true, jobId, done: 0, total: targets.length, stage: "run", cues \}/);
+  assert.doesNotMatch(panel, /优化断句|断句 \$\{/);
+  assert.match(panel, /trJobTitle\.textContent = "翻译中"/);
+  assert.match(panel, /stage: started\.stage \|\| "run"/);
   assert.doesNotMatch(background, /xy-backup/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "lib/模型路由.js"), "utf8"), /xy-backup|xy-fast|xy-smart/);
 });
@@ -553,9 +565,81 @@ test("翻译任务先断句再按合并后的句子翻译", async () => {
   assert.equal(job.cues[0].to, 2);
   assert.match(job.cues[0].content, /译/);
   assert.equal(calls.filter((body) => String(body.messages[0]?.content || "").includes("断句军师")).length, 1);
+  assert.equal(String(calls[0].messages[0]?.content || "").includes("断句军师"), true);
+  assert.equal(String(calls[1].messages[0]?.content || "").includes("断句军师"), false);
 });
 
-test("点翻译后立刻进入断句阶段，而不是先显示翻译句数", async () => {
+test("断完一块就翻译一块，不会等全部断完", async () => {
+  const order = [];
+  const B = loadBackground(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const regroup = String(body.messages[0]?.content || "").includes("断句军师");
+    order.push(regroup ? "regroup" : "translate");
+    if (regroup) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { choices: [{ message: { content: "MERGE 1-2" } }] };
+        }
+      };
+    }
+    const prompt = body.messages.at(-1).content;
+    const lines = [...prompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{ message: { content: lines.map((line, index) => `${index + 1}. 译${line}`).join("\n") } }]
+        };
+      }
+    };
+  });
+  B.BiliCaptionTranslate.chunkCues = (cues) => {
+    const list = Array.isArray(cues) ? cues : [];
+    const out = [];
+    for (let i = 0; i < list.length; i += 2) out.push(list.slice(i, i + 2));
+    return out;
+  };
+  B.BiliCaptionPrefs.loadSettings = async () => ({
+    sumProvider: "OpenAI",
+    apiKey: "key",
+    apiModel: "gpt-4o-mini",
+    translateConcurrency: 1
+  });
+  B.BiliCaptionProviders.resolveSum = () => ({
+    provider: "OpenAI",
+    base: "https://api.openai.com/v1",
+    key: "key",
+    model: "gpt-4o-mini"
+  });
+  const input = [
+    { from: 0, to: 1, content: "Hello I" },
+    { from: 1, to: 2, content: "wanted this." },
+    { from: 2, to: 3, content: "Okay then now." },
+    { from: 3, to: 4, content: "Sure thing here." }
+  ];
+  const prepared = B.BiliCaptionTranslate.prepareCues(input);
+  const job = {
+    jobId: "translate-regroup-pipeline",
+    controller: new AbortController(),
+    tabId: 0,
+    bvid: "BV-regroup-pipe",
+    cid: 9,
+    cues: prepared.cues,
+    done: 0,
+    total: prepared.targets.length,
+    pending: true
+  };
+  await B.runTranslateJob(job, prepared.targets);
+  assert.deepEqual(order, ["regroup", "translate", "regroup", "translate"]);
+  assert.equal(job.cues.length, 2);
+  assert.match(job.cues[0].content, /译/);
+  assert.match(job.cues[1].content, /译/);
+});
+
+test("点翻译后立刻显示翻译句数，不暴露断句阶段", async () => {
   const B = loadBackground(async (_url, options) => new Promise((_, reject) => {
     const fail = () => {
       const error = new Error("aborted");
@@ -587,8 +671,8 @@ test("点翻译后立刻进入断句阶段，而不是先显示翻译句数", as
       { from: 1, to: 2, content: "How are you." }
     ]
   });
-  assert.equal(started.stage, "regroup");
-  assert.equal(started.total, 1);
+  assert.equal(started.stage, "run");
+  assert.equal(started.total, 2);
   assert.equal(started.done, 0);
   B.cancelTranslateJob(started.jobId, { bvid: "BV-stage", cid: 1 });
 });

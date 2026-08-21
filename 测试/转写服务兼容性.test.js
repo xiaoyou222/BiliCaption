@@ -181,6 +181,29 @@ test("Fish 测连通走 ASR 而不是 /models", async () => {
   assert.ok(!captured.keys.includes("model"));
 });
 
+test("中文 language 只作语种提示，不把转写要求塞进 Whisper prompt", async () => {
+  let captured;
+  const C = loadStt(async (_url, options) => {
+    captured = Object.fromEntries([...options.body.entries()].filter(([key]) => key !== "file"));
+    return {
+      ok: true,
+      status: 200,
+      headers: { get() { return null; } },
+      async text() { return JSON.stringify({ text: "你好" }); }
+    };
+  });
+  await C.BiliCaptionStt.transcribe(
+    new Blob([new Uint8Array([1])], { type: "audio/mp4" }),
+    {
+      provider: "OpenAI", kind: "openai", base: "https://api.openai.com/v1",
+      model: "whisper-1", key: "test"
+    },
+    { language: "zh" }
+  );
+  assert.equal(captured.language, "zh");
+  assert.equal(captured.prompt, undefined);
+});
+
 test("OpenAI 新转写模型使用 json，Whisper 与 Groq 才请求时间戳", async () => {
   const requests = [];
   const C = loadStt(async (url, options) => {
@@ -299,4 +322,21 @@ test("旧总结服务商迁移到自定义或 OpenAI", () => {
 
   const unknown = P.migrateSum({ sumProvider: "Claude" });
   assert.equal(unknown.sumProvider, "OpenAI");
+});
+
+test("停用的转写通道不进入可用链", () => {
+  const C = loadStt(async () => { throw new Error("不应请求网络"); });
+  const P = C.BiliCaptionProviders;
+  const on = P.normalizeChannel({ provider: "Groq", key: "gsk_on" });
+  const off = P.normalizeChannel({ provider: "Groq", key: "gsk_off", off: true });
+  assert.equal(P.channelUsable(on), true);
+  assert.equal(P.channelUsable(off), false);
+  const usable = P.resolveChannels({
+    sttChannels: [
+      { provider: "Groq", key: "gsk_off", off: true },
+      { provider: "Fish Audio", key: "sk_fish" }
+    ]
+  }).filter((cfg) => P.channelUsable(cfg));
+  assert.equal(usable.length, 1);
+  assert.equal(usable[0].provider, "Fish Audio");
 });

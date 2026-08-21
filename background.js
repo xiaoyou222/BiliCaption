@@ -734,7 +734,6 @@ async function startTranslate(input, sender) {
 
   const jobId = String(input.jobId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const controller = new AbortController();
-  const regroupTotal = Math.max(1, T.chunkCues(cues, T.REGROUP_CHUNK_SIZE).length);
   const job = {
     jobId,
     controller,
@@ -747,17 +746,17 @@ async function startTranslate(input, sender) {
     pending: true,
     regrouped: false,
     progress: {
-      stage: "regroup",
+      stage: "run",
       running: true,
       done: 0,
-      total: regroupTotal,
+      total: targets.length,
       cues,
       partial: true
     }
   };
   translateJobs.set(jobId, job);
   runTranslateJob(job, targets).catch(() => {});
-  return { started: true, jobId, done: 0, total: regroupTotal, stage: "regroup", cues };
+  return { started: true, jobId, done: 0, total: targets.length, stage: "run", cues };
 }
 
 async function resumeStoredTranslate(stored) {
@@ -772,7 +771,6 @@ async function resumeStoredTranslate(stored) {
   }
   const jobId = String(stored.jobId || `${Date.now()}-resume`);
   const alreadyRegrouped = Boolean(stored.regrouped);
-  const regroupTotal = Math.max(1, T.chunkCues(cues, T.REGROUP_CHUNK_SIZE).length);
   const job = {
     jobId,
     controller: new AbortController(),
@@ -785,12 +783,10 @@ async function resumeStoredTranslate(stored) {
     pending: true,
     regrouped: alreadyRegrouped,
     progress: {
-      stage: alreadyRegrouped ? "run" : "regroup",
+      stage: "run",
       running: true,
-      done: alreadyRegrouped ? (Number(stored.done) || 0) : 0,
-      total: alreadyRegrouped
-        ? (Number(stored.total) || targets.length)
-        : regroupTotal,
+      done: Number(stored.done) || 0,
+      total: Number(stored.total) || targets.length,
       cues,
       partial: true
     }
@@ -813,79 +809,79 @@ async function getTranslateJobStatus(query = {}) {
   return { running: false };
 }
 
-async function regroupCuesWithModel(job, { apiBase, apiKey, apiModel, signal }) {
-  const T = self.BiliCaptionTranslate;
-  const chunks = T.chunkCues(job.cues || [], T.REGROUP_CHUNK_SIZE);
-  if (!chunks.length) {
-    job.regrouped = true;
-    return;
-  }
-  const merged = [];
-  trBroadcast(job, {
-    stage: "regroup",
-    running: true,
-    done: 0,
-    total: chunks.length,
-    cues: job.cues,
-    partial: true
-  });
-  for (let i = 0; i < chunks.length; i += 1) {
-    throwIfAborted(signal);
-    let next = chunks[i];
-    try {
-      const raw = await translateChat(T.buildRegroupPrompt(chunks[i]), {
-        apiBase,
-        apiKey,
-        apiModel,
-        signal,
-        system: T.REGROUP_SYSTEM
-      });
-      const result = T.applyRegroupText(chunks[i], raw);
-      next = result.cues;
-      if (result.fallback) {
-        appLog("info", "sum", `断句第 ${i + 1} 块解析失败，保持原句`, {
-          bvid: job.bvid,
-          cid: job.cid,
-          reason: result.reason
-        });
-      }
-    } catch (error) {
-      if (signal?.aborted || error?.name === "AbortError") {
-        job.cues = [...refineAsrCues(merged), ...chunks.slice(i).flat()];
-        throw error;
-      }
-      appLog("info", "sum", `断句第 ${i + 1} 块失败，保持原句`, {
+async function regroupOneChunk(chunk, index, { apiBase, apiKey, apiModel, signal, job, T }) {
+  try {
+    const raw = await translateChat(T.buildRegroupPrompt(chunk), {
+      apiBase,
+      apiKey,
+      apiModel,
+      signal,
+      system: T.REGROUP_SYSTEM
+    });
+    const result = T.applyRegroupText(chunk, raw);
+    if (result.fallback) {
+      appLog("info", "sum", `断句第 ${index + 1} 块解析失败，保持原句`, {
         bvid: job.bvid,
         cid: job.cid,
-        message: error.message || String(error)
+        reason: result.reason
       });
-      next = chunks[i];
     }
-    merged.push(...next);
-    job.cues = [...refineAsrCues(merged), ...chunks.slice(i + 1).flat()];
-    await saveTranslateJob(job);
-    await syncTranslatedCues(job);
-    trBroadcast(job, {
-      stage: "regroup",
-      running: true,
-      done: i + 1,
-      total: chunks.length,
-      cues: job.cues,
-      partial: true
+    return result.cues;
+  } catch (error) {
+    if (signal?.aborted || error?.name === "AbortError") throw error;
+    appLog("info", "sum", `断句第 ${index + 1} 块失败，保持原句`, {
+      bvid: job.bvid,
+      cid: job.cid,
+      message: error.message || String(error)
     });
+    return chunk;
   }
-  job.cues = refineAsrCues(merged);
-  job.regrouped = true;
-  await saveTranslateJob(job);
-  await syncTranslatedCues(job);
-  trBroadcast(job, {
-    stage: "regroup",
-    running: true,
-    done: chunks.length,
-    total: chunks.length,
-    cues: job.cues,
-    partial: true
-  });
+}
+
+async function translatePreparedCues(job, cues, targets, { apiBase, apiKey, apiModel, signal, conc, T }) {
+  if (!targets.length) return;
+  const size = 24;
+  const batches = [];
+  for (let offset = 0; offset < targets.length; offset += size) {
+    batches.push(targets.slice(offset, offset + size));
+  }
+  await T.runPool(batches, conc, async (batch) => {
+    throwIfAborted(signal);
+    if (job.failed) return;
+    const text = batch.map((item, i) => `${i + 1}. ${item.text}`).join("\n");
+    const parsed = await translateBatchWithFallback(
+      `只把下面的英文字幕译成简体中文。必须保持编号，一行一条，不要解释，不要输出英文原文：\n\n${text}`,
+      batch,
+      { apiBase, apiKey, apiModel, signal },
+      job,
+      T
+    );
+    throwIfAborted(signal);
+    if (job.failed) return;
+    await enqueueTranslateCommit(job, async () => {
+      throwIfAborted(signal);
+      if (job.failed) return;
+      let added = 0;
+      for (let i = 0; i < batch.length; i += 1) {
+        const got = T.toSimplified(parsed[i] || "");
+        if (!T.looksTranslated(got, batch[i].text)) continue;
+        cues[batch[i].index] = { ...cues[batch[i].index], content: got };
+        added += 1;
+      }
+      job.done += added;
+      await saveTranslateJob(job);
+      await syncTranslatedCues(job);
+      if (job.failed) return;
+      trBroadcast(job, {
+        stage: "run",
+        running: true,
+        done: job.done,
+        total: job.total,
+        cues: job.cues,
+        partial: true
+      });
+    });
+  }, signal);
 }
 
 async function runTranslateJob(job, targets) {
@@ -918,66 +914,45 @@ async function runTranslateJob(job, targets) {
     if (!apiKey) throw new Error("请先在设置里配置总结服务和 API Key");
     if (!apiBase) throw new Error("请先在设置里填写接口地址");
 
-    if (!job.regrouped && (job.cues || []).length) {
-      await regroupCuesWithModel(job, {
-        apiBase,
-        apiKey,
-        apiModel: translateModel,
-        signal
-      });
-      const prepared = T.prepareCues(job.cues);
-      job.cues = prepared.cues;
-      work = prepared.targets;
-      job.done = 0;
-      job.total = work.length;
-    }
-    job.regrouped = true;
-    await saveTranslateJob(job);
-    trBroadcast(job, {
-      stage: "run",
-      running: true,
-      done: job.done,
-      total: job.total,
-      cues: job.cues,
-      partial: true
-    });
-
-    const size = 24;
-    const batches = [];
-    for (let offset = 0; offset < work.length; offset += size) {
-      batches.push(work.slice(offset, offset + size));
-    }
     const conc = T.clampTranslateConcurrency(translateConcurrency);
+    const translateCfg = { apiBase, apiKey, apiModel: translateModel, signal, conc, T };
     job.done = Number(job.done) || 0;
     job.commitChain = Promise.resolve();
 
-    await T.runPool(batches, conc, async (batch) => {
-      throwIfAborted(signal);
-      if (job.failed) return;
-      const text = batch.map((item, i) => `${i + 1}. ${item.text}`).join("\n");
-      const parsed = await translateBatchWithFallback(
-        `只把下面的英文字幕译成简体中文。必须保持编号，一行一条，不要解释，不要输出英文原文：\n\n${text}`,
-        batch,
-        { apiBase, apiKey, apiModel: translateModel, signal },
-        job,
-        T
-      );
-      throwIfAborted(signal);
-      if (job.failed) return;
-      await enqueueTranslateCommit(job, async () => {
+    if (job.regrouped) {
+      const prepared = T.prepareCues(job.cues);
+      job.cues = prepared.cues;
+      work = prepared.targets;
+      job.total = job.done + work.length;
+      await saveTranslateJob(job);
+      trBroadcast(job, {
+        stage: "run",
+        running: true,
+        done: job.done,
+        total: job.total,
+        cues: job.cues,
+        partial: true
+      });
+      await translatePreparedCues(job, job.cues, work, translateCfg);
+    } else {
+      const chunks = T.chunkCues(job.cues || [], T.REGROUP_CHUNK_SIZE);
+      const out = [];
+      job.total = T.prepareCues(job.cues).targets.length;
+      for (let i = 0; i < chunks.length; i += 1) {
         throwIfAborted(signal);
-        if (job.failed) return;
-        let added = 0;
-        for (let i = 0; i < batch.length; i += 1) {
-          const got = T.toSimplified(parsed[i] || "");
-          if (!T.looksTranslated(got, batch[i].text)) continue;
-          job.cues[batch[i].index] = { ...job.cues[batch[i].index], content: got };
-          added += 1;
-        }
-        job.done += added;
+        const piece = refineAsrCues(await regroupOneChunk(chunks[i], i, {
+          apiBase,
+          apiKey,
+          apiModel: translateModel,
+          signal,
+          job,
+          T
+        }));
+        const prepared = T.prepareCues(piece);
+        const later = chunks.slice(i + 1).flat();
+        job.cues = [...out, ...prepared.cues, ...later];
+        job.total = job.done + prepared.targets.length + T.prepareCues(later).targets.length;
         await saveTranslateJob(job);
-        await syncTranslatedCues(job);
-        if (job.failed) return;
         trBroadcast(job, {
           stage: "run",
           running: true,
@@ -986,8 +961,16 @@ async function runTranslateJob(job, targets) {
           cues: job.cues,
           partial: true
         });
-      });
-    }, signal);
+        await translatePreparedCues(job, prepared.cues, prepared.targets, translateCfg);
+        out.push(...prepared.cues);
+        job.cues = [...out, ...later];
+        await saveTranslateJob(job);
+        await syncTranslatedCues(job);
+      }
+      job.cues = out;
+      work = [];
+    }
+    job.regrouped = true;
 
     throwIfAborted(signal);
     await job.commitChain;
@@ -2539,7 +2522,7 @@ async function transcribeChunks(blob, {
     throw new Error("没有识别出有效文本");
   }
   await clearAsrJob(bvid, cid);
-  return { text: cues.map((cue) => cue.content).join(""), segments: cues, words: [], cues };
+  return { text: cues.reduce((text, cue) => joinCueText(text, cue.content), ""), segments: cues, words: [], cues };
 }
 
 async function transcribeOneIncoming(chunk, index, parts, {
@@ -2895,7 +2878,7 @@ async function transcribeStreaming(stream, {
     throw new Error("没有识别出有效文本");
   }
   await clearAsrJob(bvid, cid);
-  return { text: cues.map((cue) => cue.content).join(""), segments: cues, words: [], cues };
+  return { text: cues.reduce((text, cue) => joinCueText(text, cue.content), ""), segments: cues, words: [], cues };
 }
 
 function abortAfter(signal, ms) {
@@ -3041,7 +3024,7 @@ function segmentsToCues(result) {
       return {
         from,
         to: Math.max(from + 0.15, Number(seg.end) || 0),
-        content: String(seg.text || "").replace(/\s+/g, " ").trim(),
+        content: String(seg.text || seg.content || "").replace(/\s+/g, " ").trim(),
         sid: index + 1
       };
     })
@@ -3296,12 +3279,11 @@ function cuesFromWords(words) {
   const cues = [];
   let buf = [];
 
-  const bufText = () => buf
-    .map((w) => w.word)
-    .join("")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([，。！？；、,.!?])/g, "$1")
-    .trim();
+  const bufText = () => {
+    let out = "";
+    for (const w of buf) out = joinCueText(out, w.word);
+    return out;
+  };
 
   const flush = () => {
     if (!buf.length) return;
@@ -3423,7 +3405,7 @@ async function generateAsr(input, sender) {
     // 预过滤掉不可用通道（没填 Key 的付费通道），链里至少留一条可用的
     const channels = P.resolveChannels(storage).filter((cfg) => P.channelUsable(cfg));
     if (!channels.length) {
-      throw new Error("请先在设置里添加并配置好转写通道（至少一条填好 Key，或用免 Key 的 ElevenLabs）");
+      throw new Error("请先在设置里添加并配置好转写通道（至少一条填好 Key）");
     }
     const sttCfg = channels[0];
     job.channels = channels;

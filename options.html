@@ -36,17 +36,29 @@
           <div class="channel-new">
             <span class="label">新增通道：填好参数并测试通过后才能加入列表</span>
             <div class="channel-new-row">
-              <select id="sttAddProvider"></select>
+              <div id="addProvWrap" class="add-prov">
+                <button type="button" id="addProvBtn" class="add-prov-btn" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="addProvLabel">Groq</span>
+                  <span class="chevron" aria-hidden="true"></span>
+                </button>
+                <div id="addProvPanel" class="add-prov-panel hidden" role="listbox"></div>
+              </div>
               <input id="addKey" type="password" placeholder="API Key" />
             </div>
-            <div class="channel-new-row">
-              <input id="addModel" type="text" placeholder="模型（留空用默认）" />
-              <button type="button" id="runAddTest" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
-              <button type="button" id="addChannel" class="btn-ghost" disabled>+ 添加通道</button>
+            <div id="addUrlRow" class="channel-new-row hidden">
+              <input id="addUrl" type="text" placeholder="接口地址（留空用官方）" />
             </div>
-            <p id="addNote" class="hint hidden"></p>
+            <div class="channel-new-row">
+              <input id="addChanNote" type="text" placeholder="备注，如：账号A（可选）" />
+            </div>
+            <div class="channel-new-row">
+              <input id="addModel" type="text" placeholder="whisper-large-v3-turbo" />
+              <button type="button" id="runAddTest" class="btn-test"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
+              <button type="button" id="addChannel" class="btn-add" disabled>+ 添加通道</button>
+            </div>
+            <p id="addNote" class="add-note hidden"></p>
           </div>
-          <p class="hint">同一服务商可添加多条（多账号轮换）；ElevenLabs 的 Key 选填，不填走免 Key 演示通道</p>
+          <p class="hint-foot">同一服务商可添加多条（多账号轮换）</p>
         </section>
 
         <section id="tab-sum" class="pane hidden">
@@ -66,7 +78,7 @@
             <span class="label">API Key</span>
             <div class="key-row">
               <input id="sumKey" type="password" placeholder="sk-..." />
-              <button type="button" id="testSum" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测连通</span></button>
+              <button type="button" id="testSum" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
             </div>
           </div>
           <div class="field max-280">
@@ -88,7 +100,7 @@
           <div class="hr"></div>
           <div class="tr-block">
             <div class="sub">翻译</div>
-            <p class="note">和总结共用上面的服务商与 Key；翻译模型留空则跟随总结模型。</p>
+            <p class="note">和总结共用上面的服务商与 Key，只是换个模型：翻译量大，通常挑更便宜更快的那个。</p>
             <div class="tr-row">
               <div class="field w-model">
                 <span class="label">翻译模型</span>
@@ -107,7 +119,7 @@
                 </div>
               </div>
             </div>
-            <p class="hint">并发 1–16</p>
+            <p class="hint">留空则跟随总结模型 · 并发 1–16，调高更快但更容易触发限流</p>
           </div>
         </section>
 
@@ -149,7 +161,7 @@
             </div>
           </div>
           <div class="dav-actions">
-            <button type="button" id="testDav" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测连通</span></button>
+            <button type="button" id="testDav" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
             <button type="button" id="syncNow" class="btn-ghost">立即同步</button>
             <span id="davSyncOrb" class="think-host" hidden></span>
             <span id="davStatus" class="hint">同步已关闭</span>

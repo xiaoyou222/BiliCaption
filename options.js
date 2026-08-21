@@ -6,7 +6,10 @@ const Prefs = window.BiliCaptionPrefs;
 const $ = (id) => document.getElementById(id);
 const SCOPE = { groq: "转写", asr: "转写", bili: "B站", net: "网络", set: "设置", app: "应用", sum: "总结", dav: "同步" };
 
-let tab = new URLSearchParams(location.search).get("tab") || "stt";
+const TABS = ["stt", "sum", "sync", "keys", "logs"];
+let tab = TABS.includes(new URLSearchParams(location.search).get("tab"))
+  ? new URLSearchParams(location.search).get("tab")
+  : "stt";
 let selKey = "Shift";
 let recording = false;
 // 转写通道链：数组顺序即优先级，同一服务商可多条（多账号）
@@ -41,9 +44,9 @@ function clampConc(v) {
 }
 
 function setTab(next) {
-  tab = next;
-  document.querySelectorAll(".nav-item").forEach((btn) => btn.classList.toggle("on", btn.dataset.tab === next));
-  ["stt", "sum", "sync", "keys", "logs"].forEach((id) => show($( `tab-${id}`), id === next));
+  tab = TABS.includes(next) ? next : "stt";
+  document.querySelectorAll(".nav-item").forEach((btn) => btn.classList.toggle("on", btn.dataset.tab === tab));
+  TABS.forEach((id) => show($(`tab-${id}`), id === tab));
 }
 
 function renderSeg(host, list, current, onPick) {
@@ -71,8 +74,7 @@ function startOptionsOrb(host, options) {
   }
 }
 
-/** 测试按钮文案 + 请求期间的 13px connecting 点阵球（见 HANDOFF-加载动画） */
-function setTestBtn(id, state, idle = "测连通") {
+function setTestBtn(id, state, idle = "测试") {
   const btn = typeof id === "string" ? $(id) : id;
   if (!btn) return;
   btn.classList.remove("ok", "fail");
@@ -94,16 +96,24 @@ function setTestBtn(id, state, idle = "测连通") {
   btn._orbStop?.();
   btn._orbStop = null;
   if (orb) orb.hidden = true;
-  if (state === "ok") { setText("✓ 已连通"); btn.classList.add("ok"); }
-  else if (state === "fail") { setText(id === "testDav" ? "✕ 连接失败" : "✕ 失败"); btn.classList.add("fail"); }
-  else setText(idle);
+  if (state === "ok") {
+    setText(btn.id === "runAddTest" ? "✓ 已通过" : "✓ 已连通");
+    btn.classList.add("ok");
+  } else if (state === "fail") {
+    setText(btn.id === "testDav" ? "✕ 连接失败" : "✕ 失败");
+    btn.classList.add("fail");
+  } else setText(idle);
 }
 
 // ---- 转写通道列表：顺序即优先级 ----
 
-// 设计稿形态：只读通道卡片（⣿拖拽排序 + 序号 + 服务商 + Key尾 + 模型 + 测试 + ✕），新增走下方表单
 let draggingChannel = null;
+let dragArmed = false;
+let dragOverKey = "";
+let editingChannel = null;
 let addTestState = null;
+let addProvider = "Groq";
+let addProvBound = false;
 
 function channelKeyTail(key) {
   const raw = String(key || "").trim();
@@ -111,73 +121,246 @@ function channelKeyTail(key) {
   return raw.length > 9 ? `${raw.slice(0, 3)}…${raw.slice(-4)}` : raw;
 }
 
+function channelNote(ch) {
+  return String(ch?.note || "").trim();
+}
+
+function clearDropLines() {
+  dragOverKey = "";
+  document.querySelectorAll(".channel-drop-line.is-on").forEach((el) => el.classList.remove("is-on"));
+}
+
+function setDropTarget(i, pos) {
+  const key = `${i}:${pos}`;
+  if (dragOverKey === key) return;
+  dragOverKey = key;
+  document.querySelectorAll(".channel-drop-line.is-on").forEach((el) => el.classList.remove("is-on"));
+  const line = document.querySelector(`.channel-drop-line[data-i="${i}"][data-pos="${pos}"]`);
+  line?.classList.add("is-on");
+}
+
+function moveChannel(from, to) {
+  if (from == null || from === to || to < 0 || to >= sttChannels.length) return;
+  const [moved] = sttChannels.splice(from, 1);
+  sttChannels.splice(to, 0, moved);
+  shiftEditingIndex(from, to);
+}
+
+function shiftEditingIndex(from, to) {
+  if (editingChannel == null) return;
+  if (editingChannel === from) {
+    editingChannel = to;
+    return;
+  }
+  if (from < editingChannel && to >= editingChannel) editingChannel -= 1;
+  else if (from > editingChannel && to <= editingChannel) editingChannel += 1;
+}
+
+function makeDropLine(i, pos) {
+  const line = document.createElement("div");
+  line.className = `channel-drop-line is-${pos}`;
+  line.dataset.i = String(i);
+  line.dataset.pos = pos;
+  return line;
+}
+
+function finishChannelDrag() {
+  draggingChannel = null;
+  dragArmed = false;
+  clearDropLines();
+  document.querySelectorAll(".channel-card.is-dragging").forEach((el) => {
+    el.classList.remove("is-dragging");
+    el.draggable = false;
+  });
+}
+
+function dropChannelOn(i) {
+  const from = draggingChannel;
+  const [, pos] = dragOverKey.split(":");
+  finishChannelDrag();
+  if (from == null || from === i) {
+    renderChannels();
+    return;
+  }
+  let to = pos === "after" ? i + 1 : i;
+  if (from < to) to -= 1;
+  moveChannel(from, to);
+  renderChannels();
+  saveSettings();
+}
+
 function renderChannels() {
   const host = $("channelList");
   if (!host) return;
-  // 防御：过滤掉缺服务商的脏数据，绝不渲染空行
   sttChannels = sttChannels.filter((ch) => ch && P.STT_PROVIDERS.includes(ch.provider));
   host.replaceChildren();
   sttChannels.forEach((ch, i) => {
     const schema = P.schema(ch.provider);
     const key = String(ch.key || "").trim();
-    const row = document.createElement("div");
-    row.className = "channel-row";
-    row.draggable = true;
-    row.addEventListener("dragstart", (e) => {
+    const editing = editingChannel === i;
+    const off = Boolean(ch.off);
+    const rank = sttChannels.slice(0, i).filter((item) => !item.off).length + 1;
+    const slot = document.createElement("div");
+    slot.className = "channel-slot";
+    const card = document.createElement("div");
+    card.className = `channel-card${editing ? " is-editing" : ""}${off ? " is-off" : ""}`;
+
+    card.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (draggingChannel == null || draggingChannel === i) {
+        clearDropLines();
+        return;
+      }
+      const r = card.getBoundingClientRect();
+      setDropTarget(i, (e.clientY - r.top) < r.height / 2 ? "before" : "after");
+    });
+    card.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropChannelOn(i);
+    });
+    card.addEventListener("dragend", () => {
+      finishChannelDrag();
+    });
+    card.addEventListener("dragstart", (e) => {
+      if (!dragArmed) {
+        e.preventDefault();
+        return;
+      }
       draggingChannel = i;
-      row.classList.add("is-dragging");
+      card.classList.add("is-dragging");
       e.dataTransfer.effectAllowed = "move";
       try { e.dataTransfer.setData("text/plain", String(i)); } catch { /* ignore */ }
+      try { e.dataTransfer.setDragImage(card, 24, card.offsetHeight / 2); } catch { /* ignore */ }
     });
-    row.addEventListener("dragover", (e) => e.preventDefault());
-    row.addEventListener("drop", (e) => {
-      e.preventDefault();
-      const from = draggingChannel;
-      if (from == null || from === i) return;
-      const [moved] = sttChannels.splice(from, 1);
-      sttChannels.splice(i, 0, moved);
-      draggingChannel = null;
+
+    const summary = document.createElement("div");
+    summary.className = "channel-summary";
+    summary.addEventListener("click", () => {
+      editingChannel = editing ? null : i;
       renderChannels();
-    });
-    row.addEventListener("dragend", () => {
-      draggingChannel = null;
-      row.classList.remove("is-dragging");
     });
 
     const handle = document.createElement("span");
     handle.className = "channel-handle";
     handle.textContent = "⣿";
     handle.title = "拖动调整优先级";
+    handle.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      dragArmed = true;
+      card.draggable = true;
+    });
+    handle.addEventListener("click", (e) => e.stopPropagation());
+
     const num = document.createElement("span");
-    num.className = `channel-rank${i === 0 ? " is-first" : ""}`;
-    num.textContent = String(i + 1);
+    num.className = `channel-rank${off ? " is-off" : rank === 1 ? " is-first" : ""}`;
+    num.textContent = off ? "—" : String(rank);
     const name = document.createElement("span");
     name.className = "channel-provider";
     name.textContent = ch.provider;
+    const noteBadge = document.createElement("span");
+    noteBadge.className = "channel-note";
+    const syncNoteBadge = () => {
+      const text = channelNote(sttChannels[i]);
+      noteBadge.textContent = text;
+      noteBadge.hidden = !text;
+    };
+    syncNoteBadge();
     const tail = document.createElement("span");
     tail.className = "channel-tail";
-    tail.textContent = channelKeyTail(key) || (schema.keyless ? "免 Key" : "未填 Key");
+    tail.textContent = channelKeyTail(key) || "未填 Key";
     const spacer = document.createElement("div");
     spacer.style.cssText = "flex:1;min-width:8px";
     const model = document.createElement("span");
     model.className = "channel-model-label";
     model.textContent = String(ch.model || "").trim() || schema.model || "";
-    const test = document.createElement("button");
-    test.type = "button";
-    test.className = "channel-test";
-    test.textContent = "测试";
-    test.addEventListener("click", () => testChannel(i, test));
+    const caret = document.createElement("span");
+    caret.className = editing ? "chevron open" : "chevron";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = `channel-switch${off ? " is-off" : ""}`;
+    toggle.title = off ? "启用通道" : "停用通道";
+    toggle.appendChild(document.createElement("span"));
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      sttChannels[i].off = !sttChannels[i].off;
+      renderChannels();
+      saveSettings();
+    });
     const del = document.createElement("button");
     del.type = "button";
     del.className = "channel-op danger";
     del.textContent = "✕";
     del.title = "删除通道";
-    del.addEventListener("click", () => {
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
       sttChannels.splice(i, 1);
+      if (editingChannel === i) editingChannel = null;
+      else if (editingChannel > i) editingChannel -= 1;
       renderChannels();
+      saveSettings();
     });
-    row.append(handle, num, name, tail, spacer, model, test, del);
-    host.appendChild(row);
+    summary.append(handle, num, name, noteBadge, tail, spacer, model, toggle, caret, del);
+    card.appendChild(summary);
+
+    if (editing) {
+      const edit = document.createElement("div");
+      edit.className = "channel-edit";
+      edit.addEventListener("click", (e) => e.stopPropagation());
+
+      const noteInput = document.createElement("input");
+      noteInput.className = "channel-note-input";
+      noteInput.value = ch.note || "";
+      noteInput.placeholder = "备注，如：账号A";
+      noteInput.addEventListener("input", () => {
+        sttChannels[i].note = noteInput.value;
+        syncNoteBadge();
+      });
+      edit.appendChild(noteInput);
+
+      const keyInput = document.createElement("input");
+      keyInput.type = "password";
+      keyInput.value = ch.key || "";
+      keyInput.placeholder = schema.fields?.[0]?.[2] || "API Key";
+      keyInput.addEventListener("input", () => {
+        sttChannels[i].key = keyInput.value;
+        tail.textContent = channelKeyTail(keyInput.value) || "未填 Key";
+      });
+      edit.appendChild(keyInput);
+
+      if (schema.model) {
+        const modelInput = document.createElement("input");
+        modelInput.value = ch.model || "";
+        modelInput.placeholder = schema.model;
+        modelInput.addEventListener("input", () => {
+          sttChannels[i].model = modelInput.value;
+          model.textContent = String(modelInput.value || "").trim() || schema.model;
+        });
+        edit.appendChild(modelInput);
+      }
+
+      const test = document.createElement("button");
+      test.type = "button";
+      test.className = "channel-test";
+      test.textContent = "测试";
+      test.addEventListener("click", (e) => {
+        e.stopPropagation();
+        testChannel(i, test);
+      });
+      edit.appendChild(test);
+
+      if (schema.editableUrl) {
+        const urlInput = document.createElement("input");
+        urlInput.className = "channel-url";
+        urlInput.value = ch.url || "";
+        urlInput.placeholder = schema.url || "接口地址（留空用官方）";
+        urlInput.addEventListener("input", () => { sttChannels[i].url = urlInput.value; });
+        edit.appendChild(urlInput);
+      }
+      card.appendChild(edit);
+    }
+
+    slot.append(makeDropLine(i, "before"), card, makeDropLine(i, "after"));
+    host.appendChild(slot);
   });
   if (!sttChannels.length) {
     const empty = document.createElement("p");
@@ -189,10 +372,10 @@ function renderChannels() {
 
 function currentAddCfg() {
   return P.normalizeChannel({
-    provider: $("sttAddProvider").value || P.STT_PROVIDERS[0],
+    provider: addProvider || P.STT_PROVIDERS[0],
     key: $("addKey").value,
     model: $("addModel").value,
-    url: ""
+    url: $("addUrl")?.value || ""
   });
 }
 
@@ -205,24 +388,62 @@ function setAddState(state, note) {
   noteEl.classList.toggle("hidden", !note);
 }
 
-/** 新增区：服务商下拉 + 占位提示 */
-function renderAddChannelOptions() {
-  const sel = $("sttAddProvider");
-  if (!sel) return;
-  sel.replaceChildren(...P.STT_PROVIDERS.map((p) => {
-    const o = document.createElement("option");
-    o.value = p;
-    o.textContent = p;
-    return o;
+function closeAddProv() {
+  $("addProvWrap")?.classList.remove("is-open");
+  show($("addProvPanel"), false);
+  $("addProvBtn")?.setAttribute("aria-expanded", "false");
+}
+
+function syncAddFields() {
+  const schema = P.schema(addProvider);
+  if ($("addProvLabel")) $("addProvLabel").textContent = addProvider;
+  $("addKey").placeholder = schema.fields?.[0]?.[2] || "API Key";
+  show($("addModel"), Boolean(schema.model));
+  if (schema.model) $("addModel").placeholder = schema.model;
+  show($("addUrlRow"), Boolean(schema.editableUrl));
+  if ($("addUrl")) $("addUrl").placeholder = schema.url || "接口地址（留空用官方）";
+}
+
+function fillAddProvPanel() {
+  const panel = $("addProvPanel");
+  if (!panel) return;
+  panel.replaceChildren(...P.STT_PROVIDERS.map((p) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.setAttribute("role", "option");
+    item.textContent = p;
+    item.classList.toggle("on", p === addProvider);
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      addProvider = p;
+      $("addModel").value = "";
+      if ($("addUrl")) $("addUrl").value = "";
+      closeAddProv();
+      fillAddProvPanel();
+      syncAddFields();
+      setAddState(null, "");
+      setTestBtn("runAddTest", "idle", "测试");
+    });
+    return item;
   }));
-  const syncHint = () => {
-    const schema = P.schema(sel.value);
-    $("addKey").placeholder = schema.keyless ? "API Key（选填，不填走免 Key 演示通道）" : (schema.fields?.[0]?.[2] || "API Key");
-    $("addModel").placeholder = schema.model ? `模型（留空用 ${schema.model}）` : "模型（留空用默认）";
-    setAddState(null, "");
-  };
-  sel.addEventListener("change", syncHint);
-  syncHint();
+}
+
+function renderAddChannelOptions() {
+  if (!addProvBound) {
+    addProvBound = true;
+    $("addProvBtn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wrap = $("addProvWrap");
+      const open = !wrap.classList.contains("is-open");
+      wrap.classList.toggle("is-open", open);
+      show($("addProvPanel"), open);
+      $("addProvBtn").setAttribute("aria-expanded", String(open));
+      if (open) fillAddProvPanel();
+    });
+  }
+  if (!P.STT_PROVIDERS.includes(addProvider)) addProvider = P.STT_PROVIDERS[0];
+  fillAddProvPanel();
+  syncAddFields();
 }
 
 async function testChannel(i, btn) {
@@ -419,11 +640,13 @@ function collect() {
   const sum = currentSumCfg();
   const channels = sttChannels.map((ch) => ({
     provider: ch.provider,
+    note: channelNote(ch),
     key: String(ch.key || "").trim(),
     model: String(ch.model || "").trim(),
-    url: String(ch.url || "").trim()
+    url: String(ch.url || "").trim(),
+    off: Boolean(ch.off)
   }));
-  const first = channels[0] || {};
+  const first = channels.find((ch) => !ch.off) || channels[0] || {};
   const firstKey = String(first.key || "");
   return {
     sttChannels: channels,
@@ -459,10 +682,21 @@ async function saveSettings() {
   const usable = data.sttChannels.some((ch) => P.channelUsable(P.normalizeChannel(ch)));
   await Prefs.saveSettings(data);
   settings = { ...settings, ...data };
-  $("settingsMsg").className = usable ? "" : "warn";
-  $("settingsMsg").textContent = usable
+  const el = $("settingsMsg");
+  const text = usable
     ? "已保存"
-    : "已保存（还没有可用的转写通道：第 1 条未填 Key，生成字幕前需补填或添加通道）";
+    : "已保存（还没有可用的转写通道：请至少填好一条通道的 Key）";
+  el.className = usable ? "" : "warn";
+  el.textContent = "";
+  el.offsetWidth;
+  el.textContent = text;
+  clearTimeout(saveSettings._hide);
+  saveSettings._hide = setTimeout(() => {
+    if (el.textContent === text) {
+      el.textContent = "";
+      el.className = "";
+    }
+  }, 1600);
 }
 
 function updateTrPlaceholder() {
@@ -501,9 +735,11 @@ async function loadSettings() {
   sttChannels = (Array.isArray(settings.sttChannels) ? settings.sttChannels : [])
     .map((ch) => ({
       provider: ch?.provider,
+      note: String(ch?.note || ""),
       key: String(ch?.key || ""),
       model: String(ch?.model || ""),
-      url: String(ch?.url || "")
+      url: String(ch?.url || ""),
+      off: Boolean(ch?.off)
     }))
     .filter((ch) => P.STT_PROVIDERS.includes(ch.provider));
   if (!sttChannels.length) {
@@ -512,10 +748,12 @@ async function loadSettings() {
       const meta = P.schema(cfg.provider);
       return {
         provider: cfg.provider,
+        note: "",
         key: cfg.key || "",
         // 迁移时保留用户旧模型选择，否则留空走默认
         model: cfg.provider === (settings.sttProvider || "Groq") && settings.sttModel ? settings.sttModel : "",
-        url: meta.editableUrl && cfg.base && cfg.base !== meta.url ? cfg.base : ""
+        url: meta.editableUrl && cfg.base && cfg.base !== meta.url ? cfg.base : "",
+        off: false
       };
     });
   }
@@ -652,17 +890,16 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
 $("runAddTest").addEventListener("click", async () => {
   const cfg = currentAddCfg();
   const btn = $("runAddTest");
-  const label = btn.querySelector(".btn-label");
   setTestBtn(btn, "testing", "测试");
-  if (!cfg.key && !P.schema(cfg.provider).keyless) {
+  if (!cfg.key) {
     setAddState("nokey", "请先填写 API Key");
-    setTestBtn(btn, "fail", "测试");
+    setTestBtn(btn, "idle", "测试");
     return;
   }
   try {
     await Stt.testConnection(cfg);
     setTestBtn(btn, "ok", "测试");
-    setAddState("ok", "测试通过，可以添加");
+    setAddState("ok", "");
   } catch (error) {
     setTestBtn(btn, "fail", "测试");
     setAddState("fail", error.message || String(error));
@@ -670,14 +907,26 @@ $("runAddTest").addEventListener("click", async () => {
 });
 $("addKey").addEventListener("input", () => setAddState(null, ""));
 $("addModel").addEventListener("input", () => setAddState(null, ""));
+$("addUrl")?.addEventListener("input", () => setAddState(null, ""));
 $("addChannel").addEventListener("click", () => {
   if (addTestState !== "ok") return;
   const cfg = currentAddCfg();
-  sttChannels.push({ provider: cfg.provider, key: String(cfg.key || "").trim(), model: String($("addModel").value || "").trim(), url: "" });
+  sttChannels.push({
+    provider: cfg.provider,
+    note: String($("addChanNote")?.value || "").trim(),
+    key: String(cfg.key || "").trim(),
+    model: String($("addModel").value || "").trim(),
+    url: String($("addUrl")?.value || "").trim(),
+    off: false
+  });
   $("addKey").value = "";
   $("addModel").value = "";
+  if ($("addChanNote")) $("addChanNote").value = "";
+  if ($("addUrl")) $("addUrl").value = "";
   setAddState(null, "");
+  setTestBtn("runAddTest", "idle", "测试");
   renderChannels();
+  saveSettings();
 });
 $("testSum").addEventListener("click", () => testKind("sum"));
 $("sumModel").addEventListener("focus", () => openCombo("sum"));
@@ -691,6 +940,12 @@ $("trModel").addEventListener("input", () => { if (modelPanel === "tr") fillComb
 $("trModelCaret").addEventListener("click", () => openCombo("tr"));
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".combo")) closePanels();
+  if (!e.target.closest(".add-prov")) closeAddProv();
+});
+document.addEventListener("mouseup", () => {
+  if (draggingChannel != null) return;
+  dragArmed = false;
+  document.querySelectorAll(".channel-card").forEach((el) => { el.draggable = false; });
 });
 $("ctxDec").addEventListener("click", () => { $("sumCtx").value = String(clampCtx(Number($("sumCtx").value) - 1)); });
 $("ctxInc").addEventListener("click", () => { $("sumCtx").value = String(clampCtx(Number($("sumCtx").value) + 1)); });
@@ -764,6 +1019,7 @@ window.addEventListener("keydown", (event) => {
   $("recordKey").classList.toggle("recording", recording);
 }, true);
 $("saveSettings").addEventListener("click", saveSettings);
+window.addEventListener("mouseup", () => { dragArmed = false; });
 $("logFilter").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-filter]");
   if (!btn) return;

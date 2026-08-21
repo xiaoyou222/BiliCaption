@@ -10,8 +10,8 @@
    - `xy-backup` 不再改写成 xy-smart
 2. `lib/模型路由.js` / `background.js` 翻译
    - 去掉 `xy-*` 主备切换；翻译只打当前模型
-   - `runTranslateJob`：断句阶段 → 再 `prepareCues` → 现有批次翻译
-   - 广播 `regroup`；job 持久化 `regrouped`
+   - `runTranslateJob`：按块断句后立刻翻译该块
+   - 对外只广播 `run` 和已译句数；job 持久化 `regrouped`
 3. `lib/translate.js`
    - 解析 `MERGE`/`KEEP`
    - 本地应用合并（含中文边界、越界、冲突回落）
@@ -21,7 +21,7 @@
    - 去掉 xy-smart/xy-fast/xy-backup 文案
    - 加载时跑迁移并保存
 5. `sidepanel.js` / `sidepanel.html`
-   - 断句阶段文案「优化断句」
+   - 胶囊只显示「翻译中」和句数，不展示断句
    - 默认 loadSettings 从统一网关改为 OpenAI
 6. `manifest.json`
    - 加 `https://generativelanguage.googleapis.com/*`

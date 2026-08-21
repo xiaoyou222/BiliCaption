@@ -45,9 +45,9 @@ Key、`apiModel`、`translateModel` 都保留。若翻译模型是 `xy-fast` / `
 
 1. `prepareCues`（现有：简体、筛出要译的行）。若没有英文目标，行为与现在相同。
 2. 若 `job.regrouped` 已是 true（续跑），跳过断句。
-3. 否则对**整份** cue 列表按约 80 条一块、**串行**调用聊天接口。块与块不重叠。块边界可能切在句子中间，接受；不做跨块 MERGE。
-4. 解析指令 → 本地应用 → `refineAsrCues` → 写回 `job.cues`，`job.regrouped = true`，广播 `stage: "regroup"`，把新 cue 同步到 ASR 缓存（现有 `syncTranslatedCues`）。
-5. 再 `prepareCues`，按合并后的英文行进入现有 24 条并发翻译。
+3. 否则对 cue 列表按约 80 条一块处理。**每一块：断句 → `refineAsrCues` → 立刻翻译该块**，再进入下一块。不要等全部断完再译。块与块不重叠，不做跨块 MERGE。
+4. 解析指令 → 本地应用 → `refineAsrCues` → 写回当前已完成前缀 + 未处理后缀，广播 `stage: "run"` 和已译句数，经现有 `syncTranslatedCues` 同步。
+5. 该块内翻译仍是 24 条一批、按设置并发。下一块未断句的英文先保持原文。用户界面不展示断句。
 
 工人逻辑放 `lib/translate.js`（或同级小模块，由 `BiliCaptionTranslate` 导出），service worker 只编排。复用 `joinCueText` 的规则：英文之间补空格。时间轴：MERGE 的 `from` = 第一条，`to` = 最后一条，中间条目丢掉。不要按字数重切时间，显示长度交给随后的 `refineAsrCues`。
 
@@ -79,7 +79,7 @@ KEEP 6
 
 ## 进度 / 取消
 
-`trBroadcast` 增加 `stage: "regroup"`。侧栏：断句中标题为「优化断句」，计数用块 `done/total`；进入翻译后回到「翻译中」和句数。取消仍 abort 同一 `AbortController`，已合并的 cue 和已译中文都保留。
+`trBroadcast` 对外只报 `stage: "run"` 和已译句数。断句在后台按块进行，侧栏胶囊只显示「翻译中」和 `done/total` 句数，用户不感知断句。取消仍 abort 同一 `AbortController`，已合并的 cue 和已译中文都保留。
 
 续跑：storage 里的 translate job 带上 `regrouped` 和最新 cues。已断句则直接译剩下的英文。
 

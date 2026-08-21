@@ -83,7 +83,7 @@ Clicking 「翻译成中文」 must regroup then translate. ASR completion must 
 - `BiliCaptionTranslate.parseRegroupCommands(raw, count) -> { ok, ranges?, reason? }`
 - `BiliCaptionTranslate.applyRegroupText(cues, raw) -> { cues, fallback, reason? }`
 - `BiliCaptionTranslate.chunkCues(cues, size=REGROUP_CHUNK_SIZE)`
-- `runTranslateJob` broadcasts `stage: "regroup" | "run" | "done" | "canceled" | "error"`
+- `runTranslateJob` broadcasts `stage: "run" | "done" | "canceled" | "error"`
 - persisted job field `regrouped: boolean`
 
 `REGROUP_CHUNK_SIZE` is 80. Chunks are serial and non-overlapping.
@@ -99,7 +99,7 @@ KEEP 6
 
 Worker applies timestamps: MERGE `from` = first cue `from`, `to` = last cue `to`, text via `joinCueText`. Never accept model-written timecodes.
 
-`START_TRANSLATE` / resume of a not-yet-regrouped job must open as `stage: "regroup"` with chunk `done/total`, not sentence counts. After regroup, `prepareCues` again and translate in batches of 24.
+`START_TRANSLATE` / resume opens as `stage: "run"` with sentence `done/total`. Regroup runs in the background per chunk and is not shown in the pill. After each chunk regroups, translate that chunk in batches of 24.
 
 Before each overlay sync, run `refineAsrCues` on the merged prefix so a long MERGE does not flash as one paragraph.
 
@@ -149,6 +149,6 @@ job.cues = [...refineAsrCues(merged), ...rest];
 
 ASR stays fast and unchanged. Regroup costs chat tokens only when the user asks for Chinese. The overlay length cap stays `refineAsrCues` / `shouldSplitCue`; MERGE may produce long semantic units, the player must still see short lines.
 
-## Common Mistake: first progress event is still "翻译中"
+## Common Mistake: exposing regroup in the pill
 
-Sidepanel titles follow `stage`. If `startTranslate` returns `stage: "start"` with sentence `total`, the UI skips 「优化断句」. Return regroup chunk totals from the first snapshot.
+Regroup is an implementation detail. The pill and job bar only show 「翻译中」 plus sentence `done/total`. Do not broadcast `stage: "regroup"` or chunk counts to the UI.
