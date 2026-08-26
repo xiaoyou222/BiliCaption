@@ -1,4 +1,4 @@
-importScripts("lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js");
+importScripts("lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js", "lib/markers.js", "lib/webdav.js");
 
 const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
@@ -30,10 +30,14 @@ function maxCueField(cues, field = "to") {
 
 function clampCues(cues, max = 8000) {
   if (!Array.isArray(cues)) return [];
-  return cues.slice(0, max).map((cue) => ({
-    ...cue,
-    content: String(cue?.content || "").slice(0, 500)
-  }));
+  return cues.slice(0, max).map((cue) => {
+    const row = {
+      ...cue,
+      content: String(cue?.content || "").slice(0, 500)
+    };
+    if (row.original) row.original = String(row.original).slice(0, 500);
+    return row;
+  });
 }
 
 function isExtensionPage(sender) {
@@ -242,6 +246,18 @@ async function resumePendingTranslateJobs() {
   }
 }
 
+function injectBiliContentScripts() {
+  chrome.tabs.query({ url: "*://*.bilibili.com/*" }, (tabs) => {
+    for (const tab of tabs) {
+      if (!tab.id) continue;
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content.js"]
+      }).catch(() => {});
+    }
+  });
+}
+
 enableAllBiliPanels();
 installAudioRefererRules();
 resumePendingTranslateJobs();
@@ -250,6 +266,7 @@ chrome.runtime.onInstalled.addListener(() => {
   enableAllBiliPanels();
   installAudioRefererRules();
   chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
+  injectBiliContentScripts();
 });
 chrome.runtime.onStartup.addListener(() => {
   enableAllBiliPanels();
@@ -265,15 +282,16 @@ async function resolvePanelContext(sender) {
   return { tabId: tab?.id, windowId: tab?.windowId };
 }
 
-// 用 enabled 开关而不是 close()：停用只是把面板藏起来，重新启用时
-// Chrome 会自己显示回来，不需要用户手势
-async function hideChromeSidePanel(tabId) {
-  if (!tabId) return;
-  try {
-    await chrome.sidePanel.setOptions({ tabId, enabled: false });
-  } catch {
-    // ignore
+// 关掉已打开的侧栏必须用 close()。setOptions({enabled:false}) 只禁止下次打开，
+// 当前面板常常还挂在那里，于是浮窗和侧栏会叠在一起。
+function hideChromeSidePanel(tabId, windowId) {
+  if (typeof chrome.sidePanel?.close === "function") {
+    if (tabId) return chrome.sidePanel.close({ tabId }).catch(() => {});
+    if (windowId) return chrome.sidePanel.close({ windowId }).catch(() => {});
+    return Promise.resolve();
   }
+  if (!tabId) return Promise.resolve();
+  return chrome.sidePanel.setOptions({ tabId, enabled: false }).catch(() => {});
 }
 
 function showChromeSidePanel(tabId, windowId) {
@@ -287,7 +305,136 @@ function broadcast(message) {
   chrome.runtime.sendMessage(message).catch(() => {});
 }
 
+const DAV_ALARM = "dav-auto-sync";
+const DAV_SOON = "dav-sync-soon";
+let davTimer = 0;
+let davRunning = null;
+let davApplying = false;
+
+function davCfgOf(settings) {
+  return {
+    url: String(settings.davUrl || "").trim(),
+    user: String(settings.davUser || "").trim(),
+    pass: String(settings.davPass || "")
+  };
+}
+
+function davLastLabel(at) {
+  return self.BiliCaptionDav.formatSyncAgo(at) || "刚刚";
+}
+
+async function loadDavSettings() {
+  return self.BiliCaptionPrefs.loadSettings({
+    syncOn: false,
+    syncMarks: true,
+    syncConfig: true,
+    syncKeys: false,
+    davUrl: "",
+    davUser: "",
+    davPass: "",
+    davConfigAt: 0,
+    davLast: "",
+    sttProvider: "",
+    sttModel: "",
+    sttChannels: [],
+    backupProvider: "",
+    sumProvider: "",
+    apiBase: "",
+    apiModel: "",
+    apiKey: "",
+    backupKey: "",
+    sttCreds: {},
+    selKey: "Shift",
+    summaryPad: 10,
+    translateConcurrency: 4
+  });
+}
+
+async function runDavSync(reason = "auto") {
+  const settings = await loadDavSettings();
+  if (!settings.syncOn || !String(settings.davUrl || "").trim()) {
+    return { skipped: true };
+  }
+  if (davRunning) return davRunning;
+  davRunning = (async () => {
+    davApplying = true;
+    try {
+      const result = await self.BiliCaptionDav.autoSync(davCfgOf(settings), settings);
+      await self.BiliCaptionPrefs.saveSettings({
+        davLast: davLastLabel(result.at),
+        davAt: result.at
+      });
+      appLog("info", "dav", `同步完成（${reason}）`, result.marks);
+      broadcast({ type: "DAV_SYNCED", reason, ...result });
+      return result;
+    } catch (error) {
+      const message = error.message || String(error);
+      appLog("error", "dav", `同步失败：${message}`);
+      broadcast({ type: "DAV_SYNC_ERROR", error: message });
+      throw error;
+    } finally {
+      davApplying = false;
+      davRunning = null;
+    }
+  })();
+  return davRunning;
+}
+
+function scheduleDavSync() {
+  clearTimeout(davTimer);
+  davTimer = setTimeout(() => {
+    runDavSync("debounce").catch(() => {});
+  }, 4000);
+  try {
+    chrome.alarms.create(DAV_SOON, { when: Date.now() + 8000 });
+  } catch {
+    // alarms 在部分环境不可用
+  }
+}
+
+function armDavAlarm() {
+  try {
+    chrome.alarms.create(DAV_ALARM, { periodInMinutes: 15 });
+  } catch {
+    // ignore
+  }
+}
+
+chrome.alarms?.onAlarm?.addListener((alarm) => {
+  if (alarm?.name === DAV_ALARM || alarm?.name === DAV_SOON) {
+    runDavSync(alarm.name).catch(() => {});
+  }
+});
+
+chrome.runtime.onInstalled?.addListener(() => {
+  armDavAlarm();
+  runDavSync("install").catch(() => {});
+});
+chrome.runtime.onStartup?.addListener(() => {
+  armDavAlarm();
+  runDavSync("startup").catch(() => {});
+});
+
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (davApplying) return;
+  const keys = Object.keys(changes || {});
+  if (area === "local" && keys.some((key) => key === "markerIndex" || key === "markerTrash" || key.startsWith("marks:"))) {
+    scheduleDavSync();
+    return;
+  }
+  if (area !== "sync") return;
+  if (keys.every((key) => key === "davLast" || key === "davAt")) return;
+  if (changes.syncOn?.newValue === false) return;
+  if (changes.syncOn?.newValue === true || keys.some((key) => key !== "davLast" && key !== "davAt")) {
+    scheduleDavSync();
+  }
+});
+
 // ---- 通道链：sttChannels 顺序即优先级，前面的限流/失效自动落到后面的 ----
+
+function asrChannelLabel(cfg, fallback = "转写") {
+  return self.BiliCaptionProviders.channelLabel(cfg, fallback);
+}
 
 function asrChannelState(job, idx) {
   if (!job) return "ok";
@@ -328,7 +475,7 @@ function markChannelDead(job, idx, reason) {
   if (!job) return;
   job.deadChannels = job.deadChannels || [];
   if (!job.deadChannels.includes(idx)) job.deadChannels.push(idx);
-  appLog("warn", "asr", `通道 ${idx + 1}（${job.channels?.[idx]?.provider || "?"}）已停用：${reason || "不可用"}`);
+  appLog("warn", "asr", `通道 ${idx + 1}（${asrChannelLabel(job.channels?.[idx], "?")}）已停用：${reason || "不可用"}`);
 }
 
 function partIsComplete(part) {
@@ -427,7 +574,7 @@ function asrBoostFlags(job) {
     canBoost: false,
     boosted: false,
     usingBackup: (job?.channels?.length || 0) > 1 && idx > 0,
-    provider: job?.channels?.[idx]?.provider || job?.sttCfg?.provider || ""
+    provider: asrChannelLabel(job?.channels?.[idx] || job?.sttCfg, "")
   };
 }
 
@@ -560,7 +707,6 @@ function trBroadcast(job, extra) {
     at: Date.now()
   };
   const { cues, ...rest } = job.progress;
-  const terminal = ["done", "error", "canceled"].includes(rest.stage);
   broadcast({
     type: "TRANSLATE_PROGRESS",
     tabId: job?.tabId || 0,
@@ -568,7 +714,7 @@ function trBroadcast(job, extra) {
     bvid: job?.bvid || "",
     cid: job?.cid || 0,
     ...rest,
-    ...(terminal && cues?.length ? { cues } : {}),
+    ...(cues?.length ? { cues } : {}),
     cueCount: Array.isArray(cues) ? cues.length : 0
   });
 }
@@ -581,6 +727,10 @@ async function loadTranslateJob(bvid, cid) {
 
 async function saveTranslateJob(job) {
   if (!job?.bvid && !job?.cid) return;
+  if (job.userCanceled) {
+    await clearTranslateJob(job.bvid, job.cid);
+    return;
+  }
   await chrome.storage.local.set({
     [translateJobStoreKey(job.bvid, job.cid)]: {
       jobId: job.jobId,
@@ -704,12 +854,18 @@ async function translateBatchWithFallback(prompt, batch, config, _job, T) {
   return T.parseTranslatedBatch(raw, batch.length);
 }
 
-function cancelTranslateJob(jobId, extra = {}) {
+async function cancelTranslateJob(jobId, extra = {}) {
   const job = findTranslateJob({ jobId, bvid: extra.bvid, cid: extra.cid, tabId: extra.tabId });
-  if (!job) return false;
-  job.controller.abort();
-  appLog("info", "sum", "已取消翻译", { bvid: job.bvid, cid: job.cid });
-  return true;
+  const bvid = job?.bvid || extra.bvid || "";
+  const cid = Number(job?.cid || extra.cid) || 0;
+  if (job) {
+    job.userCanceled = true;
+    job.pending = false;
+    job.controller.abort();
+    appLog("info", "sum", "已取消翻译", { bvid: job.bvid, cid: job.cid });
+  }
+  if (bvid || cid) await clearTranslateJob(bvid, cid);
+  return Boolean(job);
 }
 
 async function startTranslate(input, sender) {
@@ -743,6 +899,7 @@ async function startTranslate(input, sender) {
     cues,
     done: 0,
     total: targets.length,
+    originTotal: targets.length,
     pending: true,
     regrouped: false,
     progress: {
@@ -845,6 +1002,7 @@ async function translatePreparedCues(job, cues, targets, { apiBase, apiKey, apiM
   for (let offset = 0; offset < targets.length; offset += size) {
     batches.push(targets.slice(offset, offset + size));
   }
+  const total = Number(job.total) || targets.length;
   await T.runPool(batches, conc, async (batch) => {
     throwIfAborted(signal);
     if (job.failed) return;
@@ -865,10 +1023,14 @@ async function translatePreparedCues(job, cues, targets, { apiBase, apiKey, apiM
       for (let i = 0; i < batch.length; i += 1) {
         const got = T.toSimplified(parsed[i] || "");
         if (!T.looksTranslated(got, batch[i].text)) continue;
-        cues[batch[i].index] = { ...cues[batch[i].index], content: got };
+        const cue = cues[batch[i].index];
+        if (!cue) continue;
+        T.stampCueOriginal?.(cue, batch[i].text);
+        cue.content = got;
         added += 1;
       }
-      job.done += added;
+      job.done = (Number(job.done) || 0) + added;
+      job.total = total;
       await saveTranslateJob(job);
       await syncTranslatedCues(job);
       if (job.failed) return;
@@ -915,65 +1077,33 @@ async function runTranslateJob(job, targets) {
     if (!apiBase) throw new Error("请先在设置里填写接口地址");
 
     const conc = T.clampTranslateConcurrency(translateConcurrency);
+    // 不再先跑 LLM 断句。2000+ 行时那一步会串行卡死翻译；本地按句号切开后直接批量译。
+    job.cues = refineAsrCues(job.cues || []);
+    const prepared = T.prepareCues(job.cues);
+    job.cues = prepared.cues;
+    work = prepared.targets;
+    const originTotal = (Number(job.done) || 0) + work.length;
+    job.originTotal = originTotal;
+    job.total = originTotal;
     const translateCfg = { apiBase, apiKey, apiModel: translateModel, signal, conc, T };
     job.done = Number(job.done) || 0;
     job.commitChain = Promise.resolve();
-
-    if (job.regrouped) {
-      const prepared = T.prepareCues(job.cues);
-      job.cues = prepared.cues;
-      work = prepared.targets;
-      job.total = job.done + work.length;
-      await saveTranslateJob(job);
-      trBroadcast(job, {
-        stage: "run",
-        running: true,
-        done: job.done,
-        total: job.total,
-        cues: job.cues,
-        partial: true
-      });
-      await translatePreparedCues(job, job.cues, work, translateCfg);
-    } else {
-      const chunks = T.chunkCues(job.cues || [], T.REGROUP_CHUNK_SIZE);
-      const out = [];
-      job.total = T.prepareCues(job.cues).targets.length;
-      for (let i = 0; i < chunks.length; i += 1) {
-        throwIfAborted(signal);
-        const piece = refineAsrCues(await regroupOneChunk(chunks[i], i, {
-          apiBase,
-          apiKey,
-          apiModel: translateModel,
-          signal,
-          job,
-          T
-        }));
-        const prepared = T.prepareCues(piece);
-        const later = chunks.slice(i + 1).flat();
-        job.cues = [...out, ...prepared.cues, ...later];
-        job.total = job.done + prepared.targets.length + T.prepareCues(later).targets.length;
-        await saveTranslateJob(job);
-        trBroadcast(job, {
-          stage: "run",
-          running: true,
-          done: job.done,
-          total: job.total,
-          cues: job.cues,
-          partial: true
-        });
-        await translatePreparedCues(job, prepared.cues, prepared.targets, translateCfg);
-        out.push(...prepared.cues);
-        job.cues = [...out, ...later];
-        await saveTranslateJob(job);
-        await syncTranslatedCues(job);
-      }
-      job.cues = out;
-      work = [];
-    }
     job.regrouped = true;
+    await saveTranslateJob(job);
+    trBroadcast(job, {
+      stage: "run",
+      running: true,
+      done: job.done,
+      total: job.total,
+      cues: job.cues,
+      partial: true
+    });
+    await translatePreparedCues(job, job.cues, work, translateCfg);
+    job.cues = splitTranslatedCues(job.cues || []);
 
     throwIfAborted(signal);
     await job.commitChain;
+    job.cues = splitTranslatedCues(job.cues || []);
     job.pending = false;
     await syncTranslatedCues(job);
     await clearTranslateJob(job.bvid, job.cid);
@@ -997,7 +1127,7 @@ async function runTranslateJob(job, targets) {
     const canceled = signal.aborted || error?.name === "AbortError";
     const leftover = T.prepareCues(job.cues || []).targets.length;
     await syncTranslatedCues(job).catch(() => {});
-    if (canceled && leftover > 0) {
+    if (canceled && leftover > 0 && !job.userCanceled) {
       job.pending = true;
       await saveTranslateJob(job).catch(() => {});
     } else {
@@ -1033,13 +1163,14 @@ async function runTranslateJob(job, targets) {
 }
 
 async function fetchJson(url, options = {}) {
+  const { headers, ...rest } = options;
   const res = await fetch(url, {
-    credentials: "include",
+    ...rest,
+    credentials: rest.credentials || "include",
     headers: {
       Accept: "application/json, text/plain, */*",
-      ...(options.headers || {})
-    },
-    ...options
+      ...(headers || {})
+    }
   });
   if (!res.ok) throw new Error(`请求失败 ${res.status}: ${url}`);
   return res.json();
@@ -1140,7 +1271,9 @@ async function fetchBangumi(input) {
     cid: ep.cid,
     bvid: ep.bvid || "",
     duration: ep.duration || 0,
-    epId: String(ep.ep_id || ep.id || epId || "")
+    epId: String(ep.ep_id || ep.id || epId || ""),
+    pic: ep.cover || result.cover || "",
+    up: result.subtitle || result.title || ""
   };
 }
 
@@ -1157,6 +1290,36 @@ async function fetchPlayer(aid, cid) {
     throw new Error(json.message || "获取播放器信息失败，请先登录 B 站");
   }
   return json.data;
+}
+
+async function fetchDmView(aid, cid) {
+  const json = await fetchJson(
+    `https://api.bilibili.com/x/v2/dm/view?type=1&oid=${Number(cid) || 0}&pid=${Number(aid) || 0}`,
+    {
+      headers: {
+        Accept: "application/json",
+        Referer: "https://www.bilibili.com/"
+      }
+    }
+  );
+  if (json.code != null && json.code !== 0) {
+    throw new Error(json.message || "获取字幕列表失败");
+  }
+  return json.data || json.result || json;
+}
+
+function mapSubtitleTracks(source) {
+  const raw = source?.subtitle?.subtitles || source?.subtitles || [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => ({
+      lan: item.lan || "",
+      lanDoc: item.lan_doc || item.lan || "字幕",
+      url: item.subtitle_url || "",
+      aiType: item.ai_type,
+      aiStatus: item.ai_status
+    }))
+    .filter((item) => item.url);
 }
 
 function isAllowedCueHost(url) {
@@ -1182,14 +1345,14 @@ async function fetchCues(url) {
   if (!isAllowedCueHost(url)) throw new Error("字幕地址不在允许的域名内");
   const json = await fetchJson(normalizeSubtitleUrl(url));
   const body = Array.isArray(json?.body) ? json.body : [];
-  return body
+  return refineCues(body
     .map((item, index) => ({
       from: Number(item.from) || 0,
       to: Number(item.to) || 0,
       content: String(item.content || "").replace(/\s+/g, " ").trim(),
       sid: item.sid || index + 1
     }))
-    .filter((item) => item.content);
+    .filter((item) => item.content));
 }
 
 function pickDefaultTrack(tracks) {
@@ -1235,7 +1398,10 @@ function mergeTranslatedCues(incoming, existing) {
       )
     );
     if (best && bestOverlap >= dur * 0.45) {
-      return { ...cue, content: best.content };
+      const original = String(cue.original || cue.content || best.original || "").trim();
+      return original
+        ? { ...cue, content: best.content, original }
+        : { ...cue, content: best.content };
     }
     return { ...cue };
   });
@@ -1298,8 +1464,8 @@ async function loadCachedAsr(bvid, cid) {
   const data = await chrome.storage.local.get(key);
   const cached = data[key] || null;
   if (!cached?.cues?.length) return cached;
-  if (cached.source === "translated" || cached.activeLan === "translated") return cached;
-  const refined = refineCues(cached.cues);
+  const translated = cached.source === "translated" || cached.activeLan === "translated";
+  const refined = translated ? splitTranslatedCues(cached.cues) : refineCues(cached.cues);
   const changed = refined.length !== cached.cues.length
     || refined.some((cue, i) => cue.content !== cached.cues[i]?.content);
   if (changed) {
@@ -1362,6 +1528,8 @@ async function clearVideoCache(bvid, cid) {
   asr?.controller?.abort();
   translation?.controller?.abort();
 
+  // 只删本插件写入的转写 / 翻译 / 大纲。B 站 player、dm 官方轨不是缓存，
+  // loadSubtitles 在 asr: 缺失后会重新拉官方字幕。
   // 先让任务的取消清理和最后一次部分结果落盘结束，再在同一写队列之后删除，
   // 保证“清理缓存”不会过几百毫秒又被后台任务写回来。
   const deadline = Date.now() + 5000;
@@ -1375,7 +1543,8 @@ async function clearVideoCache(bvid, cid) {
     key,
     asrJobKey(bvid, cid),
     translateJobStoreKey(bvid, cid),
-    `outline:${bvid || ""}:${Number(cid) || 0}`
+    `outline:${bvid || ""}:${Number(cid) || 0}`,
+    `outline:v2:${bvid || ""}:${Number(cid) || 0}`
   ]);
   return { ok: true };
 }
@@ -1550,6 +1719,44 @@ function matchSavedParts(chunks, saved, cachedCues) {
   return parts;
 }
 
+function resumeChunkPlan(saved, duration, estimated) {
+  const savedTotal = Math.max(1, Number(saved?.total) || 0, Number(estimated) || 0);
+  const byIndex = new Map();
+  for (const part of saved?.parts || []) {
+    const idx = Number(part?.i);
+    if (Number.isInteger(idx) && idx >= 0) byIndex.set(idx, part);
+  }
+  const slice = Number(duration) > 0 ? Number(duration) / savedTotal : 0;
+  const plan = [];
+  for (let i = 0; i < savedTotal; i += 1) {
+    const part = byIndex.get(i);
+    const start = Number(part?.start);
+    const end = Number(part?.end);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      plan.push({ start, end, overlap: Number(part.overlap) || 0 });
+    } else {
+      plan.push({ start: slice * i, end: slice * (i + 1), overlap: 0 });
+    }
+  }
+  return { plan, total: savedTotal };
+}
+
+function seedResumeParts(saved, cachedCues, duration, estimated) {
+  const guess = Math.max(1, Number(estimated) || 0);
+  if (!saved?.parts?.length && !cachedCues?.length) {
+    return { parts: [], total: guess, skipped: 0, plan: [] };
+  }
+  const { plan, total } = resumeChunkPlan(saved, duration, guess);
+  const parts = matchSavedParts(plan, saved, cachedCues);
+  while (parts.length < total) parts.push(null);
+  return {
+    parts,
+    total,
+    skipped: parts.filter(partIsComplete).length,
+    plan
+  };
+}
+
 function asrChunkLimits(job) {
   const base = {
     maxSeconds: self.BiliCaptionMp4?.CHUNK_SECONDS || 8 * 60,
@@ -1622,7 +1829,9 @@ async function loadSubtitles(page) {
       aid: view.aid,
       cid,
       bvid: view.bvid || page.bvid,
-      duration: part?.duration || view.duration || 0
+      duration: part?.duration || view.duration || 0,
+      pic: view.pic || "",
+      up: view.owner?.name || ""
     };
   } else if (page.kind === "bangumi") {
     meta = await fetchBangumi(page);
@@ -1630,17 +1839,24 @@ async function loadSubtitles(page) {
     return { page: "other", tracks: [], cues: [], activeLan: "", error: "", login, canGenerate: false };
   }
 
-  const player = await fetchPlayer(meta.aid, meta.cid);
-  const rawTracks = player?.subtitle?.subtitles || [];
-  const tracks = rawTracks
-    .map((item) => ({
-      lan: item.lan || "",
-      lanDoc: item.lan_doc || item.lan || "字幕",
-      url: item.subtitle_url || "",
-      aiType: item.ai_type,
-      aiStatus: item.ai_status
-    }))
-    .filter((item) => item.url);
+  let tracks = [];
+  let playerError = null;
+  let dmViewError = null;
+  try {
+    tracks = mapSubtitleTracks(await fetchPlayer(meta.aid, meta.cid));
+  } catch (error) {
+    playerError = error;
+    console.warn("[BiliCaption] player failed", error);
+  }
+  if (!tracks.length && meta.aid && meta.cid) {
+    try {
+      const dmTracks = mapSubtitleTracks(await fetchDmView(meta.aid, meta.cid));
+      if (dmTracks.length) tracks = dmTracks;
+    } catch (error) {
+      dmViewError = error;
+      console.warn("[BiliCaption] dm/view failed", error);
+    }
+  }
 
   const preferred = pickDefaultTrack(tracks);
   let cues = [];
@@ -1648,6 +1864,7 @@ async function loadSubtitles(page) {
   let source = "";
   let error = "";
   let notice = "";
+  let subtitleStatus = "";
   const cached = await loadCachedAsr(meta.bvid, meta.cid);
   const asrJob = await loadAsrJob(meta.bvid, meta.cid);
   const lastCueTo = maxCueField(cached?.cues);
@@ -1673,9 +1890,15 @@ async function loadSubtitles(page) {
     source = "bilibili";
   } else if (login.error) {
     error = `无法确认登录状态：${login.error}`;
+    subtitleStatus = "network";
   } else if (!login.isLogin) {
     error = "未登录或登录态无效，B 站通常不返回字幕。请先在浏览器登录 bilibili.com。";
+    subtitleStatus = "login";
+  } else if (playerError || dmViewError) {
+    subtitleStatus = "fetch_failed";
+    notice = "没拿到字幕列表";
   } else {
+    subtitleStatus = "none";
     notice = "该视频暂无 AI/CC 字幕。";
   }
 
@@ -1687,11 +1910,14 @@ async function loadSubtitles(page) {
     title: meta.title,
     part: meta.part,
     durationMeta: meta.duration || 0,
+    pic: meta.pic || "",
+    up: meta.up || "",
     tracks,
     activeLan,
     cues,
     login,
     source,
+    subtitleStatus,
     canGenerate: true,
     partial,
     asrDone: Math.max(
@@ -2126,7 +2352,7 @@ async function transcribeOne(blob, options) {
     const cfg = pickAsrCfg(job, options.apiKey);
     const channelIdx = Number(job?.activeChannel) || 0;
     const multiChannel = (job?.channels?.length || 0) > 1;
-    const label = cfg?.provider || "转写";
+    const label = asrChannelLabel(cfg);
 
     // 全部通道都不可用：有冷却中的就等最近恢复，全 dead 则报错收尾
     if (!cfg) {
@@ -2172,7 +2398,7 @@ async function transcribeOne(blob, options) {
         emitProgress(options.onProgress, {
           stage: "upload",
           message: next
-            ? `${label} 不可用，已切到 ${next.cfg.provider} 继续`
+            ? `${label} 不可用，已切到 ${asrChannelLabel(next.cfg)} 继续`
             : `${label} 不可用`,
           waitUntil: 0
         });
@@ -2219,14 +2445,15 @@ async function transcribeOne(blob, options) {
         markChannelCool(job, channelIdx, wait);
         const next = pickAsrChannel(job);
         if (next) {
-          appLog("warn", "asr", `${label} 额度冷却 ${formatWait(wait)}，自动切到 ${next.cfg.provider} 继续第 ${options.current || "?"} 段`, {
+          const nextLabel = asrChannelLabel(next.cfg);
+          appLog("warn", "asr", `${label} 额度冷却 ${formatWait(wait)}，自动切到 ${nextLabel} 继续第 ${options.current || "?"} 段`, {
             waitMs: wait,
             current: options.current,
             total: options.total
           });
           emitProgress(options.onProgress, {
             stage: "upload",
-            message: `${label} 限流，已切到 ${next.cfg.provider} 继续（冷却结束自动切回）`,
+            message: `${label} 限流，已切到 ${nextLabel} 继续（冷却结束自动切回）`,
             waitUntil: 0
           });
           continue;
@@ -2675,9 +2902,26 @@ async function transcribeStreaming(stream, {
 }) {
   const limits = asrChunkLimits(job);
   const knownShort = audioIsShort(duration, 0, job);
+  const estimated = estimatedChunkCount(duration, job);
+  const saved = forceRestart ? null : await loadAsrJob(bvid, cid);
+  const cachedAsr = forceRestart ? null : await loadCachedAsr(bvid, cid);
+  const seeded = seedResumeParts(saved, cachedAsr?.cues || [], duration, estimated);
+  if (job && seeded.parts.length) {
+    job.duration = Number(duration) || job.duration || 0;
+    job.partsRef = seeded.parts;
+    job.chunkPlan = seeded.plan.slice();
+    job.failedChunks = job.failedChunks || [];
+    job.retryQueue = job.retryQueue || [];
+  }
   emitProgress(onProgress, {
     stage: "download",
-    message: knownShort ? "短视频整段下载，一次转写…" : "开始拉取音轨…"
+    message: knownShort
+      ? "短视频整段下载，一次转写…"
+      : (seeded.skipped
+        ? `从断点继续 ${seeded.skipped}/${seeded.total}，继续拉取音轨…`
+        : "开始拉取音轨…"),
+    done: seeded.skipped,
+    total: Math.max(seeded.total, estimated, 1)
   });
   if (knownShort) {
     const blob = await downloadAudio(stream, (message) => {
@@ -2696,18 +2940,15 @@ async function transcribeStreaming(stream, {
     });
   }
 
-  const estimated = estimatedChunkCount(duration, job);
-  const saved = forceRestart ? null : await loadAsrJob(bvid, cid);
-  const cachedAsr = forceRestart ? null : await loadCachedAsr(bvid, cid);
   const chunks = [];
-  const parts = [];
+  const parts = seeded.parts;
   let received = 0;
   let body = res.body;
 
   if (job) {
     job.duration = Number(duration) || job.duration || 0;
     job.partsRef = parts;
-    job.chunkPlan = [];
+    if (!job.chunkPlan?.length) job.chunkPlan = seeded.plan.slice();
     job.failedChunks = job.failedChunks || [];
     job.retryQueue = job.retryQueue || [];
   }
@@ -2731,7 +2972,7 @@ async function transcribeStreaming(stream, {
             throw new Error("音频文件过大，请换更短视频");
           }
           const pct = totalBytes ? Math.min(99, Math.round((n / totalBytes) * 100)) : 0;
-          const total = Math.max(estimated, chunks.length || 1);
+          const total = Math.max(estimated, seeded.total, chunks.length || 1);
           emitProgress(onProgress, {
             stage: "download",
             message: pct
@@ -2765,18 +3006,20 @@ async function transcribeStreaming(stream, {
             estimated
           });
         }
-        await transcribeOneIncoming(item, index, parts, {
-          apiKey,
-          language,
-          signal,
-          onProgress,
-          bvid,
-          cid,
-          tabId,
-          duration,
-          totalHint: Math.max(estimated, chunks.length),
-          job
-        });
+        if (!partIsComplete(parts[index])) {
+          await transcribeOneIncoming(item, index, parts, {
+            apiKey,
+            language,
+            signal,
+            onProgress,
+            bvid,
+            cid,
+            tabId,
+            duration,
+            totalHint: Math.max(estimated, seeded.total, chunks.length),
+            job
+          });
+        }
       }
     } catch (error) {
       if (error?.name === "AbortError" || signal?.aborted) throw error;
@@ -3047,7 +3290,7 @@ function cueLen(text) {
     .length;
 }
 
-const HARD_PUNCT = /[。！？；!?\u2026]/;
+const HARD_PUNCT = /[。．.！？；!?\u2026]/;
 const SOFT_PUNCT = /[，、,;：:]/;
 const CLAUSE_MARKERS = [
   "大家都知道", "简单来说", "这种方式", "更简单",
@@ -3061,12 +3304,30 @@ function shouldSplitCue(cue, maxChars = 56, maxDur = 12) {
   return cueLen(cue.content) > maxChars || dur > maxDur;
 }
 
+/** 中文句号，或英文句号后跟空格。4.8 / Dr. 这种中间点不切。 */
+function splitBySentences(text) {
+  const src = String(text || "").replace(/\s+/g, " ").trim();
+  if (!src) return [];
+  const parts = src
+    .split(/(?<=[。！？；!?\u2026])|(?<=[.!?]["'”’]*)\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length ? parts : [src];
+}
+
+function mostlyLatin(text) {
+  const raw = String(text || "");
+  const latin = (raw.match(/[A-Za-z]/g) || []).length;
+  const cjk = (raw.match(/[\u4e00-\u9fff]/g) || []).length;
+  return latin >= 8 && latin > cjk;
+}
+
 /** 按句读切开，保留标点在上一片末尾 */
 function splitByPunctuation(text) {
   const src = String(text || "").replace(/\s+/g, " ").trim();
   if (!src) return [];
-  const parts = src.split(/(?<=[。！？；!?\u2026])/).map((p) => p.trim()).filter(Boolean);
-  if (parts.length > 1) return parts;
+  const hard = splitBySentences(src);
+  if (hard.length > 1) return hard;
 
   const soft = src.split(/(?<=[，、,;：:])/).map((p) => p.trim()).filter(Boolean);
   if (soft.length > 1) return soft;
@@ -3165,19 +3426,60 @@ function allocateTimesByWords(from, to, pieces, words) {
   return result;
 }
 
+function splitByLength(text, maxChars = 56) {
+  const src = String(text || "").trim();
+  if (!src) return [];
+  if (cueLen(src) <= maxChars) return [src];
+  const parts = [];
+  let buf = "";
+  for (const ch of src) {
+    buf += ch;
+    if (cueLen(buf) >= maxChars) {
+      parts.push(buf.trim());
+      buf = "";
+    }
+  }
+  if (buf.trim()) parts.push(buf.trim());
+  return parts;
+}
+
+function splitOversized(pieces, maxChars = 72) {
+  const out = [];
+  for (const piece of pieces) {
+    if (cueLen(piece) <= maxChars) {
+      out.push(piece);
+      continue;
+    }
+    const soft = piece.split(/(?<=[，、,;：:])/).map((p) => p.trim()).filter(Boolean);
+    if (soft.length > 1) {
+      out.push(...splitOversized(soft, maxChars));
+      continue;
+    }
+    const marked = splitByMarkers(piece);
+    if (marked.length > 1) {
+      out.push(...splitOversized(marked, maxChars));
+      continue;
+    }
+    if (mostlyLatin(piece)) {
+      out.push(piece);
+      continue;
+    }
+    out.push(...splitByLength(piece, 56));
+  }
+  return out;
+}
+
 function splitLongCue(cue, words) {
   if (!shouldSplitCue(cue)) return [cue];
 
-  const hard = String(cue.content || "")
-    .split(/(?<=[。！？；!?\u2026])/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  if (hard.length > 1) return allocateTimesByWords(cue.from, cue.to, hard, words);
+  let pieces = splitBySentences(cue.content);
 
-  const dur = Math.max(0, (Number(cue.to) || 0) - (Number(cue.from) || 0));
-  if (cueLen(cue.content) <= 72 && dur <= 16) return [cue];
-
-  let pieces = splitByPunctuation(cue.content);
+  if (pieces.length <= 1) {
+    const dur = Math.max(0, (Number(cue.to) || 0) - (Number(cue.from) || 0));
+    if (cueLen(cue.content) <= 72 && dur <= 16) return [cue];
+    pieces = splitByPunctuation(cue.content);
+  }
+  pieces = splitOversized(pieces);
   if (pieces.length <= 1) return [cue];
   return allocateTimesByWords(cue.from, cue.to, pieces, words);
 }
@@ -3207,6 +3509,9 @@ function mergeTinyCues(cues) {
     if (tiny && !nextStartsClause && gap < 0.4 && mergedLen <= 40) {
       prev.content = joinCueText(prev.content, cue.content);
       prev.to = cue.to;
+      if (prev.original || cue.original) {
+        prev.original = joinCueText(prev.original || "", cue.original || "");
+      }
       continue;
     }
     out.push({ ...cue });
@@ -3233,6 +3538,9 @@ function stitchBrokenWraps(cues) {
     if (prev && !prevEnds && gap < 0.55 && cueLen(prev.content) <= 26) {
       prev.content = joinCueText(prev.content, cue.content);
       prev.to = cue.to;
+      if (prev.original || cue.original) {
+        prev.original = joinCueText(prev.original || "", cue.original || "");
+      }
       continue;
     }
     out.push({ ...cue });
@@ -3249,22 +3557,33 @@ function stripAsrInstructionLeak(text) {
   return String(text || "").replace(/^(请使用简体中文转写[。．.！!？?\s]*)+/, "").trim();
 }
 
-function refineAsrCues(cues, words = []) {
-  const source = looksLikeHardWrap(cues) ? stitchBrokenWraps(cues) : cues;
+function flattenCueParts(cues, words = []) {
   const flat = [];
-  for (const cue of source) {
+  for (const cue of cues || []) {
     for (const part of splitLongCue(cue, words)) {
       const content = toSimplified(stripAsrInstructionLeak(part.content));
       if (!content) continue;
-      flat.push({
+      const row = {
         from: part.from,
         to: part.to,
         content,
         sid: flat.length + 1
-      });
+      };
+      const original = String(part.original || cue.original || "").trim();
+      if (original) row.original = original;
+      flat.push(row);
     }
   }
-  return mergeTinyCues(flat);
+  return flat;
+}
+
+function refineAsrCues(cues, words = []) {
+  const source = looksLikeHardWrap(cues) ? stitchBrokenWraps(cues) : cues;
+  return mergeTinyCues(flattenCueParts(source, words));
+}
+
+function splitTranslatedCues(cues) {
+  return flattenCueParts(cues);
 }
 
 function refineCues(cues) {
@@ -3739,13 +4058,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return reply(getTranslateJobStatus(message));
   }
   if (message?.type === "CANCEL_TRANSLATE") {
-    const ok = cancelTranslateJob(message.jobId, {
+    return reply(cancelTranslateJob(message.jobId, {
       bvid: message.bvid,
       cid: message.cid,
       tabId: message.tabId
-    });
-    sendResponse({ ok });
-    return true;
+    }).then((ok) => ({ ok })));
   }
   if (message?.type === "START_TRANSLATE") {
     return reply(startTranslate({
@@ -3757,11 +4074,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }, _sender));
   }
   if (message?.type === "CLOSE_SIDE_PANEL") {
-    return reply((async () => {
-      const ctx = await resolvePanelContext(_sender);
-      await hideChromeSidePanel(ctx.tabId);
-      return { ok: true };
-    })());
+    const tabId = _sender.tab?.id;
+    const windowId = _sender.tab?.windowId;
+    hideChromeSidePanel(tabId, windowId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+  if (message?.type === "DAV_SYNC_NOW") {
+    return reply(runDavSync(message.reason || "manual"));
   }
   if (message?.type === "RESTORE_SIDE_PANEL") {
     const tabId = _sender.tab?.id;

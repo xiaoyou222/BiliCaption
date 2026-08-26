@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify subtitleStatus and outline record shape stay aligned across background and sidepanel"}
+{"file": ".trellis/spec/backend/translate-regroup.md", "reason": "Confirm SUM provider list and selection summary were not changed"}
+{"file": ".trellis/tasks/08-25-outline-full-summary/prd.md", "reason": "Acceptance: summary UI, cache compat, dm/view, empty-state classes"}
+{"file": ".trellis/tasks/08-25-outline-full-summary/implement.md", "reason": "Validation commands and rollback surface"}

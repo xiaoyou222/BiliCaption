@@ -23,7 +23,10 @@ const ui = {
   speedValue: $("speedValue"),
   speedMenu: $("speedMenu"),
   viewTabs: $("viewTabs"),
+  captionLang: $("captionLang"),
   emptyView: $("emptyView"),
+  emptyTitle: $("emptyTitle"),
+  emptyFetchHint: $("emptyFetchHint"),
   emptyKeyHint: $("emptyKeyHint"),
   generatingView: $("generatingView"),
   genThink: $("genThink"),
@@ -52,6 +55,10 @@ const ui = {
   outlineEmptyOrb: $("outlineEmptyOrb"),
   outlineEmptyLabel: $("outlineEmptyLabel"),
   outlineList: $("outlineList"),
+  videoSummary: $("videoSummary"),
+  videoSummaryToggle: $("videoSummaryToggle"),
+  videoSummaryChevron: $("videoSummaryChevron"),
+  videoSummaryBody: $("videoSummaryBody"),
   outlineBar: $("outlineBar"),
   summaryBox: $("summaryBox"),
   summaryTitle: $("summaryTitle"),
@@ -107,6 +114,7 @@ let summaryModel = "";
 let hasSummary = false;
 let lastRenderKey = "";
 let overlayOn = true;
+let captionLang = "zh";
 let summaryPad = 10;
 let translateConcurrency = 4;
 let view = "captions";
@@ -116,6 +124,8 @@ let editingMarkerId = null;
 let markerDrafts = new Map();
 let markerMoreOpen = false;
 let outline = null;
+let videoSummary = "";
+let videoSummaryOpen = true;
 let outlineLoading = false;
 let outlineRaf = 0;
 let errorMode = "";
@@ -172,7 +182,7 @@ function srtTime(seconds) {
 
 function toSrt(cues) {
   return cues
-    .map((cue, i) => `${i + 1}\n${srtTime(cue.from)} --> ${srtTime(cue.to)}\n${cue.content}\n`)
+    .map((cue, i) => `${i + 1}\n${srtTime(cue.from)} --> ${srtTime(cue.to)}\n${cueDisplayText(cue)}\n`)
     .join("\n");
 }
 
@@ -336,7 +346,130 @@ function selectedCues() {
 }
 
 function cueLines(list) {
-  return list.map((cue) => cue.content).join("\n");
+  return list.map((cue) => String(cue?.content || "").trim()).join("\n");
+}
+
+function originalForCue(cue) {
+  const tagged = String(cue?.original || "").trim();
+  if (tagged) return tagged;
+  const text = normCueText(cue?.content);
+  if (!text) return "";
+  for (const item of translatedCueRanges) {
+    if (item.original && normCueText(item.translated) === text) return item.original;
+  }
+  for (const [key, zh] of translatedCueText.entries()) {
+    if (key.startsWith("e:") && normCueText(zh) === text) return key.slice(2);
+  }
+  return "";
+}
+
+function hydrateCueOriginals(cues) {
+  if (!Array.isArray(cues)) return [];
+  return cues.map((cue) => {
+    if (String(cue?.original || "").trim()) return cue;
+    const original = originalForCue(cue);
+    return original ? { ...cue, original } : cue;
+  });
+}
+
+function cueDisplayText(cue) {
+  if (captionLang === "en") {
+    const original = originalForCue(cue);
+    if (original) return original;
+  }
+  return window.BiliCaptionTranslate?.cueDisplayText?.(cue, captionLang)
+    || String(cue?.content || "").trim();
+}
+
+function hasBilingualCaptions(cues = state?.cues) {
+  return (cues || []).some((cue) => {
+    const original = originalForCue(cue);
+    return Boolean(original) && original !== String(cue?.content || "").trim();
+  });
+}
+
+function trackLangKind(track) {
+  return window.BiliCaptionTranslate?.trackLangKind?.(track) || "";
+}
+
+function pickTrackByLang(tracks, lang) {
+  return window.BiliCaptionTranslate?.pickTrackByLang?.(tracks, lang) || null;
+}
+
+function isPluginCaptions(next = state) {
+  return window.BiliCaptionTranslate?.isPluginCaptionSource?.(next?.source, next?.activeLan) === true;
+}
+
+function cueLooksEnglish(text) {
+  return window.BiliCaptionTranslate?.needsTranslation?.(text) === true;
+}
+
+function canShowCaptionLang(lang) {
+  if (isPluginCaptions()) {
+    return window.BiliCaptionTranslate?.captionListHasLang?.(state?.cues, lang) === true;
+  }
+  return Boolean(pickTrackByLang(state?.tracks, lang));
+}
+
+function syncCaptionLangFromState(next = state) {
+  if (hasBilingualCaptions(next?.cues)) return;
+  if (isPluginCaptions(next)) {
+    const cues = next?.cues || [];
+    const hasZh = cues.some((cue) => cueHasCjk(cue.content));
+    const hasEn = cues.some((cue) => String(cue.original || "").trim() || cueLooksEnglish(cue.content));
+    if (hasEn && !hasZh) captionLang = "en";
+    else if (hasZh && !hasEn) captionLang = "zh";
+    return;
+  }
+  const kind = trackLangKind({ lan: next?.activeLan || "", lanDoc: "" });
+  if (kind) captionLang = kind;
+}
+
+function renderCaptionLang() {
+  const el = ui.captionLang || $("captionLang");
+  if (!el) return;
+  const bilingual = view === "captions"
+    && Boolean(state?.cues?.length)
+    && canShowCaptionLang("zh")
+    && canShowCaptionLang("en");
+  show(el, bilingual);
+  el.querySelectorAll("button[data-lang]").forEach((btn) => {
+    const lang = btn.dataset.lang;
+    const on = lang === captionLang;
+    const enabled = canShowCaptionLang(lang);
+    btn.classList.toggle("active", on);
+    btn.disabled = !enabled;
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+async function setCaptionLang(lang) {
+  const next = lang === "en" ? "en" : "zh";
+  if (!canShowCaptionLang(next)) {
+    if (isPluginCaptions() && next === "en") {
+      flash("这份翻译没有留下英文原文，清理缓存后再翻译一次");
+    } else if (isPluginCaptions() && next === "zh") {
+      flash("还没有中文，请先翻译");
+    } else {
+      flash(next === "en" ? "没有英文字幕" : "没有中文字幕");
+    }
+    return;
+  }
+  captionLang = next;
+  chrome.storage.sync.set({ captionLang }).catch(() => {});
+  // 自己转写/翻译的字幕绝不能切到 B 站官方轨，否则生成结果会被盖掉。
+  if (!isPluginCaptions()) {
+    const track = pickTrackByLang(state?.tracks, next);
+    if (track && track.lan !== state?.activeLan) {
+      const result = await sendToTab({ type: "SWITCH_TRACK", lan: track.lan });
+      renderState(result);
+      return;
+    }
+  }
+  lastCuesSig = "";
+  renderCaptionLang();
+  renderCues();
+  sendToTab({ type: "SET_CAPTION_LANG", lang: captionLang }).catch(() => {});
 }
 
 function buildSummaryPrompt(from, to) {
@@ -441,7 +574,9 @@ function persistLastVideo(next) {
   lastVideo = {
     title: next.title || lastVideo?.title || "",
     part: next.part || "",
-    bvid: next.bvid || lastVideo?.bvid || ""
+    bvid: next.bvid || lastVideo?.bvid || "",
+    pic: next.pic || lastVideo?.pic || "",
+    up: next.up || lastVideo?.up || ""
   };
   chrome.storage.local.set({ lastVideo }).catch(() => {});
 }
@@ -455,9 +590,13 @@ function renderLastVideoHint() {
   ui.lastVideoHint.textContent = bits.length ? `上次：${bits.join(" · ")}` : "";
 }
 
+function outlineApi() {
+  return globalThis.BiliCaptionOutline;
+}
+
 function outlineKey(next = state) {
   if (!next?.bvid && !next?.cid) return "";
-  return `outline:${next.bvid || ""}:${next.cid || ""}`;
+  return `outline:v2:${next.bvid || ""}:${next.cid || ""}`;
 }
 
 function setMoreOpen(open) {
@@ -494,9 +633,10 @@ function marksVideoKey(next = state) {
 function markerMeta(next = state) {
   return {
     title: next?.title || lastVideo?.title || "",
-    up: "",
+    up: next?.up || lastVideo?.up || "",
     part: next?.part || lastVideo?.part || "",
-    dur: formatTime(next?.duration || lastVideo?.duration || 0)
+    dur: formatTime(next?.duration || lastVideo?.duration || 0),
+    pic: next?.pic || lastVideo?.pic || ""
   };
 }
 
@@ -800,24 +940,34 @@ function showSummaryThinking(on) {
     if (stopSummaryOrb) return;
     if (!ui.summaryThink) return;
     show(ui.summaryThink, true);
-    stopSummaryOrb = startOrb(ui.summaryThink, { state: "solving", size: 18, speed: 0.7, iconOnly: true, label: "" });
+    stopSummaryOrb = startOrb(ui.summaryThink, { state: "composing", size: 20, speed: 0.7, iconOnly: true, label: "" });
+    setShimmer(ui.summaryTitle, true, "正在总结…");
     return;
   }
   stopSummaryOrb?.();
   stopSummaryOrb = null;
   if (ui.summaryThink) show(ui.summaryThink, false);
+  setShimmer(ui.summaryTitle, false, "选区总结");
 }
 
 function showOutlineThinking(on) {
   if (on) {
     if (stopOutlineOrb) return;
     if (ui.outlineThink) {
-      stopOutlineOrb = startOrb(ui.outlineThink, { state: "solving", size: 18, speed: 0.7, iconOnly: true, label: "" });
+      stopOutlineOrb = startOrb(ui.outlineThink, { state: "composing", size: 20, speed: 0.7, iconOnly: true, label: "" });
     }
     return;
   }
   stopOutlineOrb?.();
   stopOutlineOrb = null;
+}
+
+function setShimmer(el, on, text) {
+  if (!el) return;
+  if (text != null) el.textContent = text;
+  el.classList.toggle("is-shimmer", Boolean(on));
+  if (on) el.setAttribute("data-shimmer", el.textContent || "");
+  else el.removeAttribute("data-shimmer");
 }
 
 function setOrbLabel(host, label) {
@@ -836,7 +986,7 @@ function showAsrSegOrb(on) {
   }
   if (stopAsrSegOrb || !ui.asrSegOrb) return;
   stopAsrSegOrb = startOrb(ui.asrSegOrb, {
-    state: "connecting",
+    state: "searching",
     size: 13,
     speed: 0.9,
     iconOnly: true,
@@ -857,7 +1007,7 @@ function showOutlineEmptyOrb(on) {
   if (!ui.outlineEmptyOrb) return;
   show(ui.outlineEmptyOrb, true);
   if (stopOutlineEmptyOrb) return;
-  stopOutlineEmptyOrb = startOrb(ui.outlineEmptyOrb, { state: "weaving", size: 58, speed: 0.6, iconOnly: true, label: "" });
+  stopOutlineEmptyOrb = startOrb(ui.outlineEmptyOrb, { state: "composing", size: 64, speed: 0.6, iconOnly: true, label: "" });
 }
 
 function showPillOrb(on) {
@@ -869,7 +1019,7 @@ function showPillOrb(on) {
   }
   if (stopPillOrb || !ui.jobPillOrb) return;
   stopPillOrb = startOrb(ui.jobPillOrb, {
-    state: "connecting",
+    state: "searching",
     size: 13,
     speed: 0.9,
     iconOnly: true,
@@ -981,14 +1131,16 @@ function applyRememberedTranslations(cues) {
     const text = normCueText(cue.content);
     if (cueHasCjk(text) && !needsTranslation(text)) return { ...cue };
     const byOriginal = text ? translatedCueText.get(`e:${text}`) : null;
-    if (byOriginal) return { ...cue, content: byOriginal };
+    if (byOriginal) return { ...cue, content: byOriginal, original: cue.original || text };
     const byTime = translatedCueText.get(cueTranslationKey(cue));
-    if (byTime != null) return { ...cue, content: byTime };
+    if (byTime != null) return { ...cue, content: byTime, original: cue.original || text };
     for (const item of translatedCueRanges) {
       if (!item.original || item.original !== text) continue;
       const overlap = cueOverlap(cue, item);
       const dur = Math.max(0.2, (Number(cue.to) || 0) - (Number(cue.from) || 0));
-      if (overlap >= dur * 0.8) return { ...cue, content: item.translated };
+      if (overlap >= dur * 0.8) {
+        return { ...cue, content: item.translated, original: cue.original || text };
+      }
     }
     return { ...cue };
   });
@@ -1127,7 +1279,7 @@ function renderChunkRows(host, rows) {
         orbHost.className = "chunk-orb";
         st.appendChild(orbHost);
         host._chunkOrbStops.push(startOrb(orbHost, {
-          state: "connecting",
+          state: "searching",
           size: 13,
           speed: 0.9,
           iconOnly: true,
@@ -1202,6 +1354,17 @@ function expandJobPill() {
     pill.style.transition = "";
     jobPillAnimating = false;
   });
+}
+
+function resetJobPillClosed() {
+  jobPillOpen = false;
+  jobPillAnimating = false;
+  const pill = ui.jobPill;
+  if (!pill) return;
+  pill.classList.remove("is-open", "is-collapsing");
+  pill.style.width = "";
+  pill.style.height = "";
+  pill.style.transition = "";
 }
 
 function collapseJobPill() {
@@ -1284,13 +1447,16 @@ function renderAsrJobBar() {
 
   if (pill) {
     const visible = showAsr || showTr;
+    const wasHidden = pill.classList.contains("hidden");
+    if (!visible || (visible && wasHidden)) resetJobPillClosed();
     show(pill, visible);
     pill.classList.toggle("is-wait", waiting);
     if (ui.jobPillHead) ui.jobPillHead.setAttribute("aria-expanded", jobPillOpen && visible ? "true" : "false");
     if (!collapsing) pill.classList.toggle("is-open", jobPillOpen && visible);
     if (visible && !jobPillOpen && !jobPillAnimating) cacheJobPillChipWidth(pill);
   }
-    showPillOrb(Boolean((showAsr && generating && !waiting && !asrPaused) || showTr));
+  showPillOrb(Boolean((showAsr && generating && !waiting && !asrPaused) || showTr));
+  updateTranslateLock();
 
   if (bar) {
     show(bar, showAsr);
@@ -1465,7 +1631,10 @@ function applyAsrProgress(info) {
     return;
   }
   renderAsrJobBar();
-  if (info.cues?.length) renderCues();
+  if (info.cues?.length) {
+    renderCues();
+    renderCaptionLang();
+  }
 }
 
 async function attachRunningAsr(next) {
@@ -1537,7 +1706,7 @@ function rememberCuesFromJob(cues) {
   if (!Array.isArray(cues)) return;
   resetTranslationsFor(state);
   for (const cue of cues) {
-    if (cueHasCjk(cue.content)) rememberTranslatedCue(cue, cue.content);
+    if (cueHasCjk(cue.content)) rememberTranslatedCue(cue, cue.content, cue.original);
   }
 }
 
@@ -1555,11 +1724,12 @@ function applyTranslateProgress(info) {
     rememberCuesFromJob(info.cues);
     state = {
       ...(state || {}),
-      cues: info.cues,
+      cues: hydrateCueOriginals(info.cues),
       source: "translated",
       activeLan: "translated"
     };
     renderCues();
+    renderCaptionLang();
   }
   renderAsrJobBar();
 }
@@ -1640,7 +1810,7 @@ function buildCueRows(cues) {
     time.textContent = formatTime(cues[i].from);
     const text = document.createElement("div");
     text.className = "cue-text";
-    text.textContent = cues[i].content;
+    text.textContent = cueDisplayText(cues[i]);
     row.append(time, text);
     cueRowEls[i] = row;
     frag.append(row);
@@ -1659,7 +1829,8 @@ function patchCueTexts(cues) {
   for (let i = 0; i < cues.length; i += 1) {
     const row = cueRowEls[i];
     const text = row?.querySelector(".cue-text") || row?.children?.[1];
-    if (text && text.textContent !== cues[i].content) text.textContent = cues[i].content;
+    const shown = cueDisplayText(cues[i]);
+    if (text && text.textContent !== shown) text.textContent = shown;
   }
 }
 
@@ -2062,6 +2233,24 @@ function renderOutlineActive(currentTime, { forceScroll = false, smooth = false 
   });
 }
 
+function renderVideoSummary({ streaming = false } = {}) {
+  const box = ui.videoSummary;
+  const body = ui.videoSummaryBody;
+  if (!box) return;
+  const text = String(videoSummary || "").trim();
+  const onOutline = view === "outline";
+  const visible = onOutline && Boolean(text);
+  show(box, visible);
+  if (!visible) return;
+  if (body) {
+    if (body.textContent !== videoSummary) body.textContent = videoSummary;
+    body.classList.toggle("is-streaming", Boolean(streaming || outlineLoading));
+    show(body, videoSummaryOpen);
+  }
+  ui.videoSummaryChevron?.classList.toggle("is-collapsed", !videoSummaryOpen);
+  ui.videoSummaryToggle?.setAttribute("aria-expanded", videoSummaryOpen ? "true" : "false");
+}
+
 function renderOutline() {
   if (!outline?.length) {
     ui.outlineList.innerHTML = "";
@@ -2105,31 +2294,41 @@ function renderOutline() {
 }
 
 function outlineText() {
-  return (outline || []).map((ch) => (
+  return outlineApi()?.formatOutlineCopy(videoSummary, outline) || (outline || []).map((ch) => (
     `${formatTime(ch.start)}–${formatTime(ch.end)} ${ch.title}\n${ch.synopsis}`
   )).join("\n\n");
 }
 
 function outlineMarkdown() {
   const title = state?.title || "大纲";
-  const body = (outline || []).map((ch) => (
-    `## ${formatTime(ch.start)}–${formatTime(ch.end)} ${ch.title}\n\n${ch.synopsis}`
-  )).join("\n\n");
-  return `# ${title}\n\n${body}\n`;
+  return outlineApi()?.formatOutlineMarkdown(title, videoSummary, outline) || `# ${title}\n`;
 }
 
 async function loadOutlineCache(next) {
   const key = outlineKey(next);
   if (!key) {
     outline = null;
+    videoSummary = "";
     return;
   }
   const data = await chrome.storage.local.get({ [key]: null });
-  outline = Array.isArray(data[key]) ? data[key] : null;
+  const rec = outlineApi()?.normalizeOutlineRecord(data[key]) || { summary: "", chapters: [] };
+  const chapters = Array.isArray(rec.chapters) ? rec.chapters : [];
+  const cues = next?.cues || [];
+  const fixed = chapters.length
+    ? (outlineApi()?.finalizeOutline(chapters, cues) || chapters)
+    : [];
+  outline = fixed.length ? fixed : null;
+  videoSummary = rec.summary || "";
+  videoSummaryOpen = true;
+}
+
+function outlineCues() {
+  return state?.cues || [];
 }
 
 function normalizeChapter(item) {
-  return {
+  return outlineApi()?.normalizeChapter(item, outlineCues()) || {
     start: Number(item.start) || 0,
     end: Number(item.end) || 0,
     title: String(item.title || "").trim() || "未命名章节",
@@ -2137,76 +2336,47 @@ function normalizeChapter(item) {
   };
 }
 
-function parseOutlineJson(text) {
-  const raw = String(text || "").trim();
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonText = fenced ? fenced[1] : raw;
-  const start = jsonText.indexOf("[");
-  const end = jsonText.lastIndexOf("]");
-  if (start < 0 || end < 0) throw new Error("大纲格式无法解析");
-  const list = JSON.parse(jsonText.slice(start, end + 1));
-  if (!Array.isArray(list) || !list.length) throw new Error("大纲为空");
-  return list.map(normalizeChapter);
-}
-
-function takeJsonString(src, key) {
-  const hit = String(src).match(new RegExp(`"${key}"\\s*:\\s*"`));
-  if (!hit) return "";
-  let i = hit.index + hit[0].length;
-  let out = "";
-  while (i < src.length) {
-    const ch = src[i];
-    if (ch === "\\" && i + 1 < src.length) {
-      const next = src[i + 1];
-      out += next === "n" ? "\n" : next === "t" ? " " : next;
-      i += 2;
-      continue;
-    }
-    if (ch === "\"") break;
-    out += ch;
-    i += 1;
-  }
-  return out;
-}
-
-function takeJsonNumber(src, key) {
-  const hit = String(src).match(new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
-  return hit ? Number(hit[1]) : 0;
+function parseOutlineRecord(text) {
+  const rec = outlineApi()?.parseOutlinePayload(text);
+  if (!rec) throw new Error("大纲格式无法解析");
+  return {
+    summary: rec.summary || "",
+    chapters: outlineApi()?.finalizeOutline(rec.chapters, outlineCues()) || (rec.chapters || []).map(normalizeChapter)
+  };
 }
 
 function parseStreamingChapters(text) {
-  const raw = String(text || "");
-  const from = raw.indexOf("[");
-  const body = from >= 0 ? raw.slice(from + 1) : raw;
-  const out = [];
-  const re = /\{[^{}]*\}/g;
-  let lastEnd = 0;
-  let match;
-  while ((match = re.exec(body))) {
-    try {
-      const obj = JSON.parse(match[0]);
-      if (obj && (obj.title || obj.synopsis || obj.summary)) {
-        out.push(normalizeChapter(obj));
-      }
-      lastEnd = match.index + match[0].length;
-    } catch {
-      // 半截对象交给后面的尾部解析
-    }
+  return outlineApi()?.parseStreamingChapters(text, outlineCues()) || [];
+}
+
+function parseStreamingOutline(text) {
+  return outlineApi()?.parseStreamingOutline(text, outlineCues()) || { summary: "", chapters: [] };
+}
+
+function paintOutlineStream() {
+  if (view !== "outline") return;
+  const hasSummary = Boolean(String(videoSummary || "").trim());
+  const hasChapters = Boolean(outline?.length);
+  if (!hasSummary && !hasChapters) return;
+  show(ui.outlineEmpty, false);
+  showOutlineEmptyOrb(false);
+  show(ui.outlineHead, true);
+  showOutlineThinking(true);
+  if (ui.outlineHeadLabel) {
+    const n = Math.max(1, outline?.length || 1);
+    setShimmer(ui.outlineHeadLabel, true, hasChapters ? `正在生成大纲 · 第 ${n} 段` : "正在生成大纲");
   }
-  const tail = body.slice(lastEnd);
-  const open = tail.lastIndexOf("{");
-  if (open < 0) return out;
-  const frag = tail.slice(open);
-  const title = takeJsonString(frag, "title");
-  const synopsis = takeJsonString(frag, "synopsis") || takeJsonString(frag, "summary");
-  if (!title && !synopsis) return out;
-  out.push({
-    start: takeJsonNumber(frag, "start"),
-    end: takeJsonNumber(frag, "end"),
-    title: title || "…",
-    synopsis
-  });
-  return out;
+  renderVideoSummary({ streaming: true });
+  show(ui.outlineList, hasChapters);
+  show(ui.outlineBar, true);
+  const copyBtn = $("btnCopyOutline");
+  if (copyBtn) copyBtn.textContent = "停止生成";
+  if (hasChapters && !outlineRaf) {
+    outlineRaf = requestAnimationFrame(() => {
+      outlineRaf = 0;
+      if (view === "outline") renderOutline();
+    });
+  }
 }
 
 async function generateOutline() {
@@ -2216,49 +2386,97 @@ async function generateOutline() {
   const ac = outlineAbort;
   outlineLoading = true;
   outline = null;
+  videoSummary = "";
+  videoSummaryOpen = true;
   lastOutlineIndex = -1;
   view = "outline";
   renderState(state);
   const startedOutlineKey = outlineKey(state);
+  const cues = state.cues;
+  const O = outlineApi();
   try {
-    const lines = state.cues.map((cue) => `[${formatTime(cue.from)}] ${cue.content}`).join("\n");
-    let lastPreview = "";
-    const result = await runModel(`请根据下面带时间戳的视频字幕，生成 3-8 个章节大纲。只输出 JSON 数组。每个对象字段顺序必须是 title、synopsis、start、end。title 是短标题，synopsis 是一两句摘要，start/end 是秒（数字）。不要输出其他文字。\n\n${lines}`, {
-      signal: ac.signal,
-      validate(text) {
-        return parseOutlineJson(text).length > 0;
-      },
-      onDelta(full) {
+    let summary = "";
+    let chapters = [];
+    const corpus = O?.cueCorpus?.(cues) || (cues || []).map((cue, i) => O?.formatCueLine?.(cue, i) || "").join("\n");
+    const overBudget = corpus.length > (O?.SUMMARY_CUE_CHAR_BUDGET || 100000);
+
+    if (overBudget) {
+      const chunks = O?.chunkCueLines?.(cues) || [corpus];
+      const partials = [];
+      for (const chunk of chunks) {
         if (ac.signal.aborted) return;
-        const partial = parseStreamingChapters(full);
-        const preview = JSON.stringify(partial);
-        if (!partial.length || preview === lastPreview) return;
-        lastPreview = preview;
-        outline = partial;
-        if (view !== "outline") return;
-        show(ui.outlineEmpty, false);
-        showOutlineEmptyOrb(false);
-        show(ui.outlineHead, true);
-        showOutlineThinking(true);
-        if (ui.outlineHeadLabel) ui.outlineHeadLabel.textContent = `正在生成大纲 · 第 ${Math.max(1, partial.length)} 段`;
-        show(ui.outlineList, true);
-        if (!outlineRaf) {
-          outlineRaf = requestAnimationFrame(() => {
-            outlineRaf = 0;
-            if (view === "outline") renderOutline();
-          });
-        }
+        partials.push(await runModel(O.buildSummaryMapPrompt(chunk), { signal: ac.signal }));
       }
-    });
+      if (ac.signal.aborted) return;
+      summary = String(await runModel(O.buildSummaryReducePrompt(partials), { signal: ac.signal }) || "").trim();
+      if (!summary) throw new Error("大纲结果结构校验失败");
+      let lastPreview = "";
+      const result = await runModel(O.buildChaptersPrompt(cues), {
+        signal: ac.signal,
+        validate(text) {
+          try {
+            return parseOutlineRecord(text).chapters.length > 0;
+          } catch {
+            return false;
+          }
+        },
+        onDelta(full) {
+          if (ac.signal.aborted || outlineKey(state) !== startedOutlineKey) return;
+          const partial = parseStreamingChapters(full);
+          const preview = JSON.stringify(partial);
+          if (!partial.length || preview === lastPreview) return;
+          lastPreview = preview;
+          videoSummary = summary;
+          outline = partial;
+          paintOutlineStream();
+        }
+      });
+      if (ac.signal.aborted) return;
+      chapters = parseOutlineRecord(result).chapters;
+    } else {
+      let lastPreview = "";
+      const result = await runModel(O?.buildOutlinePrompt(cues) || "", {
+        signal: ac.signal,
+        validate(text) {
+          try {
+            const rec = parseOutlineRecord(text);
+            return Boolean(rec.summary) || rec.chapters.length > 0;
+          } catch {
+            return false;
+          }
+        },
+        onDelta(full) {
+          if (ac.signal.aborted || outlineKey(state) !== startedOutlineKey) return;
+          const rec = parseStreamingOutline(full);
+          const preview = `${rec.summary}\n${JSON.stringify(rec.chapters)}`;
+          if (preview === lastPreview) return;
+          if (!rec.summary && !rec.chapters.length) return;
+          lastPreview = preview;
+          if (rec.summary) videoSummary = rec.summary;
+          if (rec.chapters.length) outline = rec.chapters;
+          paintOutlineStream();
+        }
+      });
+      if (ac.signal.aborted) return;
+      const rec = parseOutlineRecord(result);
+      summary = rec.summary;
+      chapters = rec.chapters;
+    }
+
     if (ac.signal.aborted) return;
-    outline = parseOutlineJson(result);
-    if (!outline.length) throw new Error("大纲结果结构校验失败");
+    summary = String(summary || "").trim();
+    if (!summary || !chapters.length) throw new Error("大纲结果结构校验失败");
     const key = startedOutlineKey;
-    if (key) await chrome.storage.local.set({ [key]: outline });
+    if (key) await chrome.storage.local.set({ [key]: { summary, chapters } });
+    if (outlineKey(state) !== startedOutlineKey) return;
+    videoSummary = summary;
+    outline = chapters;
     flash("大纲已生成");
   } catch (error) {
     if (ac.signal.aborted || error?.name === "AbortError") return;
+    if (outlineKey(state) !== startedOutlineKey) return;
     outline = null;
+    videoSummary = "";
     flash(error.message || "生成大纲失败");
   } finally {
     if (outlineAbort === ac) {
@@ -2272,6 +2490,9 @@ async function generateOutline() {
 function stopOutline() {
   outlineAbort?.abort();
   outlineLoading = false;
+  if (!outline?.length && !String(videoSummary || "").trim()) {
+    videoSummary = "";
+  }
   showOutlineThinking(false);
   renderState(state);
 }
@@ -2281,10 +2502,12 @@ function renderState(next) {
   if (next?.cues?.length && translatedCueText.size) {
     next = {
       ...next,
-      cues: applyRememberedTranslations(next.cues),
+      cues: hydrateCueOriginals(applyRememberedTranslations(next.cues)),
       source: "translated",
       activeLan: "translated"
     };
+  } else if (next?.cues?.length) {
+    next = { ...next, cues: hydrateCueOriginals(next.cues) };
   }
   state = next;
   renderLogin(next?.login || lastLogin);
@@ -2312,9 +2535,17 @@ function renderState(next) {
   if (renderKey && renderKey !== lastRenderKey) {
     hasSummary = false;
     ui.summaryText.textContent = "";
+    if (outlineLoading) {
+      outlineAbort?.abort();
+      outlineAbort = null;
+      outlineLoading = false;
+    }
+    outline = null;
+    videoSummary = "";
+    videoSummaryOpen = true;
     lastRenderKey = renderKey;
     loadOutlineCache(next).then(() => {
-      if (outline && outlineKey(state) === outlineKey(next)) renderState(state);
+      if (outlineKey(state) === outlineKey(next)) renderState(state);
     });
     loadMarkers(next).then(() => {
       if (marksVideoKey(state) === marksVideoKey(next)) {
@@ -2340,12 +2571,15 @@ function renderState(next) {
   const onMarkers = onVideoReady && view === "markers";
 
   show(ui.speedSelect, true);
-  show(ui.controlRow, hasCues && (next.tracks?.length || 0) > 1);
+  const extraTracks = (next.tracks || []).filter((item) => !trackLangKind(item));
+  show(ui.controlRow, hasCues && extraTracks.length > 0);
   show(ui.viewTabs, hasList || onMarkers || generating || translating);
 
-  ui.viewTabs.querySelectorAll("button").forEach((btn) => {
+  ui.viewTabs.querySelectorAll("button[data-view]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
   });
+  syncCaptionLangFromState(next);
+  renderCaptionLang();
 
   if (next.tracks?.length && hasList) {
     ui.trackSelect.classList.remove("hidden");
@@ -2363,8 +2597,17 @@ function renderState(next) {
 
   renderSpeed(next.rate || 1);
 
+  const fetchFailed = isEmpty && (
+    next?.subtitleStatus === "fetch_failed"
+    || String(next?.error || "") === "没拿到字幕列表"
+  );
+  if (ui.emptyTitle) {
+    ui.emptyTitle.textContent = fetchFailed ? "没拿到字幕列表" : "这个视频没有字幕";
+  }
   show(ui.emptyView, isEmpty);
+  if (ui.emptyFetchHint) show(ui.emptyFetchHint, fetchFailed);
   if (isEmpty) show(ui.emptyKeyHint, !hasSttKey);
+  else show(ui.emptyKeyHint, false);
 
   show(ui.generatingView, false);
   showGenerateThinking(false);
@@ -2397,28 +2640,35 @@ function renderState(next) {
   }
 
   const outlineRows = Boolean(outline?.length);
-  const outlineBoot = onOutline && outlineLoading && !outlineRows;
-  show(ui.outlineHead, onOutline && outlineLoading && outlineRows);
-  if (ui.outlineHeadLabel && outlineLoading && outlineRows) {
+  const hasVideoSummary = Boolean(String(videoSummary || "").trim());
+  const outlineContent = outlineRows || hasVideoSummary;
+  const outlineBoot = onOutline && outlineLoading && !outlineContent;
+  show(ui.outlineHead, onOutline && outlineLoading && outlineContent);
+  if (ui.outlineHeadLabel && outlineLoading && outlineContent) {
     const n = Math.max(1, outline?.length || 1);
-    ui.outlineHeadLabel.textContent = `正在生成大纲 · 第 ${n} 段`;
+    setShimmer(ui.outlineHeadLabel, true, outlineRows ? `正在生成大纲 · 第 ${n} 段` : "正在生成大纲");
+  } else if (ui.outlineHeadLabel) {
+    setShimmer(ui.outlineHeadLabel, false);
   }
-  showOutlineThinking(onOutline && outlineLoading && outlineRows);
+  showOutlineThinking(onOutline && outlineLoading && outlineContent);
 
-  const outlineEmptyShown = onOutline && !outlineLoading && !outlineRows;
+  const outlineEmptyShown = onOutline && !outlineLoading && !outlineContent;
   show(ui.outlineEmpty, outlineEmptyShown || outlineBoot);
   if (outlineBoot) {
-    ui.outlineEmptyLabel.textContent = "AI 正在阅读全文字幕…";
+    setShimmer(ui.outlineEmptyLabel, true, "AI 正在阅读全文字幕…");
     show($("btnGenOutline"), false);
     showOutlineEmptyOrb(true);
   } else {
     showOutlineEmptyOrb(false);
     if (outlineEmptyShown) {
-      ui.outlineEmptyLabel.textContent = "还没有生成大纲";
+      setShimmer(ui.outlineEmptyLabel, false, "还没有生成大纲");
       show($("btnGenOutline"), true);
+    } else {
+      setShimmer(ui.outlineEmptyLabel, false);
     }
   }
 
+  renderVideoSummary({ streaming: outlineLoading && hasVideoSummary });
   show(ui.outlineList, onOutline && outlineRows);
   if (onOutline && outlineRows) {
     renderOutline();
@@ -2430,8 +2680,8 @@ function renderState(next) {
   show(ui.summaryBox, onCaptions && hasSummary);
   syncSelectChrome(onCaptions);
   // 流式期间底部条也在：第一个按钮变「停止生成」（设计稿 outlineActions）
-  show(ui.outlineBar, onOutline && outlineRows);
-  if (onOutline && outlineRows) {
+  show(ui.outlineBar, onOutline && outlineContent);
+  if (onOutline && outlineContent) {
     const copyBtn = $("btnCopyOutline");
     if (copyBtn) copyBtn.textContent = outlineLoading ? "停止生成" : "复制大纲";
   }
@@ -2461,18 +2711,40 @@ async function refreshLoginOnly() {
   }
 }
 
+function tabVideoChanged(tabUrl) {
+  const bvid = extractBvidFromUrl(tabUrl || "");
+  const epId = extractEpIdFromUrl(tabUrl || "");
+  if (bvid && state?.bvid && bvid !== state.bvid) return true;
+  if (epId && state?.epId && epId !== state.epId) return true;
+  if (bvid && !state?.bvid && state?.page === "video") return true;
+  return false;
+}
+
+function stopJobsForVideoSwitch() {
+  translating = false;
+  generating = false;
+  asrProgress = null;
+  translateProgress = { done: 0, total: 0 };
+  stopTranslateWatch();
+  stopAsrWatch();
+  outlineAbort?.abort();
+  outlineLoading = false;
+}
+
 async function refresh(force = false) {
-  if ((outlineLoading || generating || translating) && !force) return;
   genError = "";
   try {
     const tab = await getActiveTab();
     if (tab?.id && !inFloatEmbed()) boundTabId = tab.id;
+    const switched = tabVideoChanged(tab?.url || "");
+    if ((outlineLoading || generating || translating) && !force && !switched) return;
+    if (switched) stopJobsForVideoSwitch();
     if (!tab?.url?.includes("bilibili.com")) {
       renderState({ page: "other" });
       await refreshLoginOnly();
       return;
     }
-    const next = await sendToTab({ type: force ? "REFRESH" : "GET_STATE" }, tab.id);
+    const next = await sendToTab({ type: force || switched ? "REFRESH" : "GET_STATE" }, tab.id);
     renderState(next);
     const asrOn = await attachRunningAsr(next);
     const trOn = await attachRunningTranslate(next);
@@ -2963,8 +3235,20 @@ function commitTranslatedCues(next) {
   }).catch(() => {});
 }
 
+function updateTranslateLock() {
+  const btn = $("btnTranslate");
+  if (!btn) return;
+  const lock = Boolean(generating);
+  btn.disabled = lock;
+  btn.title = lock ? "转写完成后再翻译，否则只会译到当前已有的句子" : "";
+}
+
 async function translateCues() {
   if (!state?.cues?.length || translating) return;
+  if (generating) {
+    flash("请等转写完成后再翻译");
+    return;
+  }
   setMoreOpen(false);
 
   const settings = await BiliCaptionPrefs.loadSettings({
@@ -3177,6 +3461,7 @@ async function loadPrefs() {
     sttChannels: [],
     selKey: "Shift",
     overlayOn: true,
+    captionLang: "zh",
     summaryPad: 10,
     translateConcurrency: 4
   });
@@ -3185,21 +3470,27 @@ async function loadPrefs() {
   hasSttKey = channels.some((cfg) => P?.channelUsable?.(cfg));
   selKey = data.selKey || "Shift";
   overlayOn = data.overlayOn !== false;
+  captionLang = data.captionLang === "en" ? "en" : "zh";
   summaryPad = Math.min(50, Math.max(0, Math.round(Number(data.summaryPad) || 10)));
   translateConcurrency = clampTranslateConcurrency(data.translateConcurrency);
   renderOverlayBtn();
+  renderCaptionLang();
 }
 
 ui.btnSettings.addEventListener("click", openSettings);
-ui.btnFloat?.addEventListener("click", async () => {
-  try {
-    const tab = await getActiveTab();
-    if (tab?.windowId) await chrome.windows.update(tab.windowId, { focused: true });
-    if (tab?.id) await chrome.tabs.update(tab.id, { active: true });
-  } catch {
-    // ignore
+ui.btnFloat?.addEventListener("click", () => {
+  if (inFloatEmbed()) return;
+  const tabId = boundTabId;
+  // 必须在这次点击里关掉 Chrome 侧栏。消息绕一圈再 close 会丢掉用户手势，
+  // enabled:false 也不会收掉已经打开的面板，于是浮窗和侧栏叠在一起。
+  if (tabId && typeof chrome.sidePanel?.close === "function") {
+    chrome.sidePanel.close({ tabId }).catch(() => {});
   }
   sendToTab({ type: "OPEN_FLOAT" }).catch(() => {});
+  getActiveTab().then((tab) => {
+    if (tab?.windowId) chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    if (tab?.id) chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+  }).catch(() => {});
 });
 $("openSettingsLink").addEventListener("click", openSettings);
 ui.speedBtn.addEventListener("click", (event) => {
@@ -3225,6 +3516,11 @@ ui.viewTabs.addEventListener("click", (event) => {
     // stay empty until user clicks 生成大纲
   }
   renderState(state);
+});
+ui.captionLang?.addEventListener("click", (event) => {
+  const btn = event.target.closest("button[data-lang]");
+  if (!btn) return;
+  setCaptionLang(btn.dataset.lang).catch((error) => flash(error.message || "切换字幕失败"));
 });
 
 ui.btnGenerate.addEventListener("click", generateSubtitles);
@@ -3255,6 +3551,7 @@ $("btnStopOutline")?.addEventListener("click", stopOutline);
 $("btnGenOutline").addEventListener("click", generateOutline);
 $("btnRegenOutline").addEventListener("click", () => {
   outline = null;
+  videoSummary = "";
   generateOutline();
 });
 $("btnCopyOutline").addEventListener("click", async () => {
@@ -3262,16 +3559,21 @@ $("btnCopyOutline").addEventListener("click", async () => {
     stopOutline();
     return;
   }
-  if (!outline?.length) return;
+  if (!outline?.length && !String(videoSummary || "").trim()) return;
   await copyText(outlineText());
   flash("大纲已复制（含时间戳）");
 });
 $("btnOutlineMd").addEventListener("click", () => {
-  if (!outline?.length) return;
+  if (!outline?.length && !String(videoSummary || "").trim()) return;
   const name = `${fileBase()}-outline.md`;
   downloadText(name, outlineMarkdown());
   flash(`已保存 ${name}`);
 });
+ui.videoSummaryToggle?.addEventListener("click", () => {
+  videoSummaryOpen = !videoSummaryOpen;
+  renderVideoSummary({ streaming: outlineLoading });
+});
+$("emptyRetryLink")?.addEventListener("click", () => refresh(true));
 
 ui.outlineList.addEventListener("click", (event) => {
   const row = event.target.closest(".chapter");
@@ -3350,7 +3652,7 @@ $("btnCopy").addEventListener("click", async () => {
   const cues = selectedCues();
   if (!cues.length) return;
   try {
-    await copyText(cues.map((item) => item.content).join("\n"));
+    await copyText(cues.map((item) => cueDisplayText(item)).join("\n"));
     markCopied($("btnCopy"), true);
   } catch {
     markCopied($("btnCopy"), false);
@@ -3460,7 +3762,7 @@ $("btnSrt").addEventListener("click", () => {
 $("btnTxt").addEventListener("click", () => {
   if (!state?.cues?.length) return;
   const name = `${fileBase()}.txt`;
-  downloadText(name, state.cues.map((item) => item.content).join("\n"));
+  downloadText(name, state.cues.map((item) => cueDisplayText(item)).join("\n"));
   flash(`已保存 ${name}`);
   setMoreOpen(false);
 });
@@ -3497,8 +3799,12 @@ $("btnClearCache")?.addEventListener("click", async () => {
   translatedCueVideoKey = translationVideoKey(state);
   outline = null;
   lastRenderKey = "";
-  flash("已清理本视频的字幕和翻译缓存");
-  refresh(true).catch(() => renderState({ page: "video" }));
+  await refresh(true).catch(() => renderState({ page: "video" }));
+  if (state?.cues?.length && state.source === "bilibili") {
+    flash("已清理转写、翻译和大纲缓存，已重新加载官方字幕");
+  } else {
+    flash("已清理本视频的转写、翻译和大纲缓存");
+  }
 });
 
 ui.trackSelect.addEventListener("change", async () => {
@@ -3529,6 +3835,12 @@ function applyForwardedKey(data) {
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!isForThisPanel(message, sender)) return;
+  if (message?.type === "DAV_SYNCED") {
+    loadMarkers(state).then(() => {
+      if (view === "markers") renderMarkers();
+    }).catch(() => {});
+    return;
+  }
   if (message?.type === "SEL_KEY_STATE") {
     applySelKeyState(Boolean(message.held));
     return;
@@ -3634,24 +3946,37 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     applyTranslateProgress(message);
     startTranslateWatch();
   }
-  if (message?.type === "STATE" && message.payload && !outlineLoading) {
-    if (generating || translating) {
-      if (message.payload.cues?.length && sameAsrVideo(message.payload)) {
-        const cues = applyRememberedTranslations(message.payload.cues);
+  if (message?.type === "STATE" && message.payload) {
+    const incoming = message.payload;
+    const switched = Boolean(
+      (incoming.bvid && state?.bvid && incoming.bvid !== state.bvid)
+      || (incoming.bvid && incoming.bvid === state?.bvid && incoming.cid && state?.cid
+        && Number(incoming.cid) !== Number(state.cid))
+    );
+    if (switched) stopJobsForVideoSwitch();
+    else if (outlineLoading) return;
+    else if (translating) {
+      // 页面缓存仍是断句前的英文字幕。翻译进度自己带 cues，
+      // 这里若再套上去，滑动列表时会把已译中文整表打回英文。
+      return;
+    }
+    if (generating && !switched) {
+      if (incoming.cues?.length && sameAsrVideo(incoming)) {
+        const cues = applyRememberedTranslations(incoming.cues);
         const translated = translatedCueText.size > 0;
         state = {
           ...state,
-          ...message.payload,
+          ...incoming,
           cues,
-          source: translated ? "translated" : message.payload.source,
-          activeLan: translated ? "translated" : message.payload.activeLan
+          source: translated ? "translated" : incoming.source,
+          activeLan: translated ? "translated" : incoming.activeLan
         };
         renderCues();
         renderAsrJobBar();
       }
       return;
     }
-    renderState(message.payload);
+    renderState(incoming);
   }
 });
 
@@ -3667,6 +3992,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.overlayOn) {
     overlayOn = changes.overlayOn.newValue !== false;
     renderOverlayBtn();
+  }
+  if (changes.captionLang) {
+    const next = changes.captionLang.newValue === "en" ? "en" : "zh";
+    if (next !== captionLang) {
+      captionLang = next;
+      lastCuesSig = "";
+      renderCaptionLang();
+      renderCues();
+    }
   }
   if (changes.summaryPad) {
     summaryPad = Math.min(50, Math.max(0, Math.round(Number(changes.summaryPad.newValue) || 10)));
@@ -3685,10 +4019,18 @@ if (!inFloatEmbed()) {
     boundTabId = info.tabId;
     refresh(false);
   });
-  chrome.tabs.onUpdated.addListener((tabId, info) => {
+  chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
     if (tabId !== boundTabId) return;
-    if (info.status === "complete") refresh(false);
+    if (info.status === "complete" || info.url) {
+      refresh(Boolean(info.url) || tabVideoChanged(info.url || tab?.url || ""));
+    }
   });
+  setInterval(() => {
+    if (!boundTabId || inFloatEmbed()) return;
+    chrome.tabs.get(boundTabId).then((tab) => {
+      if (tabVideoChanged(tab?.url || "")) refresh(true);
+    }).catch(() => {});
+  }, 1500);
 }
 
 chrome.storage.local.get({ lastVideo: null }).then((data) => {
@@ -3699,7 +4041,12 @@ chrome.storage.local.get({ lastVideo: null }).then((data) => {
 loadPrefs().then(() => {
   if (state) renderState(state);
 });
-bindFloatTab().then(() => refresh(false));
+bindFloatTab().then(async () => {
+  if (!inFloatEmbed()) {
+    await sendToTab({ type: "CLOSE_FLOAT" }).catch(() => {});
+  }
+  await refresh(false);
+});
 window.addEventListener("keydown", onSidepanelHotkey, true);
 window.addEventListener("keyup", onSelKeyUp, true);
 window.addEventListener("blur", onSelKeyUp);

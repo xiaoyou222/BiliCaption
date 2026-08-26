@@ -27,7 +27,6 @@
     </header>
 
     <div id="noVideoView" class="state-view">
-      <div class="empty-icon"></div>
       <div id="noVideoTitle" class="empty-title">正在读取当前标签…</div>
       <div id="lastVideoHint" class="empty-meta"></div>
     </div>
@@ -41,6 +40,10 @@
         <button type="button" data-view="captions" class="active">字幕</button>
         <button type="button" data-view="outline">大纲</button>
         <button type="button" data-view="markers">标记</button>
+        <div id="captionLang" class="lang-switch hidden" role="group" aria-label="字幕语言">
+          <button type="button" data-lang="zh" class="active" aria-pressed="true">中</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
         <div class="job-pill-slot">
           <div id="jobPill" class="job-pill hidden">
             <button id="jobPillHead" type="button" class="job-pill-head" aria-expanded="false" aria-controls="jobPillBody">
@@ -82,8 +85,9 @@
       </div>
 
       <div id="emptyView" class="state-view hidden">
-        <div class="empty-title">这个视频没有字幕</div>
+        <div id="emptyTitle" class="empty-title">这个视频没有字幕</div>
         <button id="btnGenerateEmpty" type="button" class="btn-primary lg">生成字幕</button>
+        <div id="emptyFetchHint" class="empty-note hidden">可<button type="button" id="emptyRetryLink" class="link-btn">重试</button>，或直接生成字幕</div>
         <div id="emptyKeyHint" class="empty-note hidden">还没配置 API Key · <button type="button" id="openSettingsLink" class="link-btn">打开设置</button></div>
       </div>
 
@@ -107,6 +111,14 @@
         <div id="outlineThink" class="think-host"></div>
         <span id="outlineHeadLabel">正在生成大纲</span>
         <button id="btnStopOutline" type="button" class="outline-stop">停止</button>
+      </div>
+
+      <div id="videoSummary" class="video-summary hidden">
+        <button type="button" id="videoSummaryToggle" class="video-summary-toggle" aria-expanded="true">
+          <span>全片总结</span>
+          <span id="videoSummaryChevron" class="video-summary-chevron">▾</span>
+        </button>
+        <div id="videoSummaryBody" class="video-summary-body"></div>
       </div>
 
       <div id="outlineList" class="outline hidden"></div>
@@ -185,7 +197,7 @@
             <button id="btnSrt" type="button">下载 SRT</button>
             <button id="btnTxt" type="button">下载纯文本</button>
             <button id="btnTranslate" type="button">翻译成中文</button>
-            <button id="btnClearCache" type="button" class="danger">清理缓存</button>
+            <button id="btnClearCache" type="button" class="danger" title="只清理本插件生成的转写、翻译和大纲，不影响视频自带字幕">清理缓存</button>
           </div>
         </div>
       </div>
@@ -199,6 +211,7 @@
   <script src="lib/thinking-orb.js"></script>
   <script src="lib/zh-simp.js"></script>
   <script src="lib/translate.js"></script>
+  <script src="lib/outline.js"></script>
   <script src="lib/模型路由.js"></script>
   <script src="lib/markers.js"></script>
   <script src="lib/providers.js"></script>

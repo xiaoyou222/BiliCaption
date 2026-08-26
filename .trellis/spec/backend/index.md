@@ -15,6 +15,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [Translate regroup](./translate-regroup.md) | MERGE/KEEP before translate; sum provider migration | Filled |
+| [Outline and subtitles](./outline-and-subtitles.md) | Outline `{ summary, chapters }` cache; player then dm/view; empty-state status | Filled |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
 | [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |

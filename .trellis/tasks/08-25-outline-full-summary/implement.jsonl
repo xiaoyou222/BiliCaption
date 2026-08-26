@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Outline cache, subtitle tracks, and empty-state UI cross service worker and sidepanel"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse runModel, finalizeOutline, pickDefaultTrack, existing background vm tests"}
+{"file": ".trellis/spec/backend/translate-regroup.md", "reason": "Summary provider contract stays OpenAI/Gemini/DeepSeek/自定义; do not fork a new chat client"}
+{"file": ".trellis/tasks/08-25-outline-full-summary/prd.md", "reason": "Accepted scope: short paragraph summary plus dm/view fallback"}
+{"file": ".trellis/tasks/08-25-outline-full-summary/design.md", "reason": "JSON contract, cache migration, dm/view only when player tracks empty"}

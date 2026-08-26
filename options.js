@@ -66,36 +66,19 @@ function renderSeg(host, list, current, onPick) {
   }
 }
 
-function startOptionsOrb(host, options) {
-  try {
-    return globalThis.mountThinkingOrb?.(host, options) || (() => {});
-  } catch {
-    return () => {};
-  }
-}
-
 function setTestBtn(id, state, idle = "测试") {
   const btn = typeof id === "string" ? $(id) : id;
   if (!btn) return;
   btn.classList.remove("ok", "fail");
   const label = btn.querySelector(".btn-label");
-  const orb = btn.querySelector(".btn-orb");
   const setText = (text) => {
     if (label) label.textContent = text;
     else btn.textContent = text;
   };
   if (state === "testing") {
     setText("测试中…");
-    if (orb) {
-      orb.hidden = false;
-      btn._orbStop?.();
-      btn._orbStop = startOptionsOrb(orb, { state: "connecting", size: 13, speed: 0.9, iconOnly: true, label: "" });
-    }
     return;
   }
-  btn._orbStop?.();
-  btn._orbStop = null;
-  if (orb) orb.hidden = true;
   if (state === "ok") {
     setText(btn.id === "runAddTest" ? "✓ 已通过" : "✓ 已连通");
     btn.classList.add("ok");
@@ -122,7 +105,7 @@ function channelKeyTail(key) {
 }
 
 function channelNote(ch) {
-  return String(ch?.note || "").trim();
+  return P.channelNote(ch);
 }
 
 function clearDropLines() {
@@ -458,11 +441,11 @@ async function testChannel(i, btn) {
     const result = await Stt.testConnection(cfg);
     btn.textContent = "✓ 成功";
     btn.title = result?.label || "已连通";
-    noteLog("info", "set", `通道 ${i + 1}（${ch.provider}）${result?.label || "测试成功"}`);
+    noteLog("info", "set", `通道 ${i + 1}（${P.channelLabel(ch)}）${result?.label || "测试成功"}`);
   } catch (error) {
     btn.textContent = "✗ 失败";
     btn.title = error.message || String(error);
-    noteLog("error", "set", `通道 ${i + 1}（${ch.provider}）测试失败：${error.message || error}`);
+    noteLog("error", "set", `通道 ${i + 1}（${P.channelLabel(ch)}）测试失败：${error.message || error}`);
   } finally {
     btn.disabled = false;
     clearTimeout(btn._t);
@@ -496,12 +479,6 @@ function fillCombo(kind) {
   panel.replaceChildren();
   const head = document.createElement("div");
   head.className = "combo-hint";
-  if (fetchState === "loading") {
-    const orbHost = document.createElement("span");
-    orbHost.className = "combo-orb think-host";
-    head.appendChild(orbHost);
-    startOptionsOrb(orbHost, { state: "connecting", size: 13, speed: 0.9, iconOnly: true, label: "" });
-  }
   const hintText = document.createElement("span");
   hintText.textContent = hint;
   head.appendChild(hintText);
@@ -630,8 +607,9 @@ function renderSync() {
   $("syncKeys").classList.toggle("on", Boolean(settings.syncKeys));
   $("syncKeys").textContent = (settings.syncKeys ? "✓ " : "") + "API Key";
   show($("syncKeysWarn"), Boolean(settings.syncKeys));
+  const ago = Dav.formatSyncAgo(settings.davAt) || settings.davLast;
   $("davStatus").textContent = settings.syncOn
-    ? (settings.davLast ? `上次同步 ${settings.davLast}` : "已开启，尚未同步")
+    ? (ago ? `上次同步 ${ago}` : "已开启，尚未同步")
     : "同步已关闭";
   $("davStatus").classList.remove("syncing");
 }
@@ -673,7 +651,9 @@ function collect() {
     davUrl: $("davUrl").value.trim(),
     davUser: $("davUser").value.trim(),
     davPass: $("davPass").value,
-    davLast: settings.davLast || ""
+    davLast: settings.davLast || "",
+    davAt: Number(settings.davAt) || 0,
+    davConfigAt: Date.now()
   };
 }
 
@@ -729,7 +709,8 @@ async function loadSettings() {
     davUrl: "",
     davUser: "",
     davPass: "",
-    davLast: ""
+    davLast: "",
+    davAt: 0
   });
   // 通道链：优先读 sttChannels；为空则把旧的主 + 备用配置迁移成链
   sttChannels = (Array.isArray(settings.sttChannels) ? settings.sttChannels : [])
@@ -965,39 +946,40 @@ $("testDav").addEventListener("click", async () => {
     $("davStatus").textContent = error.message || String(error);
   }
 });
-let davSyncOrbStop = null;
 function setDavSyncing(on) {
-  const host = $("davSyncOrb");
-  const status = $("davStatus");
-  if (!host) return;
-  if (on) {
-    host.hidden = false;
-    status?.classList.add("syncing");
-    if (!davSyncOrbStop) {
-      davSyncOrbStop = startOptionsOrb(host, { state: "connecting", size: 13, speed: 0.9, iconOnly: true, label: "" });
-    }
-    return;
-  }
-  davSyncOrbStop?.();
-  davSyncOrbStop = null;
-  host.hidden = true;
-  status?.classList.remove("syncing");
+  $("davStatus")?.classList.toggle("syncing", Boolean(on));
 }
 
 $("syncNow").addEventListener("click", async () => {
   $("davStatus").textContent = "同步中…";
   setDavSyncing(true);
   try {
-    const data = collect();
-    await Prefs.saveSettings(data);
-    const result = await Dav.syncNow(davCfg(), data);
-    const label = "刚刚";
-    settings.davLast = label;
-    await chrome.storage.sync.set({ davLast: label, davAt: result.at });
-    $("davStatus").textContent = "上次同步 刚刚";
+    await Prefs.saveSettings(collect());
+    const result = await chrome.runtime.sendMessage({ type: "DAV_SYNC_NOW", reason: "manual" });
+    if (result?.error) throw new Error(result.error);
+    if (result?.skipped) {
+      $("davStatus").textContent = "同步已关闭或未填写地址";
+      return;
+    }
+    settings.davAt = Number(result.at) || Date.now();
+    settings.davLast = Dav.formatSyncAgo(settings.davAt);
+    renderSync();
   } catch (error) {
     $("davStatus").textContent = error.message || String(error);
   } finally {
+    setDavSyncing(false);
+  }
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "DAV_SYNCED") {
+    settings.davAt = Number(message.at) || Date.now();
+    settings.davLast = Dav.formatSyncAgo(settings.davAt);
+    renderSync();
+    setDavSyncing(false);
+  }
+  if (message?.type === "DAV_SYNC_ERROR") {
+    $("davStatus").textContent = message.error || "同步失败";
     setDavSyncing(false);
   }
 });
@@ -1081,5 +1063,13 @@ chrome.runtime.onMessage.addListener((message) => {
 
   const $ver = $("appVer");
   if ($ver) $ver.textContent = `v${chrome.runtime.getManifest().version}`;
-  loadSettings();
+  loadSettings().then(() => {
+    if (settings.syncOn) {
+      chrome.runtime.sendMessage({ type: "DAV_SYNC_NOW", reason: "options" }).catch(() => {});
+    }
+    setInterval(() => {
+      if ($("davStatus")?.classList.contains("syncing")) return;
+      if (settings.syncOn && Number(settings.davAt)) renderSync();
+    }, 30 * 1000);
+  });
 loadLogs();

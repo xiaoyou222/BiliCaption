@@ -19,6 +19,7 @@
   let overlayCues = [];
   let lastOverlayText = "";
   let overlayOn = true;
+  let captionLang = "zh";
   let overlayRo = null;
   const DOCK_SNAP = 26;
   const DOCK_MIN_W = 260;
@@ -57,12 +58,12 @@
   }
 
   function returnToSidebar() {
+    // 先发 restore，让 service worker 还在这次点击的用户手势里调用 sidePanel.open()
+    requestChromePanelRestore();
     preferSidebar = true;
     dockOpen = false;
     persistDockPrefs();
-    const el = document.getElementById("bilicaption-dock");
-    if (el) el.remove();
-    requestChromePanelRestore();
+    document.getElementById("bilicaption-dock")?.remove();
   }
 
   function emptyState(page, extra = {}) {
@@ -82,6 +83,7 @@
       source: "",
       canGenerate: false,
       error: "",
+      subtitleStatus: "",
       ...extra
     };
   }
@@ -116,7 +118,12 @@
           best ? (Number(best.to) || 0) - (Number(best.from) || 0) : 0
         )
       );
-      if (best && bestOverlap >= dur * 0.45) return { ...cue, content: best.content };
+      if (best && bestOverlap >= dur * 0.45) {
+        const original = String(cue.original || cue.content || best.original || "").trim();
+        return original
+          ? { ...cue, content: best.content, original }
+          : { ...cue, content: best.content };
+      }
       return { ...cue };
     });
   }
@@ -317,9 +324,12 @@
   }
 
   function ensureDockStyle() {
-    if (document.getElementById("bilicaption-dock-style")) return;
-    const style = document.createElement("style");
-    style.id = "bilicaption-dock-style";
+    let style = document.getElementById("bilicaption-dock-style");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "bilicaption-dock-style";
+      (document.head || document.documentElement).appendChild(style);
+    }
     style.textContent = `
       #bilicaption-dock {
         --bc-dock-alpha: .82;
@@ -327,6 +337,14 @@
         z-index: 2147483646;
         pointer-events: auto;
         font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+      }
+      #bilicaption-dock,
+      #bilicaption-dock .bc-dock-win,
+      #bilicaption-dock .bc-dock-head,
+      #bilicaption-dock .bc-dock-title,
+      #bilicaption-dock .bc-dock-frame,
+      #bilicaption-dock iframe {
+        opacity: 1 !important;
       }
       #bilicaption-dock.bc-inside { position: absolute; }
       #bilicaption-dock .bc-dock-tab {
@@ -337,7 +355,7 @@
         padding: 0;
         border: 1px solid rgba(255,255,255,.16);
         border-radius: 10px 0 0 10px;
-        background: #17191D;
+        background: rgb(23 25 29 / var(--bc-dock-alpha));
         color: #8A9099;
         cursor: pointer;
         display: flex;
@@ -345,7 +363,7 @@
         justify-content: center;
         font: 13px/1 inherit;
       }
-      #bilicaption-dock .bc-dock-tab:hover { background: #1C1F24; color: #C7CBD1; }
+      #bilicaption-dock .bc-dock-tab:hover { background: rgb(28 31 36 / var(--bc-dock-alpha)); color: #C7CBD1; }
       #bilicaption-dock.bc-edge-left .bc-dock-tab {
         border-radius: 0 10px 10px 0;
         border-left: none;
@@ -361,42 +379,59 @@
         overflow: hidden;
         border-radius: 12px;
         border: 1px solid rgba(255,255,255,.18);
-        background: #121417;
-        box-shadow: 0 16px 46px rgba(0,0,0,.55);
-        opacity: var(--bc-dock-alpha);
+        background: transparent;
+        box-shadow: 0 16px 46px rgb(0 0 0 / .55);
+        isolation: isolate;
+      }
+      #bilicaption-dock .bc-dock-glass {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: rgb(18 20 23 / var(--bc-dock-alpha));
+        pointer-events: none;
+        z-index: 0;
       }
       #bilicaption-dock .bc-dock-head {
+        position: relative;
+        z-index: 1;
         flex: 0 0 32px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 8px;
         padding: 0 10px;
-        background: #121417;
+        background: transparent;
         border-bottom: 1px solid rgba(255,255,255,.08);
         color: #C7CBD1;
         font: 600 11.5px/1 inherit;
         cursor: move;
         user-select: none;
+        overflow: hidden;
       }
       #bilicaption-dock .bc-dock-title {
         flex: none;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         color: #C7CBD1;
         font-weight: 600;
       }
       #bilicaption-dock .bc-dock-actions {
         display: flex;
         align-items: center;
+        justify-content: flex-end;
         gap: 8px;
         min-width: 0;
+        flex: 1;
       }
       #bilicaption-dock .bc-dock-alpha-wrap {
         display: flex;
         align-items: center;
         gap: 8px;
-        min-width: 0;
-        flex: 1 1 110px;
-        max-width: 168px;
+        min-width: 72px;
+        flex: 1 1 auto;
+        max-width: 140px;
       }
       #bilicaption-dock .bc-dock-alpha-value {
         flex: none;
@@ -446,6 +481,7 @@
       #bilicaption-dock .bc-dock-btns {
         display: flex;
         align-items: center;
+        flex: none;
         gap: 4px;
         padding-left: 8px;
         border-left: 1px solid rgba(255,255,255,.14);
@@ -454,13 +490,15 @@
       #bilicaption-dock .bc-dock-collapse {
         appearance: none;
         border: 0;
+        flex: none;
         height: 20px;
         border-radius: 5px;
         background: transparent;
         color: #8A9099;
         cursor: pointer;
-        font: 400 11px/1 inherit;
+        font: 400 11px/20px inherit;
         padding: 0 6px;
+        white-space: nowrap;
       }
       #bilicaption-dock .bc-dock-collapse {
         width: 20px;
@@ -473,6 +511,8 @@
         color: #C7CBD1;
       }
       #bilicaption-dock .bc-dock-frame {
+        position: relative;
+        z-index: 1;
         flex: 1;
         min-height: 0;
         background: transparent;
@@ -482,6 +522,7 @@
         height: 100%;
         border: 0;
         background: transparent;
+        color-scheme: none;
       }
       #bilicaption-dock.bc-dragging .bc-dock-frame { pointer-events: none; }
       #bilicaption-dock .bc-dock-resize { position: absolute; z-index: 2; }
@@ -500,7 +541,6 @@
       #bilicaption-dock .bc-dock-snap.is-top { display: block; top: 0; left: 0; height: 3px; width: 100%; }
       #bilicaption-dock .bc-dock-snap.is-bottom { display: block; bottom: 0; left: 0; height: 3px; width: 100%; }
     `;
-    document.documentElement.appendChild(style);
   }
 
   function dockMode() {
@@ -753,10 +793,21 @@
     return Boolean(screen && /web|full/i.test(screen) && !/^(normal|wide)$/i.test(screen));
   }
 
+  function ensureDockGlass(win) {
+    if (!win || win.querySelector(".bc-dock-glass")) return;
+    const glass = document.createElement("div");
+    glass.className = "bc-dock-glass";
+    glass.setAttribute("aria-hidden", "true");
+    win.insertBefore(glass, win.firstChild);
+  }
+
   function ensureDock() {
     ensureDockStyle();
     let el = document.getElementById("bilicaption-dock");
-    if (el) return el;
+    if (el) {
+      ensureDockGlass(el.querySelector(".bc-dock-win"));
+      return el;
+    }
     el = document.createElement("div");
     el.id = "bilicaption-dock";
     el.addEventListener("pointerenter", () => {
@@ -779,6 +830,7 @@
 
     const win = document.createElement("div");
     win.className = "bc-dock-win";
+    ensureDockGlass(win);
     const head = document.createElement("div");
     head.className = "bc-dock-head";
     const title = document.createElement("span");
@@ -836,6 +888,8 @@
     const iframe = document.createElement("iframe");
     iframe.src = chrome.runtime.getURL("sidepanel.html");
     iframe.setAttribute("title", "BiliCaption");
+    iframe.setAttribute("allowtransparency", "true");
+    iframe.style.background = "transparent";
     iframe.addEventListener("pointerenter", () => {
       grabPageFocus();
       postSelKeyState();
@@ -914,9 +968,7 @@
       padY: Math.round(font * 0.34),
       padX: Math.round(font * 0.8),
       radius: Math.max(5, Math.round(font * 0.4)),
-      bottom: Math.round(Math.min(110, Math.max(32, height * 0.09))),
-      note: Math.max(9, Math.round(font * 0.62)),
-      gap: Math.max(4, Math.round(font * 0.32))
+      bottom: Math.round(Math.min(110, Math.max(32, height * 0.09)))
     };
   }
 
@@ -924,7 +976,6 @@
     if (!el) return;
     const m = overlayMetrics();
     el.style.bottom = `${m.bottom}px`;
-    el.style.gap = `${m.gap}px`;
     const textEl = el.querySelector(".bc-overlay-text");
     if (textEl) {
       textEl.style.fontSize = `${m.font}px`;
@@ -932,8 +983,7 @@
       textEl.style.padding = `${m.padY}px ${m.padX}px`;
       textEl.style.borderRadius = `${m.radius}px`;
     }
-    const noteEl = el.querySelector(".bc-overlay-note");
-    if (noteEl) noteEl.style.fontSize = `${m.note}px`;
+    el.querySelector(".bc-overlay-note")?.remove();
   }
 
   let overlayHostWatch = null;
@@ -985,7 +1035,6 @@
       "display:flex",
       "flex-direction:column",
       "align-items:center",
-      "gap:5px",
       "text-align:center",
       "pointer-events:none",
       "opacity:0",
@@ -1004,14 +1053,7 @@
       "white-space:pre-wrap",
       "word-break:break-word"
     ].join(";");
-    const note = document.createElement("span");
-    note.className = "bc-overlay-note";
-    note.style.cssText = [
-      "font:9.5px/1 JetBrains Mono,SF Mono,ui-monospace,monospace",
-      "color:rgba(255,255,255,.5)",
-      "letter-spacing:.08em"
-    ].join(";");
-    el.append(text, note);
+    el.append(text);
     placeOverlay(el);
     return el;
   }
@@ -1132,19 +1174,17 @@
       }
       return;
     }
-    const text = String(cue.content || "").trim();
+    const original = String(cue.original || "").trim();
+    const text = captionLang === "en" && original
+      ? original
+      : String(cue.content || "").trim();
     const mounted = document.getElementById("bilicaption-overlay");
     if (text === lastOverlayText && mounted?.isConnected) return;
     lastOverlayText = text;
     const el = ensureOverlay();
     if (!el.isConnected) placeOverlay(el);
     const textEl = el.querySelector(".bc-overlay-text");
-    const noteEl = el.querySelector(".bc-overlay-note");
     if (textEl) textEl.textContent = text;
-    if (noteEl) {
-      const generated = cachedState.source === "groq" || cachedState.activeLan === "groq-asr";
-      noteEl.textContent = generated ? "BiliCaption · 生成字幕" : "";
-    }
     el.style.opacity = text ? "1" : "0";
   }
 
@@ -1374,6 +1414,8 @@
         cid: Number(data.cid || page.cid) || 0,
         title: data.title || "",
         part: data.part || "",
+        pic: data.pic || "",
+        up: data.up || "",
         rate: targetRate,
         tracks: data.tracks || [],
         activeLan: data.activeLan || "",
@@ -1386,7 +1428,8 @@
         asrTotal: Number(data.asrTotal) || 0,
         currentTime: video?.currentTime || 0,
         duration: video?.duration || 0,
-        error: data.error || (data.partial ? "" : data.notice) || ""
+        subtitleStatus: data.subtitleStatus || "",
+        error: data.error || (data.partial || data.subtitleStatus ? "" : data.notice) || ""
       };
       setOverlayCues(cachedState.cues);
       lastStateKey = key;
@@ -1496,12 +1539,25 @@
       placeDock();
       return reply(Promise.resolve(snapshot()));
     }
+    if (message?.type === "CLOSE_FLOAT") {
+      preferSidebar = true;
+      dockOpen = false;
+      persistDockPrefs();
+      document.getElementById("bilicaption-dock")?.remove();
+      return reply(Promise.resolve(snapshot()));
+    }
     if (message?.type === "RETURN_SIDEBAR") {
       returnToSidebar();
       return reply(Promise.resolve(snapshot()));
     }
     if (message?.type === "SET_OVERLAY") {
       setOverlayVisible(message.on !== false);
+      return reply(Promise.resolve(snapshot()));
+    }
+    if (message?.type === "SET_CAPTION_LANG") {
+      captionLang = message.lang === "en" ? "en" : "zh";
+      lastOverlayText = "";
+      updateOverlay(getVideo()?.currentTime || 0);
       return reply(Promise.resolve(snapshot()));
     }
     if (message?.type === "SWITCH_TRACK") return reply(switchTrack(message.lan));
@@ -1586,6 +1642,7 @@
 
   const notifyNav = () => {
     if (!isCurrentScript()) return;
+    lastHref = location.href;
     refreshIfNeeded(true).then((state) => {
       postRuntime({ type: "STATE", payload: state });
     });
@@ -1619,7 +1676,18 @@
 
   setInterval(() => {
     if (!isCurrentScript()) return;
-    if (location.href !== lastHref) notifyNav();
+    // 扩展重载后旧 content script 已死，但 DOM 还在。再不拆掉，
+    // 侧栏和新脚本叠在一起，浮窗也不会换成新代码。
+    if (!runtimeAlive()) {
+      document.getElementById("bilicaption-dock")?.remove();
+      document.getElementById("bilicaption-overlay")?.remove();
+      document.getElementById("bilicaption-rate-hud")?.remove();
+      return;
+    }
+    const key = pageKey();
+    if (location.href !== lastHref || (key !== lastStateKey && parsePage().kind !== "other")) {
+      notifyNav();
+    }
     if (parsePage().kind !== "other") hookVideo(getVideo());
     if (overlayCues.length) {
       const el = document.getElementById("bilicaption-overlay");
@@ -1629,11 +1697,16 @@
     if (dockOpen || !preferSidebar) placeDock();
   }, 1000);
 
-  chrome.storage.sync.get({ overlayOn: true, selKey: "Shift" }, (data) => {
+  chrome.storage.sync.get({ overlayOn: true, selKey: "Shift", captionLang: "zh" }, (data) => {
     if (!isCurrentScript()) return;
     overlayOn = data.overlayOn !== false;
     selKey = data.selKey || "Shift";
+    captionLang = data.captionLang === "en" ? "en" : "zh";
     if (!overlayOn) hideOverlay();
+    else {
+      lastOverlayText = "";
+      updateOverlay(getVideo()?.currentTime || 0);
+    }
   });
   ensureTabId().then(() => {
     if (!isCurrentScript()) return;
@@ -1678,6 +1751,11 @@
     }
     if (area === "sync" && changes.overlayOn) {
       setOverlayVisible(changes.overlayOn.newValue !== false);
+    }
+    if (area === "sync" && changes.captionLang) {
+      captionLang = changes.captionLang.newValue === "en" ? "en" : "zh";
+      lastOverlayText = "";
+      updateOverlay(getVideo()?.currentTime || 0);
     }
     if (area === "sync" && changes.selKey) {
       selKey = changes.selKey.newValue || "Shift";

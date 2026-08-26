@@ -53,7 +53,7 @@
             </div>
             <div class="channel-new-row">
               <input id="addModel" type="text" placeholder="whisper-large-v3-turbo" />
-              <button type="button" id="runAddTest" class="btn-test"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
+              <button type="button" id="runAddTest" class="btn-test"><span class="btn-label">测试</span></button>
               <button type="button" id="addChannel" class="btn-add" disabled>+ 添加通道</button>
             </div>
             <p id="addNote" class="add-note hidden"></p>
@@ -78,7 +78,7 @@
             <span class="label">API Key</span>
             <div class="key-row">
               <input id="sumKey" type="password" placeholder="sk-..." />
-              <button type="button" id="testSum" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
+              <button type="button" id="testSum" class="btn-ghost"><span class="btn-label">测试</span></button>
             </div>
           </div>
           <div class="field max-280">
@@ -140,10 +140,11 @@
               <button type="button" id="syncKeys" class="chip">API Key</button>
             </div>
             <p id="syncKeysWarn" class="warn hidden">API Key 会以明文写入你的网盘文件，确认这个网盘只有你能访问</p>
-            <p class="note">生成字幕和大纲只存在本机，换设备需重新生成</p>
+            <p class="note">开启后自动同步：改标记或设置后数秒上传，打开扩展时先拉后推。字幕和大纲仍只存在本机。</p>
             <div class="dav-paths">
               <span>/bilicaption/config.json</span>
               <span>/bilicaption/marks/{bvid}-P{n}.json</span>
+              <span>/bilicaption/marks/trash.json</span>
             </div>
           </div>
           <div class="field">
@@ -161,9 +162,8 @@
             </div>
           </div>
           <div class="dav-actions">
-            <button type="button" id="testDav" class="btn-ghost"><span class="btn-orb think-host" hidden></span><span class="btn-label">测试</span></button>
+            <button type="button" id="testDav" class="btn-ghost"><span class="btn-label">测试</span></button>
             <button type="button" id="syncNow" class="btn-ghost">立即同步</button>
-            <span id="davSyncOrb" class="think-host" hidden></span>
             <span id="davStatus" class="hint">同步已关闭</span>
           </div>
         </section>
@@ -217,8 +217,6 @@
   <script src="lib/stt.js"></script>
   <script src="lib/webdav.js"></script>
   <script src="lib/prefs.js"></script>
-  <script src="lib/thinking-orbs-engine.js"></script>
-  <script src="lib/thinking-orb.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

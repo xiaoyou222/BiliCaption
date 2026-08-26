@@ -354,6 +354,53 @@ test("50 句批量翻译即使三批乱序返回，也会逐句写回正确位�
     Array.from({ length: 50 }, (_, index) => `第${index + 1}句`)
   );
   assert.equal(B.__store["asr:BV-translate-50:50"].cues[49].content, "第50句");
+  assert.equal(job.cues[0].original, "This is line 1.");
+  assert.equal(job.cues[49].original, "This is line 50.");
+});
+
+test("断句浅拷贝的 job.cues，每批译完就能看到中文", async () => {
+  const B = loadBackground(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const prompt = body.messages.at(-1).content;
+    const ids = [...prompt.matchAll(/^\d+\. This is line (\d+)\.$/gm)].map((match) => Number(match[1]));
+    const content = ids.map((id, index) => `${index + 1}. 第${id}句`).join("\n");
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { choices: [{ message: { content } }] }; }
+    };
+  });
+  const input = Array.from({ length: 30 }, (_, index) => ({
+    from: index,
+    to: index + 0.8,
+    content: `This is line ${index + 1}.`
+  }));
+  const prepared = B.BiliCaptionTranslate.prepareCues(input);
+  const later = { from: 99, to: 100, content: "Later English." };
+  const job = {
+    jobId: "translate-copy",
+    controller: new AbortController(),
+    tabId: 0,
+    bvid: "BV-copy",
+    cid: 1,
+    cues: [...prepared.cues, later],
+    done: 0,
+    total: prepared.targets.length,
+    pending: true,
+    failed: false,
+    commitChain: Promise.resolve()
+  };
+  await B.translatePreparedCues(job, prepared.cues, prepared.targets, {
+    apiBase: "https://api.openai.com/v1",
+    apiKey: "key",
+    apiModel: "gpt-4o-mini",
+    signal: job.controller.signal,
+    conc: 1,
+    T: B.BiliCaptionTranslate
+  });
+  assert.match(job.cues[0].content, /第1句/);
+  assert.match(job.cues[23].content, /第24句/);
+  assert.equal(job.cues[job.cues.length - 1].content, "Later English.");
 });
 
 test("分段转写与翻译并发回写时不会覆盖中文，单字译文也会保留", async () => {
@@ -442,14 +489,174 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.match(content, /function onHotkey\(event\)\s*\{\s*if \(!isCurrentScript\(\)\) return/);
   assert.match(background, /const asrCacheWrites = new Map\(\)/);
   assert.match(panel, /type: "CLEAR_VIDEO_CACHE"/);
+  assert.match(html, /id="captionLang"/);
+  assert.match(panel, /SET_CAPTION_LANG/);
+  assert.match(content, /SET_CAPTION_LANG/);
+  assert.match(panel, /已清理本视频的转写、翻译和大纲缓存/);
+  assert.match(panel, /已重新加载官方字幕/);
+  assert.doesNotMatch(panel, /已清理本视频的字幕和翻译缓存/);
+  assert.match(html, /不影响视频自带字幕/);
   assert.doesNotMatch(background, /transcribeOneIncoming\(piece,\s*index \+ p/);
   assert.match(css, /\.chunk-done\s*\{[\s\S]*?overflow-x:\s*hidden/);
-  assert.match(background, /return \{ started: true, jobId, done: 0, total: targets.length, stage: "run", cues \}/);
+  assert.match(background, /return \{ started: true, jobId, done: 0, total: targets\.length, stage: "run", cues \}/);
+  assert.match(background, /type:\s*"TRANSLATE_PROGRESS"[\s\S]{0,280}\.\.\.\(cues\?\.length \? \{ cues \} : \{\}\)/);
+  assert.doesNotMatch(background, /terminal && cues\?\.length \? \{ cues \}/);
   assert.doesNotMatch(panel, /优化断句|断句 \$\{/);
   assert.match(panel, /trJobTitle\.textContent = "翻译中"/);
+  assert.match(content, /bc-dock-glass/);
+  assert.doesNotMatch(content, /BiliCaption · 生成字幕/);
+  assert.doesNotMatch(content, /className = "bc-overlay-note"/);
+  assert.match(content, /bc-overlay-note"\)\?\.remove/);
+  assert.doesNotMatch(content, /\.bc-dock-win \{[\s\S]{0,320}opacity:\s*var\(--bc-dock-alpha\)/);
+  assert.match(panel, /visible && wasHidden[\s\S]{0,80}resetJobPillClosed/);
   assert.match(panel, /stage: started\.stage \|\| "run"/);
+  assert.match(panel, /info\.status === "complete" \|\| info\.url/);
+  assert.match(panel, /function tabVideoChanged/);
+  assert.match(content, /if \(!runtimeAlive\(\)\)/);
+  assert.match(content, /CLOSE_FLOAT/);
+  assert.match(panel, /type: "CLOSE_FLOAT"/);
+  assert.match(background, /function injectBiliContentScripts/);
+  assert.match(background, /files:\s*\["content\.js"\]/);
   assert.doesNotMatch(background, /xy-backup/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "lib/模型路由.js"), "utf8"), /xy-backup|xy-fast|xy-smart/);
+});
+
+test("英文长段按句号切开，不按 56 字硬切", () => {
+  const B = loadBackground();
+  const cues = B.refineAsrCues([{
+    from: 0,
+    to: 40,
+    content: "This is the first complete sentence. This is the second complete sentence. This is the third complete sentence."
+  }]);
+  assert.ok(cues.length >= 3);
+  assert.match(cues[0].content, /first complete sentence/);
+  assert.equal(cues.some((cue) => /This is the fir$/.test(cue.content)), false);
+});
+
+test("翻译进度按英文字幕行计，一批可以超过一句", async () => {
+  const sizes = [];
+  const B = loadBackground(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const prompt = body.messages.at(-1).content;
+    const lines = [...prompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
+    sizes.push(lines.length);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{ message: { content: lines.map((line, index) => `${index + 1}. 译${line}`).join("\n") } }]
+        };
+      }
+    };
+  });
+  B.BiliCaptionPrefs.loadSettings = async () => ({
+    sumProvider: "OpenAI",
+    apiKey: "key",
+    apiModel: "gpt-4o-mini",
+    translateConcurrency: 4
+  });
+  B.BiliCaptionProviders.resolveSum = () => ({
+    provider: "OpenAI",
+    base: "https://api.openai.com/v1",
+    key: "key",
+    model: "gpt-4o-mini"
+  });
+  const input = Array.from({ length: 30 }, (_, index) => ({
+    from: index,
+    to: index + 0.8,
+    content: `This is line ${index + 1} for batching.`
+  }));
+  const prepared = B.BiliCaptionTranslate.prepareCues(input);
+  const job = {
+    jobId: "translate-batch-size",
+    controller: new AbortController(),
+    tabId: 0,
+    bvid: "BV-batch-size",
+    cid: 12,
+    cues: prepared.cues,
+    done: 0,
+    total: prepared.targets.length,
+    pending: true
+  };
+  await B.runTranslateJob(job, prepared.targets);
+  assert.equal(job.done, 30);
+  assert.equal(job.total, 30);
+  assert.equal(sizes.includes(24), true);
+  assert.equal(sizes.some((n) => n > 1), true);
+});
+
+test("中文超长字幕按句号切开，不会留成一段", () => {
+  const B = loadBackground();
+  const cues = B.refineAsrCues([{
+    from: 1013,
+    to: 1032,
+    content: "最后的测试是像这样说一声你好，确保一切正常运行，然后你应该会收到你好的回复。看到这个后，设置就完成了。无论你使用 Claude Code、Codex 还是其他任何你喜欢的编程代理，都应该能够这样操作。做得好，我们下一节见。这门课程的运作方式是"
+  }]);
+  assert.ok(cues.length >= 4);
+  assert.equal(cues[0].from, 1013);
+  assert.equal(cues[cues.length - 1].to, 1032);
+  assert.ok(cues.every((cue) => B.cueLen(cue.content) <= 80));
+});
+
+test("翻译完成后的中文长段也会再切开", async () => {
+  const B = loadBackground(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    if (String(body.messages[0]?.content || "").includes("断句军师")) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { choices: [{ message: { content: "MERGE 1-2" } }] };
+        }
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{
+            message: {
+              content: "1. 最后的测试是说一声你好，确保一切正常运行。看到这个后，设置就完成了。无论你使用 Claude Code 还是 Codex，都应该能够这样操作。做得好我们下一节见。"
+            }
+          }]
+        };
+      }
+    };
+  });
+  B.BiliCaptionPrefs.loadSettings = async () => ({
+    sumProvider: "OpenAI",
+    apiKey: "key",
+    apiModel: "gpt-4o-mini",
+    translateConcurrency: 1
+  });
+  B.BiliCaptionProviders.resolveSum = () => ({
+    provider: "OpenAI",
+    base: "https://api.openai.com/v1",
+    key: "key",
+    model: "gpt-4o-mini"
+  });
+  const input = [
+    { from: 1013, to: 1022, content: "The last test is to say hello and make sure everything works." },
+    { from: 1022, to: 1032, content: "After that setup is complete and you can use Claude Code or Codex." }
+  ];
+  const prepared = B.BiliCaptionTranslate.prepareCues(input);
+  const job = {
+    jobId: "translate-split-zh",
+    controller: new AbortController(),
+    tabId: 0,
+    bvid: "BV-split-zh",
+    cid: 8,
+    cues: prepared.cues,
+    done: 0,
+    total: prepared.targets.length,
+    pending: true
+  };
+  await B.runTranslateJob(job, prepared.targets);
+  assert.ok(job.cues.length >= 3);
+  assert.equal(job.cues[0].from, 1013);
+  assert.equal(job.cues[job.cues.length - 1].to, 1032);
 });
 
 test("断句指令按 MERGE/KEEP 解析，忽略说明和 markdown", () => {
@@ -502,20 +709,11 @@ test("断句解析失败、冲突或 SPLIT 时整块回落原句", () => {
   assert.equal(kept.cues[0].content, "One");
 });
 
-test("翻译任务先断句再按合并后的句子翻译", async () => {
+test("翻译不再先调断句军师，直接按批次翻译", async () => {
   const calls = [];
   const B = loadBackground(async (_url, options) => {
     const body = JSON.parse(options.body);
     calls.push(body);
-    if (String(body.messages[0]?.content || "").includes("断句军师")) {
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return { choices: [{ message: { content: "MERGE 1-2\nKEEP 3" } }] };
-        }
-      };
-    }
     const prompt = body.messages.at(-1).content;
     const lines = [...prompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
     return {
@@ -541,16 +739,16 @@ test("翻译任务先断句再按合并后的句子翻译", async () => {
     model: "gpt-4o-mini"
   });
   const input = [
-    { from: 0, to: 1, content: "Hello I" },
-    { from: 1, to: 2, content: "wanted this." },
-    { from: 2, to: 3, content: "Okay then." }
+    { from: 0, to: 1, content: "Hello I wanted this." },
+    { from: 1, to: 2, content: "Okay then now." },
+    { from: 2, to: 3, content: "Sure thing here." }
   ];
   const prepared = B.BiliCaptionTranslate.prepareCues(input);
   const job = {
-    jobId: "translate-regroup",
+    jobId: "translate-no-regroup",
     controller: new AbortController(),
     tabId: 0,
-    bvid: "BV-regroup",
+    bvid: "BV-no-regroup",
     cid: 7,
     cues: prepared.cues,
     done: 0,
@@ -560,53 +758,29 @@ test("翻译任务先断句再按合并后的句子翻译", async () => {
   await B.runTranslateJob(job, prepared.targets);
 
   assert.equal(job.regrouped, true);
-  assert.equal(job.cues.length, 2);
-  assert.equal(job.cues[0].from, 0);
-  assert.equal(job.cues[0].to, 2);
+  assert.equal(job.cues.length, 3);
   assert.match(job.cues[0].content, /译/);
-  assert.equal(calls.filter((body) => String(body.messages[0]?.content || "").includes("断句军师")).length, 1);
-  assert.equal(String(calls[0].messages[0]?.content || "").includes("断句军师"), true);
-  assert.equal(String(calls[1].messages[0]?.content || "").includes("断句军师"), false);
+  assert.equal(calls.filter((body) => String(body.messages[0]?.content || "").includes("断句军师")).length, 0);
+  assert.equal(job.done, 3);
 });
 
-test("断完一块就翻译一块，不会等全部断完", async () => {
-  const order = [];
-  const B = loadBackground(async (_url, options) => {
-    const body = JSON.parse(options.body);
-    const regroup = String(body.messages[0]?.content || "").includes("断句军师");
-    order.push(regroup ? "regroup" : "translate");
-    if (regroup) {
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return { choices: [{ message: { content: "MERGE 1-2" } }] };
-        }
-      };
-    }
-    const prompt = body.messages.at(-1).content;
-    const lines = [...prompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          choices: [{ message: { content: lines.map((line, index) => `${index + 1}. 译${line}`).join("\n") } }]
-        };
-      }
+test("用户取消翻译后不保留 pending，重载不会自动续跑", async () => {
+  const B = loadBackground(async (_url, options) => new Promise((_, reject) => {
+    const fail = () => {
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      reject(error);
     };
-  });
-  B.BiliCaptionTranslate.chunkCues = (cues) => {
-    const list = Array.isArray(cues) ? cues : [];
-    const out = [];
-    for (let i = 0; i < list.length; i += 2) out.push(list.slice(i, i + 2));
-    return out;
-  };
+    if (options?.signal?.aborted) {
+      fail();
+      return;
+    }
+    options?.signal?.addEventListener("abort", fail, { once: true });
+  }));
   B.BiliCaptionPrefs.loadSettings = async () => ({
     sumProvider: "OpenAI",
     apiKey: "key",
-    apiModel: "gpt-4o-mini",
-    translateConcurrency: 1
+    apiModel: "gpt-4o-mini"
   });
   B.BiliCaptionProviders.resolveSum = () => ({
     provider: "OpenAI",
@@ -614,32 +788,29 @@ test("断完一块就翻译一块，不会等全部断完", async () => {
     key: "key",
     model: "gpt-4o-mini"
   });
-  const input = [
-    { from: 0, to: 1, content: "Hello I" },
-    { from: 1, to: 2, content: "wanted this." },
-    { from: 2, to: 3, content: "Okay then now." },
-    { from: 3, to: 4, content: "Sure thing here." }
-  ];
-  const prepared = B.BiliCaptionTranslate.prepareCues(input);
-  const job = {
-    jobId: "translate-regroup-pipeline",
-    controller: new AbortController(),
-    tabId: 0,
-    bvid: "BV-regroup-pipe",
-    cid: 9,
-    cues: prepared.cues,
-    done: 0,
-    total: prepared.targets.length,
-    pending: true
-  };
-  await B.runTranslateJob(job, prepared.targets);
-  assert.deepEqual(order, ["regroup", "translate", "regroup", "translate"]);
-  assert.equal(job.cues.length, 2);
-  assert.match(job.cues[0].content, /译/);
-  assert.match(job.cues[1].content, /译/);
+  const started = await B.startTranslate({
+    bvid: "BV-cancel",
+    cid: 3,
+    cues: [
+      { from: 0, to: 1, content: "Hello there friends." },
+      { from: 1, to: 2, content: "How are you today." }
+    ]
+  });
+  assert.equal(started.started, true);
+  assert.equal(await B.cancelTranslateJob(started.jobId, { bvid: "BV-cancel", cid: 3 }), true);
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline && B.findTranslateJob({ jobId: started.jobId, bvid: "BV-cancel", cid: 3 })) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(B.__store["trJob:BV-cancel:3"], undefined);
+  const status = await B.getTranslateJobStatus({ bvid: "BV-cancel", cid: 3 });
+  assert.equal(status.running, false);
+  await B.resumePendingTranslateJobs();
+  const after = await B.getTranslateJobStatus({ bvid: "BV-cancel", cid: 3 });
+  assert.equal(after.running, false);
 });
 
-test("点翻译后立刻显示翻译句数，不暴露断句阶段", async () => {
+test("点翻译后立刻进入翻译中，总数用原始英文字幕行数", async () => {
   const B = loadBackground(async (_url, options) => new Promise((_, reject) => {
     const fail = () => {
       const error = new Error("aborted");
@@ -677,7 +848,7 @@ test("点翻译后立刻显示翻译句数，不暴露断句阶段", async () =>
   B.cancelTranslateJob(started.jobId, { bvid: "BV-stage", cid: 1 });
 });
 
-test("断句请求失败时该块保持原句并继续翻译", async () => {
+test("翻译请求失败时该批保持原句并继续", async () => {
   const B = loadBackground(async (_url, options) => {
     const body = JSON.parse(options.body);
     if (String(body.messages[0]?.content || "").includes("断句军师")) {
@@ -736,4 +907,26 @@ test("断句请求失败时该块保持原句并继续翻译", async () => {
   assert.equal(job.cues[0].to, 1);
   assert.match(job.cues[0].content, /译Hello there friends/);
   assert.match(job.cues[1].content, /译I wanted this now/);
+});
+
+test("续传时进度从已完成段数起步，而不是从 0", () => {
+  const B = loadBackground();
+  const duration = 32 * 480;
+  const saved = {
+    total: 32,
+    pending: true,
+    parts: Array.from({ length: 30 }, (_, i) => ({
+      i,
+      start: i * 480,
+      end: (i + 1) * 480,
+      complete: true,
+      cues: [{ from: 0, to: 10, content: `p${i}` }]
+    }))
+  };
+  const seeded = B.seedResumeParts(saved, [], duration, 32);
+  assert.equal(seeded.total, 32);
+  assert.equal(seeded.skipped, 30);
+  assert.equal(seeded.parts.filter((part) => part && part.complete).length, 30);
+  assert.equal(seeded.parts[30], null);
+  assert.equal(seeded.parts[31], null);
 });

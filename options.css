@@ -269,24 +269,6 @@ select {
 .btn-ghost.ok { color: var(--green); }
 .btn-ghost.fail { color: var(--pink); }
 .btn-ghost.copied { color: var(--green); }
-.btn-orb, .combo-orb, #davSyncOrb {
-  width: 13px;
-  height: 13px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-}
-.btn-orb[hidden],
-.combo-orb[hidden],
-#davSyncOrb[hidden],
-.btn-orb:empty,
-.combo-orb:empty {
-  display: none !important;
-  width: 0;
-  height: 0;
-  margin: 0;
-  overflow: hidden;
-}
 
 .dav-actions .btn-ghost { height: 31px; }
 

@@ -26,7 +26,7 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["sidePanel", "storage", "tabs", "scripting", "clipboardWrite", "declarativeNetRequest"],
+  "permissions": ["sidePanel", "storage", "tabs", "scripting", "clipboardWrite", "declarativeNetRequest", "alarms"],
   "minimum_chrome_version": "116",
   "host_permissions": [
     "*://*.bilibili.com/*",

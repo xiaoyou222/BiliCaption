@@ -36,6 +36,10 @@ These guides help you **ask the right questions before coding**.
 - [ ] You're not sure where to put some logic
 - [ ] You are adding an event kind, JSONL record, RPC payload, or config field
 - [ ] UI / command code starts casting raw payload fields directly
+- [ ] Outline cache or Bilibili subtitle-list fields (`summary`, `subtitleStatus`, `notice`) move between service worker, content script, and sidepanel — read `backend/outline-and-subtitles.md`
+- [ ] 清理缓存 vs leftover captions: official player/dm tracks are not cache; `clearVideoCache` only drops `asr:` / jobs / outline — read `backend/outline-and-subtitles.md`
+- [ ] 中/EN caption switch: show only when both zh and en exist; Chinese-only official/ASR hides it; plugin bilingual is display-only (`cue.original`); never `SWITCH_TRACK` over groq/translated cues — read `backend/translate-regroup.md`
+- [ ] Extension reload vs float: dead content script must drop `#bilicaption-dock`; `onInstalled` re-injects `content.js`; non-embed sidepanel sends `CLOSE_FLOAT` so float and side panel do not stack
 
 → Read [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md)
 

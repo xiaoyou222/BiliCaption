@@ -324,6 +324,34 @@ test("旧总结服务商迁移到自定义或 OpenAI", () => {
   assert.equal(unknown.sumProvider, "OpenAI");
 });
 
+test("通道备注进入标签，两个 Groq 账号能区分", () => {
+  const C = loadStt(async () => { throw new Error("不应请求网络"); });
+  const P = C.BiliCaptionProviders;
+  const main = P.normalizeChannel({ provider: "Groq", key: "gsk_main", note: "主账号" });
+  const backup = P.normalizeChannel({ provider: "Groq", key: "gsk_backup", note: "  备用账号  " });
+  const plain = P.normalizeChannel({ provider: "Groq", key: "gsk_plain", note: "   " });
+  assert.equal(main.note, "主账号");
+  assert.equal(backup.note, "备用账号");
+  assert.equal(plain.note, "");
+  assert.equal(P.channelLabel(main), "Groq · 主账号");
+  assert.equal(P.channelLabel(backup), "Groq · 备用账号");
+  assert.equal(P.channelLabel(plain), "Groq");
+  assert.equal(P.channelLabel(null), "转写");
+  const chain = P.resolveChannels({
+    sttChannels: [
+      { provider: "Groq", key: "gsk_main", note: "主账号" },
+      { provider: "Groq", key: "gsk_backup", note: "备用账号" }
+    ]
+  });
+  assert.equal(chain.length, 2);
+  assert.equal(P.channelLabel(chain[0]), "Groq · 主账号");
+  assert.equal(P.channelLabel(chain[1]), "Groq · 备用账号");
+  assert.equal(
+    `${P.channelLabel(chain[0])} 限流，已切到 ${P.channelLabel(chain[1])} 继续`,
+    "Groq · 主账号 限流，已切到 Groq · 备用账号 继续"
+  );
+});
+
 test("停用的转写通道不进入可用链", () => {
   const C = loadStt(async () => { throw new Error("不应请求网络"); });
   const P = C.BiliCaptionProviders;
