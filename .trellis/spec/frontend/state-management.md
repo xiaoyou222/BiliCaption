@@ -1,51 +1,42 @@
 # State Management
 
-> How state is managed in this project.
+No Redux/Vue. Each page keeps module-level `let` variables. The service worker is the source of jobs and caches.
 
----
+## Sidepanel
 
-## Overview
+`sidepanel.js`:
 
-<!--
-Document your project's state management conventions here.
+- `state` — current video snapshot (`cues`, `tracks`, `bvid`, `cid`, `source`, `currentTime`, …)
+- UI-only: `range`, `outline`, `videoSummary`, `outlineDensity`, `captionLang`, `generating`, …
+- `ui` — DOM nodes resolved once at load
 
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
+Render functions read those lets and write the DOM (`renderCues`, `renderOutline`, `renderVideoSummary`). Do not keep a parallel copy of cues in random closures.
 
-(To be filled by the team)
+`captionLang` is `chrome.storage.sync`. Outline fold/density is session-only.
 
----
+## Content script
 
-## State Categories
+`content.js` holds player hooks, overlay cues, dock geometry. It does not read `chrome.storage.local` secrets. Overlay / `selKey` / `captionLang` come from `sync`.
 
-<!-- Local state, global state, server state, URL state -->
+Player time: ordinary `timeupdate` may throttle (120 ms). `seeked` must `sendTime({ force: true })` so a paused seek still updates the outline. Active outline row uses `activeOutlinePosition` (latest start, 50 ms tolerance) — `outline-and-subtitles.md`.
 
-(To be filled by the team)
+## Messages as state sync
 
----
+| Direction | Examples |
+|---|---|
+| sidepanel → content | `SEEK`, `SET_CAPTION_LANG`, `SYNC_CUES` |
+| content → sidepanel | `TIME`, page identity |
+| sidepanel → background | `LOAD_SUBTITLES`, `GENERATE_ASR`, `START_TRANSLATE`, `CLEAR_VIDEO_CACHE` |
+| background → pages | `ASR_PROGRESS`, `TRANSLATE_PROGRESS`, `APP_LOG`, `DAV_SYNCED` |
 
-## When to Use Global State
+Float embed binds `myTabId`; non-embed uses `boundTabId`. Ignore messages for other tabs (`isForThisPanel`).
 
-<!-- Criteria for promoting state to global -->
+## Storage listeners
 
-(To be filled by the team)
+`chrome.storage.onChanged` updates overlay prefs and last-video hints. Job progress is messages, not a storage poll.
 
----
+## Common mistakes
 
-## Server State
-
-<!-- How server data is cached and synchronized -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- State management mistakes your team has made -->
-
-(To be filled by the team)
+- Casting raw payload fields in three UIs instead of one `lib/` normalize.
+- Writing `state.currentTime` only from throttled `TIME` after a click-to-seek (click must set it immediately).
+- `executeScript` on a failed PING inside the float iframe (tears down the embed).

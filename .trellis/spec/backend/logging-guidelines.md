@@ -1,51 +1,51 @@
-# Logging Guidelines
+# Logging
 
-> How logging is done in this project.
-
----
+Runtime logs are a 200-entry ring buffer in `chrome.storage.local.appLogs`, shown on the options 运行日志 tab.
 
 ## Overview
 
-<!--
-Document your project's logging conventions here.
+`background.js` `appLog(level, scope, message, extra)` is the writer. Options `noteLog` forwards through `{ type: "APPEND_LOG" }`. Entries also broadcast `{ type: "APP_LOG", entry }` for a live list.
 
-Questions to answer:
-- What logging library do you use?
-- What are the log levels and when to use each?
-- What should be logged?
-- What should NOT be logged (PII, secrets)?
--->
+## Levels and scopes
 
-(To be filled by the team)
+`level` is `info` | `warn` | `error` (anything else becomes `info`).
 
----
+Options UI labels (`options.js` `SCOPE`):
 
-## Log Levels
+| scope | label |
+|---|---|
+| `groq` / `asr` | 转写 |
+| `bili` | B站 |
+| `net` | 网络 |
+| `set` | 设置 |
+| `app` | 应用 |
+| `sum` | 总结 |
+| `dav` | 同步 |
 
-<!-- When to use each level: debug, info, warn, error -->
+Keep new scopes short (`slice(0, 16)`). Prefer an existing one.
 
-(To be filled by the team)
+## Message shape
 
----
+```js
+{
+  t: Date.now(),
+  level: "info" | "warn" | "error",
+  scope: string,
+  message: string,   // max 400
+  detail: string     // JSON of a small extra allowlist, max 400
+}
+```
 
-## Structured Logging
+`logDetail` only copies `status`, `ms`, `mb`, `done`, `total`, `current`, `bvid`, `cid`, `host`, `waitMs`, `chunks`, `cues`, `try`. Do not dump API keys, raw audio, or full cue lists.
 
-<!-- Log format, required fields -->
+Error-level entries flush immediately; others debounce 400 ms.
 
-(To be filled by the team)
+## Console
 
----
+Service worker may `console.warn("[BiliCaption]", error)` for install-time Chrome API failures. Feature logs that the user should inspect belong in `appLog`, not only `console.log`.
 
-## What to Log
+## Common mistakes
 
-<!-- Important events to log -->
-
-(To be filled by the team)
-
----
-
-## What NOT to Log
-
-<!-- Sensitive data, PII, secrets -->
-
-(To be filled by the team)
+- Logging secret keys or full request bodies.
+- Growing `appLogs` without the 200 cap (`LOG_MAX`).
+- Introducing a second log store instead of `appLogs`.

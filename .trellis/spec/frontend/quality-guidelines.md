@@ -1,51 +1,33 @@
 # Quality Guidelines
 
-> Code quality standards for frontend development.
+Frontend quality is visual tokens + message/state consistency + source-scan tests.
 
----
+## Required
 
-## Overview
+- Match existing CSS variables; do not introduce a utility framework.
+- Keep HTML structure in `*.html`. JS builds lists (cues, chapters, logs), not the chrome of the page.
+- New interactive copy stays Chinese.
+- If CSS/HTML ids change, update the `assert.match` tests that lock them (`测试/中英字幕切换.test.js`, `测试/大纲时间轴.test.js`).
 
-<!--
-Document your project's quality standards here.
+## Forbidden
 
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
+- React/Vue/Svelte for this extension.
+- Showing both float dock and Chrome side panel.
+- `trackSelect` as the language switch.
+- Inline styles for colors that already have tokens, except `library.html` which already inlines (keep those values on the token palette).
 
-(To be filled by the team)
+## Testing
 
----
+Node cannot click the side panel. UI tests:
 
-## Forbidden Patterns
+1. Source-scan HTML/CSS/JS for ids, class names, and message types.
+2. `vm` tests for `lib/` that the UI calls (`outline.js`, `translate.js`, `markers.js`).
 
-<!-- Patterns that should never be used and why -->
+Live check when the change is visual: load the unpacked extension, exercise the control, desktop width of the side panel (~360px) and the float dock.
 
-(To be filled by the team)
+## Review checklist
 
----
-
-## Required Patterns
-
-<!-- Patterns that must always be used -->
-
-(To be filled by the team)
-
----
-
-## Testing Requirements
-
-<!-- What level of testing is expected -->
-
-(To be filled by the team)
-
----
-
-## Code Review Checklist
-
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+- [ ] Tokens match `:root` / design draft
+- [ ] `.hidden` used for show/hide
+- [ ] No new privileged `message.type` from the content script
+- [ ] Related views (sidepanel, float, options, library) still agree on the field you changed

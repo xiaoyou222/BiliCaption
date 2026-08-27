@@ -1,12 +1,6 @@
 # Frontend Development Guidelines
 
-> Best practices for frontend development in this project.
-
----
-
-## Overview
-
-This directory contains guidelines for frontend development. Fill in each file with your project's specific conventions.
+Chrome side panel, options tab, marker library, and the Bilibili content overlay. Vanilla HTML/CSS/JS — no React, Vue, or TypeScript.
 
 ---
 
@@ -14,26 +8,23 @@ This directory contains guidelines for frontend development. Fill in each file w
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
-| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
-| [State Management](./state-management.md) | Local state, global state, server state | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
+| [Directory structure](./directory-structure.md) | Pages, CSS, content overlay, float embed | Filled |
+| [UI](./ui-guidelines.md) | Tokens, buttons, `.hidden`, design draft | Filled |
+| [State](./state-management.md) | `state` object, messages, `onChanged` | Filled |
+| [JS contracts](./js-contracts.md) | IIFE globals, `$()`, no types | Filled |
+| [Quality](./quality-guidelines.md) | Source-scan tests, no component library | Filled |
 
 ---
 
-## How to Fill These Guidelines
+## Pre-Development Checklist
 
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
+- [ ] New page or script load order — [directory-structure.md](./directory-structure.md)
+- [ ] Colors, buttons, empty states — [ui-guidelines.md](./ui-guidelines.md)
+- [ ] Sidepanel `state`, tab messages, storage listeners — [state-management.md](./state-management.md)
+- [ ] New `lib/` global or DOM helper — [js-contracts.md](./js-contracts.md)
+- [ ] 中/EN switch — `backend/translate-regroup.md`
+- [ ] Outline density / seek highlight — `backend/outline-and-subtitles.md`
 
 ---
 
-**Language**: All documentation should be written in **English**.
+**Language**: Spec prose in English. Keep Chinese for visible copy as in the UI.
