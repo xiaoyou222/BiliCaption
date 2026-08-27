@@ -479,8 +479,9 @@ function buildSummaryPrompt(from, to) {
   const before = pad ? all.slice(Math.max(0, from - pad), from) : [];
   const after = pad ? all.slice(to + 1, to + 1 + pad) : [];
   const parts = [
-    "请用中文总结【选区】这段视频字幕，分 3-6 条要点，保留关键术语。每条一行，以 \"- \" 开头。不要加粗、不要标题。",
-    "【上文】和【下文】只用来理解指代和背景，不要写进要点，也不要总结它们。"
+    "请用中文总结【选区】这段视频字幕，保留关键术语。不要加粗、不要标题。",
+    "默认写成一段连贯的话。只有选区里确实有多个互不从属的并列要点时，才用列表：每条一行，以 \"- \" 开头，有几条写几条。不要凑条数，不要把一段讲解拆成「背景 / 过程 / 结论」这种假要点。",
+    "【上文】和【下文】只用来理解指代和背景，不要写进总结，也不要总结它们。"
   ];
   if (before.length) parts.push(`【上文】\n${cueLines(before)}`);
   parts.push(`【选区】\n${cueLines(selected)}`);

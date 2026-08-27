@@ -211,3 +211,59 @@ if (state?.cues?.length && state.source === "bilibili") {
   flash("已清理本视频的转写、翻译和大纲缓存");
 }
 ```
+
+---
+
+## Scenario: selection summary format
+
+### 1. Scope / Trigger
+
+Changing `buildSummaryPrompt` in `sidepanel.js` (划选 → 总结). This is not the full-video `summary` field.
+
+### 2. Signatures
+
+- `buildSummaryPrompt(from, to) -> string`
+
+### 3. Contracts
+
+Format follows **content structure**, not how many cues were selected.
+
+- Default: one Chinese paragraph when the selection is one idea, one stretch of explanation, or one conclusion.
+- List only when the selection contains multiple independent, parallel points. Each item is one line starting with `- `. Write as many items as there are points; do not pad to a count.
+- Do not split a coherent passage into fake 背景 / 过程 / 结论 bullets.
+- Keep: Chinese, preserve key terms, no bold, no titles. 【上文】 and 【下文】 are context only — never summarize them.
+
+`renderMarkdownLite` already maps `- ` to `• `; `.summary p` uses `white-space: pre-wrap`. Do not special-case paragraph vs list in the UI.
+
+### 4. Validation & Error Matrix
+
+| condition | result |
+|---|---|
+| short or long selection, one idea | one paragraph |
+| selection enumerates independent points | `- ` list, one line per point |
+| model returns a paragraph | render as wrapped text |
+| model returns `- ` lines | render as bullets in the same `<p>` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a 40-second explanation of one technique → one paragraph
+- Base: speaker lists three independent conditions → three `- ` lines
+- Bad: forcing `分 3-6 条要点` so every selection becomes a bullet list
+
+### 6. Tests Required
+
+- `测试/选区总结格式.test.js`: `buildSummaryPrompt` must not say `分 3-6 条要点`; must default to a paragraph and allow a list only for parallel points
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```
+请用中文总结【选区】这段视频字幕，分 3-6 条要点……每条一行，以 "- " 开头。
+```
+
+#### Correct
+
+```
+默认写成一段连贯的话。只有选区里确实有多个互不从属的并列要点时，才用列表。
+```
