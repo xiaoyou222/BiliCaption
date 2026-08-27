@@ -47,3 +47,37 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: 选区总结按内容结构选段落或列表
+
+**Date**: 2026-08-27
+**Task**: 选区总结按内容结构选段落或列表
+**Branch**: `master`
+
+### Summary
+
+划选总结不再强制拆成 3-6 条要点：同一件事写成一段话，只有选区里确有并列要点时才用列表。
+
+### Main Changes
+
+- 改 buildSummaryPrompt：默认一段连贯中文，列表仅用于互不从属的并列要点，禁止拆成假要点。
+- 补 测试/选区总结格式.test.js，并写入 outline-and-subtitles 的 selection summary format 约定。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1d1d1d1` | (see git log) |
+
+### Testing
+
+- [OK] node --test 测试/选区总结格式.test.js 测试/大纲时间轴.test.js 测试/中英字幕切换.test.js（27 passed）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在真实视频上划短选区和并列要点选区各总结一次，确认模型格式。

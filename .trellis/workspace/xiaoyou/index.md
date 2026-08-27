@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
-- **Last Active**: 2026-08-21
+- **Total Sessions**: 3
+- **Last Active**: 2026-08-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~49 | Active |
+| `journal-1.md` | ~83 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-08-27 | 选区总结按内容结构选段落或列表 | `1d1d1d1` | `master` |
 | 2 | 2026-08-21 | 语义断句后台化，胶囊只显示翻译进度 | `b7668b7` | `master` |
 | 1 | 2026-08-20 | 多通道优先级链 + ElevenLabs 双通道 + 设计稿对齐 | `2bbba63` | `master` |
 <!-- @@@/auto:session-history -->
