@@ -81,3 +81,37 @@
 ### Next Steps
 
 - 在真实视频上划短选区和并列要点选区各总结一次，确认模型格式。
+
+
+## Session 4: 归档已完成任务并提交大纲两级章节
+
+**Date**: 2026-08-27
+**Task**: 归档已完成任务并提交大纲两级章节
+**Branch**: `master`
+
+### Summary
+
+核对 5 个遗留 in_progress 任务：提交并归档大纲简略/详情；归档已落地的全片总结与转写改版；火山转码任务已被转写改版替代一并归档。Bootstrap 规范仍未填，保持进行中。
+
+### Main Changes
+
+- 提交 feat: 大纲简略/详情两级章节（满 20 分钟章+小节树，简略/详情为展开折叠）。
+- 归档 08-26-outline-brief-detail、08-25-outline-full-summary、08-20-stt-providers-rewrite、08-20-volcano-m4a-wav。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6580892` | (see git log) |
+
+### Testing
+
+- [OK] node --test 测试/*.test.js（96 passed）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 00-bootstrap-guidelines 仍未填 backend/frontend 占位 spec，需要时再做。

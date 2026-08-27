@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-08-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~83 | Active |
+| `journal-1.md` | ~117 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-08-27 | 归档已完成任务并提交大纲两级章节 | `6580892` | `master` |
 | 3 | 2026-08-27 | 选区总结按内容结构选段落或列表 | `1d1d1d1` | `master` |
 | 2 | 2026-08-21 | 语义断句后台化，胶囊只显示翻译进度 | `b7668b7` | `master` |
 | 1 | 2026-08-20 | 多通道优先级链 + ElevenLabs 双通道 + 设计稿对齐 | `2bbba63` | `master` |
