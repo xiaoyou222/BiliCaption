@@ -115,3 +115,33 @@
 ### Next Steps
 
 - 00-bootstrap-guidelines 仍未填 backend/frontend 占位 spec，需要时再做。
+
+
+## Session 5: 填写 Trellis backend/frontend 开发约定
+
+**Date**: 2026-08-27
+**Task**: 填写 Trellis backend/frontend 开发约定
+**Branch**: `master`
+
+### Summary
+
+按 MV3 扩展现状写满 .trellis/spec：chrome.storage、消息总线、侧栏状态、UI tokens；删除不适用的 ORM/hooks/TS 模板。归档 00-bootstrap-guidelines。
+
+### Main Changes
+
+- backend：directory / storage / error / logging / quality；保留 outline 与 translate 专题。
+- frontend：directory / ui / state / js-contracts / quality；删除 hook、component、type-safety 空模板。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `453f567` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- library.html / options.css 配色和未跟踪的设计稿仍未提交。
