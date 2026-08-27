@@ -1,15 +1,17 @@
 :root {
   --bg: #121417;
-  --nav: #15171A;
-  --card: #17191D;
+  --nav: #121417;
+  --card: #1A1D22;
+  --lift: #24272D;
   --text: #E7E9ED;
   --text-2: #C7CBD1;
   --muted: #8A9099;
-  --faint: #565C66;
-  --ghost: #4A4F58;
-  --line: rgba(255,255,255,.09);
+  --faint: #767C86;
+  --ghost: #767C86;
+  --line: rgba(255,255,255,.08);
   --line-2: rgba(255,255,255,.14);
   --blue: #4D8EF0;
+  --blue-hover: #5D9AF2;
   --green: #3ECF8E;
   --pink: #E2637E;
   --warn: #F0B84D;
@@ -88,7 +90,7 @@ html, body {
   padding: 0 8px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 9.5px;
-  color: #3E434B;
+  color: var(--faint);
 }
 
 .main {
@@ -136,7 +138,7 @@ h2 {
   height: 11px;
   border-radius: 50%;
   border: 1px solid rgba(255,255,255,.2);
-  color: #6B7078;
+  color: var(--faint);
   font-size: 8px;
   line-height: 9px;
   text-align: center;
@@ -252,11 +254,12 @@ select {
 .btn-ghost {
   border: 1px solid rgba(255,255,255,.16);
   background: transparent;
-  color: #9BA0AA;
+  color: var(--text-2);
   font-size: 11px;
-  padding: 0 12px;
-  height: 33px;
-  border-radius: 7px;
+  padding: 5px 10px;
+  height: auto;
+  min-height: 28px;
+  border-radius: 6px;
   cursor: pointer;
   flex: none;
   white-space: nowrap;
@@ -266,24 +269,36 @@ select {
   gap: 6px;
 }
 
+.btn-ghost:hover {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.26);
+  color: var(--text);
+}
+
 .btn-ghost.ok { color: var(--green); }
 .btn-ghost.fail { color: var(--pink); }
 .btn-ghost.copied { color: var(--green); }
 
-.dav-actions .btn-ghost { height: 31px; }
+.dav-actions .btn-ghost { min-height: 28px; }
 
 .btn-sm {
-  border: 1px solid var(--line-2);
+  border: 1px solid rgba(255,255,255,.16);
   background: transparent;
-  color: #9BA0AA;
+  color: var(--text-2);
   font-size: 11px;
-  line-height: 26px;
-  padding: 0 10px;
-  height: 26px;
+  line-height: 1;
+  padding: 5px 10px;
+  height: auto;
   border-radius: 6px;
   cursor: pointer;
   flex: none;
   white-space: nowrap;
+}
+
+.btn-sm:hover {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.26);
+  color: var(--text);
 }
 
 .btn-sm.copied {
@@ -302,7 +317,7 @@ select {
   transform: translateY(-50%);
   border: none;
   background: transparent;
-  color: #6B7078;
+  color: var(--faint);
   font-size: 11px;
   cursor: pointer;
   padding: 0;
@@ -364,7 +379,7 @@ select {
 }
 
 .combo-panel button.item.muted {
-  color: #6B7078;
+  color: var(--faint);
   cursor: default;
   font-size: 11px;
   font-family: inherit;
@@ -460,7 +475,7 @@ select {
   width: 26px;
   border: none;
   background: transparent;
-  color: #9BA0AA;
+  color: var(--muted);
   font-size: 13px;
   line-height: 28px;
   padding: 0;
@@ -515,7 +530,7 @@ select {
 .chip {
   border: 1px solid var(--line-2);
   background: transparent;
-  color: #9BA0AA;
+  color: var(--muted);
   font-size: 11px;
   padding: 5px 10px;
   border-radius: 6px;
@@ -626,14 +641,14 @@ select {
   padding: 1px 5px;
   flex: none;
 }
-.log-level.INFO { color: #6B7078; border: 1px solid #6B707844; }
+.log-level.INFO { color: var(--faint); border: 1px solid rgba(118,124,134,.27); }
 .log-level.WARN { color: var(--warn); border: 1px solid #F0B84D44; }
 .log-level.ERROR { color: var(--pink); border: 1px solid #E2637E44; }
 .log-src { font-size: 10.5px; color: var(--muted); flex: none; }
 .log-msg {
   font-size: 11.5px;
   line-height: 16px;
-  color: #9BA0AA;
+  color: var(--muted);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -641,7 +656,7 @@ select {
   white-space: nowrap;
 }
 .log-row:not(.info) .log-msg { color: #C7CBD1; }
-.log-row.info .log-msg { color: #9BA0AA; }
+.log-row.info .log-msg { color: var(--muted); }
 .log-detail {
   display: flex;
   flex-direction: column;
@@ -658,7 +673,7 @@ select {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
   line-height: 1.6;
-  color: #9BA0AA;
+  color: var(--muted);
   min-width: 0;
   word-break: break-all;
 }
@@ -678,10 +693,12 @@ select {
   color: #fff;
   font-size: 12px;
   font-weight: 500;
-  padding: 7px 18px;
+  padding: 8px 16px;
   border-radius: 7px;
   cursor: pointer;
 }
+
+#saveSettings:hover { background: var(--blue-hover); }
 
 #settingsMsg { font-size: 10.5px; color: var(--green); }
 #settingsMsg.fail { color: var(--pink); }
@@ -700,7 +717,7 @@ select {
   margin: 0;
   font-size: 10px;
   line-height: 1.6;
-  color: #565C66;
+  color: var(--faint);
 }
 .channel-list { display: flex; flex-direction: column; gap: 7px; }
 .channel-slot { display: flex; flex-direction: column; }
@@ -710,7 +727,7 @@ select {
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
-  background: #17191D;
+  background: var(--card);
   border: 1px solid rgba(255,255,255,.09);
   border-radius: 9px;
   padding: 9px 11px;
@@ -750,7 +767,7 @@ select {
   font-size: 11px;
   line-height: 1;
   letter-spacing: 1px;
-  color: #3E434B;
+  color: var(--faint);
   cursor: grab;
   user-select: none;
 }
@@ -768,7 +785,7 @@ select {
   font-size: 10px;
   font-weight: 600;
   background: rgba(255,255,255,.06);
-  color: #6B7078;
+  color: var(--faint);
 }
 .channel-rank.is-first {
   background: rgba(77,142,240,.18);
@@ -804,7 +821,7 @@ select {
 }
 .channel-switch.is-off span {
   left: 2px;
-  background: #6B7078;
+  background: var(--faint);
 }
 
 .channel-provider {
@@ -827,7 +844,7 @@ select {
   flex: none;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
-  color: #565C66;
+  color: var(--faint);
 }
 .channel-model-label {
   flex: none;
@@ -837,7 +854,7 @@ select {
   white-space: nowrap;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
-  color: #6B7078;
+  color: var(--faint);
 }
 
 .chevron {
@@ -856,13 +873,13 @@ select {
   transform: rotate(-135deg);
   margin: 3px 3px 0 2px;
 }
-.add-prov-btn .chevron { border-color: #6B7078; }
+.add-prov-btn .chevron { border-color: var(--faint); }
 
 .channel-op {
   flex: none;
   border: none;
   background: transparent;
-  color: #6B7078;
+  color: var(--faint);
   font-size: 11px;
   line-height: 18px;
   width: 17px;

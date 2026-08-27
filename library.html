@@ -35,14 +35,14 @@
     .v-dur {
       position: absolute; right: 3px; bottom: 2px; z-index: 1;
       font-family: "JetBrains Mono", ui-monospace, monospace;
-      font-size: 8.5px; color: #565C66; line-height: 1;
+      font-size: 8.5px; color: #767C86; line-height: 1;
     }
     .v-thumb.has-cover .v-dur {
       color: #F0F1F3; text-shadow: 0 1px 2px rgba(0,0,0,.75);
     }
     .v-title { font-size: 11.5px; line-height: 15px; color: #C7CBD1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .v-row.on .v-title { color: #F0F1F3; }
-    .v-meta { font-size: 10.5px; color: #565C66; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .v-meta { font-size: 10.5px; color: #767C86; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lib-trash { flex: none; margin-top: 6px; border-top: 1px solid rgba(255,255,255,.09); display: flex; flex-direction: column; }
     .lib-trash-head {
       display: flex; align-items: center; gap: 7px; border: none; background: transparent;
@@ -51,7 +51,7 @@
     .lib-trash-head:hover { background: rgba(255,255,255,.045); }
     .lib-trash-head .label { flex: none; color: #E7E9ED; }
     .lib-trash-head .count { flex: 1; min-width: 0; text-align: left; color: #6B7078; }
-    .lib-trash-caret { font-size: 12px; color: #9BA0AA; flex: none; display: block; line-height: 11px; transition: transform .14s; }
+    .lib-trash-caret { font-size: 12px; color: #8A9099; flex: none; display: block; line-height: 11px; transition: transform .14s; }
     .lib-trash-caret.open { transform: rotate(180deg); }
     .lib-trash-list { overflow: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
     .t-row {
@@ -60,11 +60,11 @@
     }
     .t-row.on { background: rgba(77,142,240,.14); }
     .t-title {
-      font-size: 11px; line-height: 15px; color: #9BA0AA;
+      font-size: 11px; line-height: 15px; color: #8A9099;
       display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
     }
     .t-row.on .t-title { color: #E7E9ED; }
-    .t-meta { font-size: 10px; color: #565C66; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .t-meta { font-size: 10px; color: #767C86; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .lib-trash-hint { font-size: 10px; color: #4A5058; padding: 4px 8px 0; }
     .lib-marks { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .lib-marks-head {
@@ -87,42 +87,47 @@
     }
     .m-row:hover .m-del { opacity: 1; pointer-events: auto; color: #E86A6A; }
     .m-restore, .t-restore {
-      border: 1px solid rgba(255,255,255,.14); background: transparent; color: #9BA0AA;
-      font-size: 10.5px; line-height: 22px; padding: 0 8px; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.16); background: transparent; color: #C7CBD1;
+      font-size: 11px; line-height: 1; padding: 5px 10px; border-radius: 6px;
       cursor: pointer; flex: none;
     }
     .m-restore { line-height: 20px; opacity: 0; pointer-events: none; transition: opacity .12s; }
     .m-row:hover .m-restore { opacity: 1; pointer-events: auto; }
-    .sync-dot { width: 5px; height: 5px; border-radius: 50%; background: #565C66; }
+    .sync-dot { width: 5px; height: 5px; border-radius: 50%; background: #767C86; }
     .sync-dot.on { background: #3ECF8E; }
-    .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #565C66; font-size: 12px; }
+    .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #767C86; font-size: 12px; }
     .empty.soft { align-items: flex-start; padding: 26px 8px; font-size: 11.5px; }
     .search { width: 200px; padding: 6px 10px; font-size: 11.5px; font-family: inherit; }
     .lib-btn {
-      border: 1px solid rgba(255,255,255,.14);
+      border: 1px solid rgba(255,255,255,.16);
       background: transparent;
-      color: #9BA0AA;
+      color: #C7CBD1;
       font-size: 11px;
-      line-height: 26px;
-      padding: 0 10px;
-      height: 26px;
+      line-height: 1;
+      padding: 5px 10px;
+      height: auto;
       border-radius: 6px;
       cursor: pointer;
       flex: none;
     }
+    .lib-btn:hover {
+      background: rgba(255,255,255,.06);
+      border-color: rgba(255,255,255,.26);
+      color: #E7E9ED;
+    }
     .lib-btn.danger {
-      border-color: rgba(232,106,106,.34);
-      color: #E86A6A;
+      border-color: rgba(226,99,126,.34);
+      color: #E2637E;
     }
     .lib-btn.ghost {
       border: none;
-      color: #6B7078;
-      padding: 0 4px;
+      color: #8A9099;
+      padding: 5px 10px;
     }
     .lib-undo {
       position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
       z-index: 60; padding: 9px 12px 9px 15px;
-      border: 1px solid rgba(255,255,255,.1); background: #1C2230;
+      border: 1px solid rgba(255,255,255,.1); background: #1E2430;
       border-radius: 9px; display: flex; align-items: center; gap: 12px;
       white-space: nowrap; box-shadow: 0 14px 36px rgba(0,0,0,.6);
     }
@@ -139,7 +144,7 @@
       font-size: 11px; color: #8A9099; flex: none; max-width: 200px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .trash-meta { font-size: 11px; color: #565C66; flex: none; }
+    .trash-meta { font-size: 11px; color: #767C86; flex: none; }
   </style>
 </head>
 <body>
@@ -176,7 +181,7 @@
         </div>
         <div class="lib-marks">
           <div id="libToolbar" class="lib-marks-head hidden">
-            <span id="libCurCount" style="font-size:11px;color:#565C66;flex:none">0 条标记</span>
+            <span id="libCurCount" style="font-size:11px;color:#767C86;flex:none">0 条标记</span>
             <button type="button" id="libOpen" class="lib-btn">打开视频</button>
             <button type="button" id="libExport" class="lib-btn">导出</button>
             <button type="button" id="libDeleteAll" class="lib-btn danger">删除全部标记</button>
