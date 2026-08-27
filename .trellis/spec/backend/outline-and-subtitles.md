@@ -22,14 +22,16 @@ Changing outline JSON, chrome.storage shape, copy/Markdown, or the generate prom
 Written value is always:
 
 ```
-{ summary: string, chapters: [{ start, end, title, synopsis }] }
+{ summary: string, chapters: [{ start, end, title, synopsis, subs?: [{ start, end, title }] }] }
 ```
 
 `summary` is one Chinese paragraph (~80–150 characters), no headings, lists, or timestamps.
 
 `chapters` `from`/`to` from the model are **cue indices** (1-based). Seconds are assigned locally by `finalizeOutline`. Do not trust model clocks.
 
-`finalizeOutline` must repair invalid clocks: missing/`0`/`00:00`, out-of-range indices, or a chapter that jumps back before the previous one. Fill from the previous chapter’s end to the next valid start (last chapter → last cue end). Empty `parseClock` input is `NaN`, not `0`.
+Duration (`videoSpan(cues).span`) picks prompt grain: **&lt; 20 minutes** is a flat 3–6 chapters (`finalizeOutline` drops `subs`). **≥ 20 minutes** asks for nested `subs` (title + cue indices only). 简略/详情 is a view over the same tree, not a second model call. Missing `subs` must not fail persist.
+
+`finalizeOutline` must repair invalid clocks: missing/`0`/`00:00`, out-of-range indices, or a chapter that jumps back before the previous one. Fill from the previous chapter’s end to the next valid start (last chapter → last cue end). Adjacent chapters must share one exact boundary (`current.start = previous.end`), because Bilibili cue ranges may overlap by fractions of a second. Empty `parseClock` input is `NaN`, not `0`.
 
 Read path:
 
@@ -54,16 +56,17 @@ Copy / Markdown: if summary is non-empty, put it above chapter lines; if empty, 
 | generate aborted or video key changed | do not write storage; do not clobber the new video's cache |
 | `validate()` parse throws | treat as `false`, do not throw out of the stream reader |
 | last chapter `from`/`to` missing, `0`, or out of range | repair to previous end → last cue; never keep `00:00–00:00` |
+| adjacent cue-derived chapters overlap or leave a gap | align the later chapter start to the previous chapter end |
 
 ### 5. Good/Base/Bad Cases
 
 - Good: `{ "summary": "…", "chapters": [{ "title","synopsis","from":1,"to":8 }] }`
 - Base: stored legacy `[{ title, synopsis, start, end }]` still shows chapters
-- Bad: trusting `start`/`end` seconds from the model when cue indices exist
+- Bad: trusting `start`/`end` seconds from the model when cue indices exist, or leaving cue-derived chapter intervals overlapped
 
 ### 6. Tests Required
 
-- `测试/大纲时间轴.test.js`: cue-index mapping; even-split when span is tiny; last-chapter `0`/overflow repair; prompt requires indices and `summary, chapters` order; parse object vs array; copy/MD prefix; chunking
+- `测试/大纲时间轴.test.js`: cue-index mapping; adjacent overlapping cues collapse to one chapter boundary; even-split when span is tiny; last-chapter `0`/overflow repair; prompt requires indices and `summary, chapters` order; parse object vs array; copy/MD prefix; chunking; 20 min flat/nested cutoff; nested `subs` clamp; short video drops extra subs; streaming nested parse; density UI source scan
 
 ### 7. Wrong vs Correct
 
@@ -74,6 +77,75 @@ One Markdown document with “关键观点 + 时间线” that duplicates chapte
 #### Correct
 
 Short paragraph + chapter list. Official tracks first; user clicks 生成字幕.
+
+---
+
+## Scenario: outline seek highlight synchronization
+
+### 1. Scope / Trigger
+
+Changing chapter/subsection click-to-seek, player time throttling, or outline active-row calculation. The sidepanel and content script form one interaction contract.
+
+### 2. Signatures
+
+- `seekOutlineTime(time: number)`
+- sidepanel → content: `{ type: "SEEK", time: number }`
+- content response: player snapshot with `currentTime`
+- content → sidepanel: `{ type: "TIME", currentTime, duration, rate }`
+
+### 3. Contracts
+
+- A finite clicked target updates `state.currentTime` and outline highlighting immediately; the player response then confirms the actual time.
+- Ordinary `timeupdate` messages may use the 120 ms throttle. `seeked` must call `sendTime({ force: true })` so a paused player cannot leave the outline on its previous active row.
+- `finalizeOutline` first makes adjacent chapters share one exact boundary, even when the source cues overlap.
+- Active lookup is owned by `activeOutlinePosition`: choose the last chapter/subsection whose start is at or before `currentTime + 50 ms`. `HTMLMediaElement` may settle a seek slightly before the requested cue time, and overlapping ranges must prefer the later start instead of the first matching interval.
+- If `SEEK` fails, restore the previous sidepanel time/highlight and show the existing error toast. A stale response from an earlier rapid click must not overwrite the latest click (`outlineSeekToken`).
+
+### 4. Validation & Error Matrix
+
+| condition | result |
+|---|---|
+| target is not finite | ignore; do not message the tab |
+| click succeeds | target highlights immediately; response/`TIME` confirms player time |
+| `seeked` occurs inside the normal 120 ms window | still emit `TIME` once with the final player time |
+| player settles less than 50 ms before the clicked start | keep the clicked later chapter/subsection active |
+| adjacent chapter/subsection ranges overlap | choose the item with the latest eligible start, not the first interval match |
+| `SEEK` rejects | restore the previous time/highlight and show jump failure |
+| two clicks resolve out of order | only the latest token may confirm or roll back UI state |
+
+### 5. Good/Base/Bad Cases
+
+- Good: click `80:21`, where the previous chapter also ends at `80:21` → player seeks there and the next chapter's `80:21` subsection highlights.
+- Base: natural playback continues to use throttled `timeupdate` messages.
+- Bad: player shows `80:22` while the outline remains on the previous chapter's final `77:33` subsection.
+
+### 6. Tests Required
+
+- `测试/大纲时间轴.test.js`: assert click handling writes the target to sidepanel state before rendering active outline; assert ordinary time updates remain throttled and `seeked` uses the forced path; replay the observed `4821.10984` frame landing against a `4821.11` chapter/subsection start.
+- Live acceptance when needed: pause on a shared chapter boundary, click the next chapter/subsection, and compare player time with the blue active row.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```js
+const idx = outline.findIndex((ch) => t >= ch.start && t < ch.end);
+// Overlap picks the previous interval; a frame landing at 4821.10984 also
+// misses a logical 4821.11 start.
+
+const onSeeked = () => sendTime(); // may be swallowed by the timeupdate throttle
+```
+
+#### Correct
+
+```js
+const { chapterIndex, subIndex } = activeOutlinePosition(outline, currentTime);
+// latest eligible start wins; the shared helper owns the 50 ms tolerance
+
+state.currentTime = time;
+renderOutlineActive(time);
+const onSeeked = () => sendTime({ force: true });
+```
 
 ---
 
@@ -267,3 +339,4 @@ Format follows **content structure**, not how many cues were selected.
 ```
 默认写成一段连贯的话。只有选区里确实有多个互不从属的并列要点时，才用列表。
 ```
+

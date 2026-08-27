@@ -1,9 +1,13 @@
 (() => {
-  window.__BILI_CAPTION_GEN__ = (window.__BILI_CAPTION_GEN__ || 0) + 1;
-  const SCRIPT_GEN = window.__BILI_CAPTION_GEN__;
-  const isCurrentScript = () => window.__BILI_CAPTION_GEN__ === SCRIPT_GEN;
-  // scripting.executeScript 可能在一次瞬时 PING 失败后补注入。旧浮窗上的
-  // 事件处理器属于上一代脚本，先移除并按已保存位置重建，避免快捷键执行两次。
+  // 扩展重载后旧 isolated world 还活着，但 chrome.runtime 已死。
+  // window 上的代计数跨不了 world，所有权必须写在 DOM 上，否则旧脚本
+  // 会按秒拆掉新脚本刚挂上的浮窗，看起来就是不停闪。
+  const OWNER_ATTR = "data-bilicaption-owner";
+  const ownerToken = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
+  document.documentElement.setAttribute(OWNER_ATTR, ownerToken);
+  const isCurrentScript = () => document.documentElement.getAttribute(OWNER_ATTR) === ownerToken;
+  // 上一版扩展的 iframe 地址已经失效；同一次注入里旧事件处理器也会叠。
+  // 只在接手前拆一次，之后不再由失去所有权的脚本去 remove。
   document.getElementById("bilicaption-dock")?.remove();
 
   let targetRate = 1;
@@ -330,6 +334,8 @@
       style.id = "bilicaption-dock-style";
       (document.head || document.documentElement).appendChild(style);
     }
+    if (style.dataset.bcOwner === ownerToken) return;
+    style.dataset.bcOwner = ownerToken;
     style.textContent = `
       #bilicaption-dock {
         --bc-dock-alpha: .82;
@@ -355,7 +361,7 @@
         padding: 0;
         border: 1px solid rgba(255,255,255,.16);
         border-radius: 10px 0 0 10px;
-        background: rgb(23 25 29 / var(--bc-dock-alpha));
+        background: rgb(26 29 34 / var(--bc-dock-alpha));
         color: #8A9099;
         cursor: pointer;
         display: flex;
@@ -363,7 +369,7 @@
         justify-content: center;
         font: 13px/1 inherit;
       }
-      #bilicaption-dock .bc-dock-tab:hover { background: rgb(28 31 36 / var(--bc-dock-alpha)); color: #C7CBD1; }
+      #bilicaption-dock .bc-dock-tab:hover { background: rgb(36 39 45 / var(--bc-dock-alpha)); color: #C7CBD1; }
       #bilicaption-dock.bc-edge-left .bc-dock-tab {
         border-radius: 0 10px 10px 0;
         border-left: none;
@@ -886,7 +892,7 @@
     const frame = document.createElement("div");
     frame.className = "bc-dock-frame";
     const iframe = document.createElement("iframe");
-    iframe.src = chrome.runtime.getURL("sidepanel.html");
+    iframe.src = `${chrome.runtime.getURL("sidepanel.html")}?embed=1`;
     iframe.setAttribute("title", "BiliCaption");
     iframe.setAttribute("allowtransparency", "true");
     iframe.style.background = "transparent";
@@ -941,7 +947,7 @@
     // 全屏时必须挂在全屏元素里才可见，普通模式挂 body 才能浮在整页上
     const host = immersive ? getDockHost() : document.body;
     if (!host) return;
-    if (immersive && getComputedStyle(host).position === "static") {
+    if (immersive && host !== document.body && getComputedStyle(host).position === "static") {
       host.style.position = "relative";
     }
     if (el.parentElement !== host) host.appendChild(el);
@@ -1349,11 +1355,11 @@
       applyRate(targetRate, { notify: false });
     };
     let lastSent = 0;
-    const sendTime = () => {
+    const sendTime = ({ force = false } = {}) => {
       if (!isCurrentScript()) return;
       if (hookedVideo !== video || getVideo() !== video) return;
       const now = Date.now();
-      if (now - lastSent < 120) return;
+      if (!force && now - lastSent < 120) return;
       lastSent = now;
       const currentTime = video.currentTime || 0;
       updateOverlay(currentTime);
@@ -1367,17 +1373,18 @@
     const onSeeked = () => {
       if (!isCurrentScript()) return;
       if (hookedVideo !== video) return;
-      updateOverlay(video.currentTime || 0);
-      sendTime();
+      // seek 后即使撞上普通 timeupdate 的节流窗口，也必须把最终时间同步给侧栏。
+      sendTime({ force: true });
     };
+    const onTimeUpdate = () => sendTime();
     video.addEventListener("ratechange", onRate);
     video.addEventListener("loadedmetadata", onMeta);
-    video.addEventListener("timeupdate", sendTime);
+    video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("seeked", onSeeked);
     hookedCleanups.push(() => {
       video.removeEventListener("ratechange", onRate);
       video.removeEventListener("loadedmetadata", onMeta);
-      video.removeEventListener("timeupdate", sendTime);
+      video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("seeked", onSeeked);
     });
     applyRate(targetRate, { notify: false });
@@ -1483,11 +1490,15 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!isCurrentScript()) return;
     if (message?.type === "PING") {
-      sendResponse({ ok: true, tabId: myTabId });
-      return true;
+      try {
+        sendResponse({ ok: true, tabId: myTabId });
+      } catch {
+        // 失效 world 里 sendResponse 可能抛，别挡住新脚本的应答
+      }
+      return;
     }
+    if (!isCurrentScript()) return;
     const reply = (promise) => {
       Promise.resolve(promise)
         .then(sendResponse)
@@ -1674,10 +1685,24 @@
   document.addEventListener("webkitfullscreenchange", onPlayerResize);
   window.addEventListener("resize", onPlayerResize);
 
-  setInterval(() => {
-    if (!isCurrentScript()) return;
-    // 扩展重载后旧 content script 已死，但 DOM 还在。再不拆掉，
-    // 侧栏和新脚本叠在一起，浮窗也不会换成新代码。
+  const dockWatch = new MutationObserver(() => {
+    if (!isCurrentScript()) {
+      dockWatch.disconnect();
+      return;
+    }
+    if (dockOpen || !preferSidebar) placeDock();
+  });
+  dockWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+  if (document.body) dockWatch.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
+
+  const dockTick = setInterval(() => {
+    if (!isCurrentScript()) {
+      clearInterval(dockTick);
+      dockWatch.disconnect();
+      return;
+    }
+    // 扩展重载后旧 content script 已死。只有自己仍是 owner 时才拆 DOM；
+    // 新脚本接手前写过 data-bilicaption-owner，旧脚本到这里会直接停。
     if (!runtimeAlive()) {
       document.getElementById("bilicaption-dock")?.remove();
       document.getElementById("bilicaption-overlay")?.remove();
@@ -1731,14 +1756,13 @@
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (!isCurrentScript()) return;
-    if (area === "sync" && myTabId && changes[`dockOpen:${myTabId}`]) {
-      dockOpen = changes[`dockOpen:${myTabId}`].newValue === true;
+    const dockOpenKey = myTabId ? `dockOpen:${myTabId}` : "";
+    const preferKey = myTabId ? `preferSidebar:${myTabId}` : "";
+    if (area === "sync" && myTabId && (changes[dockOpenKey] || changes[preferKey])) {
+      if (changes[dockOpenKey]) dockOpen = changes[dockOpenKey].newValue === true;
+      if (changes[preferKey]) preferSidebar = changes[preferKey].newValue !== false;
       if (dockOpen || !preferSidebar) placeDock();
       else document.getElementById("bilicaption-dock")?.remove();
-    }
-    if (area === "sync" && myTabId && changes[`preferSidebar:${myTabId}`]) {
-      preferSidebar = changes[`preferSidebar:${myTabId}`].newValue !== false;
-      if (preferSidebar && !dockOpen) document.getElementById("bilicaption-dock")?.remove();
     }
     if (area === "sync" && changes.dockAlpha) {
       dockAlpha = Math.min(1, Math.max(0.3, Number(changes.dockAlpha.newValue) || 0.82));
@@ -1761,12 +1785,6 @@
       selKey = changes.selKey.newValue || "Shift";
     }
   });
-
-  const dockWatch = new MutationObserver(() => {
-    if (isCurrentScript()) placeDock();
-  });
-  dockWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
-  if (document.body) dockWatch.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
 
   refreshIfNeeded(true);
 })();

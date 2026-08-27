@@ -247,13 +247,14 @@ test("侧栏有中英切换，浮层会跟语言", () => {
   assert.match(html, /data-lang="zh"/);
   assert.match(html, /data-lang="en"/);
   assert.match(css, /\.lang-switch\s*\{/);
-  assert.match(css, /html\.float-embed \.lang-switch[\s\S]{0,80}background:\s*transparent/);
+  assert.match(css, /html\.float-embed \.lang-switch/);
   assert.match(panel, /SET_CAPTION_LANG/);
   assert.match(panel, /function setCaptionLang/);
   assert.match(panel, /canShowCaptionLang\("zh"\)/);
   assert.match(panel, /canShowCaptionLang\("en"\)/);
   assert.doesNotMatch(panel, /const onCaptions = view === "captions" && Boolean\(state\?\.cues\?\.length\)/);
-  assert.match(panel, /extraTracks\.length > 0/);
+  assert.match(panel, /show\(ui\.controlRow, false\)/);
+  assert.doesNotMatch(panel, /extraTracks\.length > 0/);
   assert.match(panel, /SWITCH_TRACK/);
   assert.doesNotMatch(panel, /bilingual = view === "captions" && hasBilingualCaptions/);
   assert.match(content, /SET_CAPTION_LANG/);

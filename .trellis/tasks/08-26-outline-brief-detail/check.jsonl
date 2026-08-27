@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/outline-and-subtitles.md", "reason": "from/to stay cue indices; summary paragraph unchanged; persist still requires summary+chapters"}
+{"file": ".trellis/tasks/08-26-outline-brief-detail/prd.md", "reason": "20 min cutoff, view-only toggle, title-only subs, old cache without density bar"}
+{"file": ".trellis/tasks/08-26-outline-brief-detail/design.md", "reason": "sliceBalanced streaming parse, short videos drop extra subs, copy/MD nested list"}
+{"file": ".trellis/tasks/08-26-outline-brief-detail/implement.md", "reason": "Validation commands and rollback surface"}
+{"file": ".trellis/spec/backend/translate-regroup.md", "reason": "Selection summary and SUM providers must not change"}

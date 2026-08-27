@@ -517,6 +517,16 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.match(panel, /type: "CLOSE_FLOAT"/);
   assert.match(background, /function injectBiliContentScripts/);
   assert.match(background, /files:\s*\["content\.js"\]/);
+  assert.match(content, /data-bilicaption-owner/);
+  assert.match(content, /OWNER_ATTR/);
+  assert.doesNotMatch(content, /window\.__BILI_CAPTION_GEN__/);
+  assert.match(content, /\?embed=1/);
+  assert.match(panel, /embed=1/);
+  assert.match(panel, /if \(inFloatEmbed\(\)\) return false/);
+  assert.match(
+    content,
+    /onMessage\.addListener\(\(message[\s\S]*?if \(message\?\.type === "PING"\)[\s\S]*?if \(!isCurrentScript\(\)\) return;/
+  );
   assert.doesNotMatch(background, /xy-backup/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "lib/模型路由.js"), "utf8"), /xy-backup|xy-fast|xy-smart/);
 });

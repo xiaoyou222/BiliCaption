@@ -1,5 +1,7 @@
 const GEN_STEPS = ["拉取音频流", "分段语音识别", "对齐时间轴"];
-if (window.top !== window) document.documentElement.classList.add("float-embed");
+if (window.top !== window || /(?:^|[?&])embed=1(?:&|$)/.test(location.search)) {
+  document.documentElement.classList.add("float-embed");
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -55,6 +57,9 @@ const ui = {
   outlineEmptyOrb: $("outlineEmptyOrb"),
   outlineEmptyLabel: $("outlineEmptyLabel"),
   outlineList: $("outlineList"),
+  outlineMeta: $("outlineMeta"),
+  outlineMetaLabel: $("outlineMetaLabel"),
+  outlineDensity: $("outlineDensity"),
   videoSummary: $("videoSummary"),
   videoSummaryToggle: $("videoSummaryToggle"),
   videoSummaryChevron: $("videoSummaryChevron"),
@@ -105,6 +110,8 @@ let lastActiveIndex = -1;
 let lastCuesSig = "";
 let cueRowEls = [];
 let lastOutlineIndex = -1;
+let outlineSeekToken = 0;
+let userOutlineScrollAt = 0;
 let cueScrollRaf = 0;
 let cueScrollAnim = null;
 let userCueScrollAt = 0;
@@ -126,6 +133,8 @@ let markerMoreOpen = false;
 let outline = null;
 let videoSummary = "";
 let videoSummaryOpen = true;
+let outlineDensity = "brief";
+let chOpen = {};
 let outlineLoading = false;
 let outlineRaf = 0;
 let errorMode = "";
@@ -283,6 +292,9 @@ async function pingTab(tabId) {
 async function ensureContentScript(tabId) {
   if (!tabId) return false;
   if (await pingTab(tabId)) return true;
+  // 浮窗就在 content script 挂的 iframe 里。PING 瞬时失败再注入会拆掉
+  // #bilicaption-dock，当前页跟着卸掉，于是再挂、再 PING、再闪。
+  if (inFloatEmbed()) return false;
   if (!chrome.scripting?.executeScript) return false;
   try {
     await chrome.scripting.executeScript({
@@ -2214,24 +2226,104 @@ function onCueClick(index, cue, event) {
   sendToTab({ type: "SEEK", time: cue.from }).catch(() => {});
 }
 
-function renderOutlineActive(currentTime, { forceScroll = false, smooth = false } = {}) {
-  if (!outline?.length || ui.outlineList.classList.contains("hidden") || outlineLoading) return;
-  const t = Number(currentTime) || 0;
-  let idx = outline.findIndex((ch) => t >= ch.start && t < ch.end);
-  if (idx < 0) idx = outline.findLastIndex((ch) => t >= ch.start);
-  if (idx < 0) return;
-  if (idx === lastOutlineIndex && !forceScroll) return;
-  lastOutlineIndex = idx;
+function chapterSubs(ch) {
+  return (ch?.subs || []).filter((sub) => String(sub?.title || "").trim());
+}
 
-  const rows = ui.outlineList.querySelectorAll(".chapter");
-  rows.forEach((row, i) => row.classList.toggle("active", i === idx));
-  const active = rows[idx];
-  if (!active) return;
-  const top = active.offsetTop - ui.outlineList.clientHeight / 2 + active.offsetHeight / 2;
-  ui.outlineList.scrollTo({
-    top: Math.max(0, top),
-    behavior: smooth || forceScroll ? "smooth" : "auto"
+function resetOutlineTree() {
+  outlineDensity = "brief";
+  chOpen = {};
+}
+
+function renderOutlineMeta() {
+  const box = ui.outlineMeta;
+  if (!box) return;
+  const on = view === "outline" && Boolean(outline?.length) && Boolean(outlineApi()?.outlineHasSubs?.(outline));
+  show(box, on);
+  if (!on) return;
+  const segs = outlineApi()?.outlineSubCount?.(outline) || 0;
+  if (ui.outlineMetaLabel) ui.outlineMetaLabel.textContent = `${outline.length} 段 · ${segs} 小节`;
+  const nestedIdx = [];
+  (outline || []).forEach((ch, i) => {
+    if (chapterSubs(ch).length) nestedIdx.push(i);
   });
+  const openCount = nestedIdx.filter((i) => chOpen[i]).length;
+  ui.outlineDensity?.querySelectorAll("[data-density]").forEach((btn) => {
+    const key = btn.getAttribute("data-density");
+    const selected = key === "detail"
+      ? nestedIdx.length > 0 && openCount === nestedIdx.length
+      : openCount === 0;
+    btn.classList.toggle("active", selected);
+  });
+}
+
+function setOutlineDensity(mode) {
+  outlineDensity = mode === "detail" ? "detail" : "brief";
+  const next = {};
+  if (outlineDensity === "detail") {
+    (outline || []).forEach((ch, i) => {
+      if (chapterSubs(ch).length) next[i] = true;
+    });
+  }
+  chOpen = next;
+  lastOutlineIndex = -1;
+  renderOutline();
+  renderOutlineActive(state?.currentTime || 0);
+}
+
+function outlineRowInView(el) {
+  const list = ui.outlineList;
+  if (!el || !list) return true;
+  const listRect = list.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const pad = 12;
+  return elRect.bottom > listRect.top + pad && elRect.top < listRect.bottom - pad;
+}
+
+function scrollOutlineIntoView(el) {
+  const list = ui.outlineList;
+  if (!el || !list) return;
+  const listRect = list.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const pad = 12;
+  let next = list.scrollTop;
+  if (elRect.top < listRect.top + pad) next -= listRect.top + pad - elRect.top;
+  else if (elRect.bottom > listRect.bottom - pad) next += elRect.bottom - (listRect.bottom - pad);
+  else return;
+  list.scrollTo({ top: Math.max(0, next), behavior: "auto" });
+}
+
+function outlinePositionAt(currentTime) {
+  return outlineApi()?.activeOutlinePosition?.(outline, currentTime)
+    || { chapterIndex: -1, subIndex: -1 };
+}
+
+function renderOutlineActive(currentTime, { forceScroll = false } = {}) {
+  if (!outline?.length || ui.outlineList.classList.contains("hidden") || outlineLoading) return;
+  const { chapterIndex: idx, subIndex } = outlinePositionAt(currentTime);
+  if (idx < 0) return;
+
+  const blocks = ui.outlineList.querySelectorAll(".chapter-block");
+  let activeEl = null;
+  let activeKey = "";
+  blocks.forEach((block, i) => {
+    const row = block.querySelector(".chapter");
+    const subEls = block.querySelectorAll(".chapter-sub");
+    const open = Boolean(chOpen[i]) && chapterSubs(outline[i]).length > 0;
+    const subHit = open && i === idx ? subIndex : -1;
+    row?.classList.toggle("active", i === idx && !open);
+    subEls.forEach((el, si) => el.classList.toggle("active", si === subHit));
+    if (i === idx) {
+      activeEl = subHit >= 0 ? subEls[subHit] : row;
+      activeKey = `${idx}:${subHit}`;
+    }
+  });
+  if (!activeEl) return;
+  if (activeKey === lastOutlineIndex && !forceScroll) return;
+  lastOutlineIndex = activeKey;
+  if (!forceScroll && Date.now() - userOutlineScrollAt < 2500) return;
+  if (!forceScroll && outlineRowInView(activeEl)) return;
+  scrollOutlineIntoView(activeEl);
 }
 
 function renderVideoSummary({ streaming = false } = {}) {
@@ -2252,46 +2344,112 @@ function renderVideoSummary({ streaming = false } = {}) {
   ui.videoSummaryToggle?.setAttribute("aria-expanded", videoSummaryOpen ? "true" : "false");
 }
 
+function ensureChapterBlock() {
+  const block = document.createElement("div");
+  block.className = "chapter-block";
+  block.innerHTML = `
+    <div class="chapter">
+      <div class="chapter-time">
+        <span class="chapter-start"></span>
+        <div class="chapter-line"></div>
+        <span class="chapter-end"></span>
+      </div>
+      <div class="chapter-body">
+        <div class="chapter-title-row">
+          <span class="chapter-title"></span>
+          <span class="chapter-sub-count"></span>
+        </div>
+        <span class="chapter-synopsis"></span>
+      </div>
+      <button type="button" class="chapter-expand" aria-label="展开小节">▾</button>
+    </div>
+    <div class="chapter-subs" hidden></div>`;
+  return block;
+}
+
 function renderOutline() {
   if (!outline?.length) {
     ui.outlineList.innerHTML = "";
+    renderOutlineMeta();
     return;
   }
   const t = Number(state?.currentTime) || 0;
+  const activePosition = outlinePositionAt(t);
   while (ui.outlineList.children.length > outline.length) {
     ui.outlineList.lastElementChild.remove();
   }
   outline.forEach((ch, i) => {
     const streaming = outlineLoading && i === outline.length - 1;
-    const active = !outlineLoading && t >= ch.start && t < ch.end;
-    let row = ui.outlineList.children[i];
-    if (!row) {
-      row = document.createElement("div");
-      row.innerHTML = `
-        <div class="chapter-time">
-          <span class="chapter-start"></span>
-          <div class="chapter-line"></div>
-          <span class="chapter-end"></span>
-        </div>
-        <div class="chapter-body">
-          <span class="chapter-title"></span>
-          <span class="chapter-synopsis"></span>
-        </div>`;
-      ui.outlineList.appendChild(row);
+    const subs = chapterSubs(ch);
+    const open = Boolean(chOpen[i]) && subs.length > 0;
+    const active = !outlineLoading && activePosition.chapterIndex === i && !open;
+    let block = ui.outlineList.children[i];
+    if (!block?.classList.contains("chapter-block")) {
+      block = ensureChapterBlock();
+      if (ui.outlineList.children[i]) ui.outlineList.replaceChild(block, ui.outlineList.children[i]);
+      else ui.outlineList.appendChild(block);
     }
+    const row = block.querySelector(".chapter");
     row.dataset.start = String(ch.start);
     row.dataset.end = String(ch.end);
+    row.dataset.index = String(i);
     const startEl = row.querySelector(".chapter-start");
     const endEl = row.querySelector(".chapter-end");
-    if (startEl && startEl.textContent !== formatTime(ch.start)) startEl.textContent = formatTime(ch.start);
-    if (endEl && endEl.textContent !== formatTime(ch.end)) endEl.textContent = formatTime(ch.end);
+    if (startEl) {
+      if (startEl.textContent !== formatTime(ch.start)) startEl.textContent = formatTime(ch.start);
+      startEl.dataset.time = String(ch.start);
+    }
+    if (endEl) {
+      if (endEl.textContent !== formatTime(ch.end)) endEl.textContent = formatTime(ch.end);
+      endEl.dataset.time = String(ch.end);
+    }
     const titleEl = row.querySelector(".chapter-title");
     const synEl = row.querySelector(".chapter-synopsis");
     if (titleEl && titleEl.textContent !== ch.title) titleEl.textContent = ch.title;
     if (synEl && synEl.textContent !== ch.synopsis) synEl.textContent = ch.synopsis;
-    const nextClass = `chapter${active ? " active" : ""}${streaming ? " streaming" : ""}`;
+    const count = row.querySelector(".chapter-sub-count");
+    if (count) {
+      count.hidden = !(subs.length && !open);
+      if (subs.length) count.textContent = `${subs.length} 节`;
+    }
+    const expand = row.querySelector(".chapter-expand");
+    if (expand) {
+      expand.hidden = subs.length === 0;
+      expand.classList.toggle("is-open", open);
+      expand.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    const subWrap = block.querySelector(".chapter-subs");
+    if (subWrap) {
+      if (!open) {
+        subWrap.hidden = true;
+        subWrap.innerHTML = "";
+      } else {
+        subWrap.hidden = false;
+        while (subWrap.children.length > subs.length) subWrap.lastElementChild.remove();
+        subs.forEach((sub, si) => {
+          let el = subWrap.children[si];
+          if (!el) {
+            el = document.createElement("div");
+            el.className = "chapter-sub";
+            el.innerHTML = `<span class="chapter-sub-time"></span><span class="chapter-sub-title"></span>`;
+            subWrap.appendChild(el);
+          }
+          el.dataset.start = String(sub.start);
+          const subActive = !outlineLoading
+            && activePosition.chapterIndex === i
+            && activePosition.subIndex === si;
+          el.classList.toggle("active", subActive);
+          const timeEl = el.querySelector(".chapter-sub-time");
+          const titleSub = el.querySelector(".chapter-sub-title");
+          if (timeEl) timeEl.textContent = formatTime(sub.start);
+          if (titleSub) titleSub.textContent = sub.title;
+        });
+      }
+    }
+    const nextClass = `chapter${active ? " active" : ""}${streaming ? " streaming" : ""}${open ? " is-open" : ""}`;
     if (row.className !== nextClass) row.className = nextClass;
   });
+  renderOutlineMeta();
 }
 
 function outlineText() {
@@ -2310,6 +2468,7 @@ async function loadOutlineCache(next) {
   if (!key) {
     outline = null;
     videoSummary = "";
+    resetOutlineTree();
     return;
   }
   const data = await chrome.storage.local.get({ [key]: null });
@@ -2322,6 +2481,7 @@ async function loadOutlineCache(next) {
   outline = fixed.length ? fixed : null;
   videoSummary = rec.summary || "";
   videoSummaryOpen = true;
+  resetOutlineTree();
 }
 
 function outlineCues() {
@@ -2369,6 +2529,7 @@ function paintOutlineStream() {
   }
   renderVideoSummary({ streaming: true });
   show(ui.outlineList, hasChapters);
+  renderOutlineMeta();
   show(ui.outlineBar, true);
   const copyBtn = $("btnCopyOutline");
   if (copyBtn) copyBtn.textContent = "停止生成";
@@ -2389,6 +2550,7 @@ async function generateOutline() {
   outline = null;
   videoSummary = "";
   videoSummaryOpen = true;
+  resetOutlineTree();
   lastOutlineIndex = -1;
   view = "outline";
   renderState(state);
@@ -2544,6 +2706,7 @@ function renderState(next) {
     outline = null;
     videoSummary = "";
     videoSummaryOpen = true;
+    resetOutlineTree();
     lastRenderKey = renderKey;
     loadOutlineCache(next).then(() => {
       if (outlineKey(state) === outlineKey(next)) renderState(state);
@@ -2572,8 +2735,8 @@ function renderState(next) {
   const onMarkers = onVideoReady && view === "markers";
 
   show(ui.speedSelect, true);
-  const extraTracks = (next.tracks || []).filter((item) => !trackLangKind(item));
-  show(ui.controlRow, hasCues && extraTracks.length > 0);
+  show(ui.controlRow, false);
+  ui.trackSelect.classList.add("hidden");
   show(ui.viewTabs, hasList || onMarkers || generating || translating);
 
   ui.viewTabs.querySelectorAll("button[data-view]").forEach((btn) => {
@@ -2581,20 +2744,6 @@ function renderState(next) {
   });
   syncCaptionLangFromState(next);
   renderCaptionLang();
-
-  if (next.tracks?.length && hasList) {
-    ui.trackSelect.classList.remove("hidden");
-    ui.trackSelect.replaceChildren();
-    for (const item of next.tracks) {
-      const option = document.createElement("option");
-      option.value = item.lan;
-      option.selected = item.lan === next.activeLan;
-      option.textContent = item.lanDoc;
-      ui.trackSelect.appendChild(option);
-    }
-  } else {
-    ui.trackSelect.classList.add("hidden");
-  }
 
   renderSpeed(next.rate || 1);
 
@@ -2673,8 +2822,9 @@ function renderState(next) {
   show(ui.outlineList, onOutline && outlineRows);
   if (onOutline && outlineRows) {
     renderOutline();
-    lastOutlineIndex = -1;
-    renderOutlineActive(next.currentTime || 0, { forceScroll: true });
+    renderOutlineActive(next.currentTime || 0);
+  } else {
+    renderOutlineMeta();
   }
 
   show(ui.cueWrap || ui.cueList, onCaptions);
@@ -3553,6 +3703,7 @@ $("btnGenOutline").addEventListener("click", generateOutline);
 $("btnRegenOutline").addEventListener("click", () => {
   outline = null;
   videoSummary = "";
+  resetOutlineTree();
   generateOutline();
 });
 $("btnCopyOutline").addEventListener("click", async () => {
@@ -3576,14 +3727,63 @@ ui.videoSummaryToggle?.addEventListener("click", () => {
 });
 $("emptyRetryLink")?.addEventListener("click", () => refresh(true));
 
-ui.outlineList.addEventListener("click", (event) => {
-  const row = event.target.closest(".chapter");
-  if (!row || !ui.outlineList.contains(row)) return;
-  const time = Number(row.dataset.start);
+ui.outlineDensity?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-density]");
+  if (!btn || !ui.outlineDensity.contains(btn)) return;
+  setOutlineDensity(btn.getAttribute("data-density"));
+});
+
+function seekOutlineTime(time) {
   if (!Number.isFinite(time)) return;
-  sendToTab({ type: "SEEK", time }).catch((error) => {
-    flash(error.message || "跳转失败，请先点一下视频页");
-  });
+  const token = ++outlineSeekToken;
+  const previousTime = Number(state?.currentTime) || 0;
+
+  // 点击目标是确定的，先更新高亮；播放器随后用 seeked/TIME 回传实际时间校准。
+  if (state) state.currentTime = time;
+  renderOutlineActive(time);
+
+  sendToTab({ type: "SEEK", time })
+    .then((next) => {
+      if (token !== outlineSeekToken) return;
+      const confirmedTime = Number(next?.currentTime);
+      if (!Number.isFinite(confirmedTime)) return;
+      if (state) state.currentTime = confirmedTime;
+      renderOutlineActive(confirmedTime);
+    })
+    .catch((error) => {
+      if (token !== outlineSeekToken) return;
+      if (state) state.currentTime = previousTime;
+      renderOutlineActive(previousTime);
+      flash(error.message || "跳转失败，请先点一下视频页");
+    });
+}
+
+ui.outlineList.addEventListener("wheel", () => {
+  userOutlineScrollAt = Date.now();
+}, { passive: true });
+
+ui.outlineList.addEventListener("click", (event) => {
+  const expand = event.target.closest(".chapter-expand");
+  if (expand && ui.outlineList.contains(expand)) {
+    event.preventDefault();
+    const row = expand.closest(".chapter");
+    const i = Number(row?.dataset.index);
+    if (!Number.isFinite(i)) return;
+    chOpen = { ...chOpen, [i]: !chOpen[i] };
+    lastOutlineIndex = -1;
+    renderOutline();
+    renderOutlineActive(state?.currentTime || 0);
+    return;
+  }
+  const clock = event.target.closest(".chapter-start, .chapter-end");
+  if (clock && ui.outlineList.contains(clock)) {
+    event.stopPropagation();
+    seekOutlineTime(Number(clock.dataset.time));
+    return;
+  }
+  const hit = event.target.closest(".chapter-sub") || event.target.closest(".chapter");
+  if (!hit || !ui.outlineList.contains(hit)) return;
+  seekOutlineTime(Number(hit.dataset.start));
 });
 
 const markUserCueScroll = () => {

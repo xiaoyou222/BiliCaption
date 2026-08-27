@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/outline-and-subtitles.md", "reason": "Current outline JSON, finalizeOutline cue-index contract, outline:v2 cache, map-reduce budget"}
+{"file": ".trellis/spec/guides/index.md", "reason": "Outline payload crosses lib and sidepanel; keep summary/chapters contract while adding optional subs"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cache shape and streaming parse must stay aligned between lib/outline.js and sidepanel"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse videoSpan, sliceBalanced, finalizeOutline, runModel; do not add a second outline client"}
+{"file": ".trellis/tasks/08-25-outline-full-summary/design.md", "reason": "Existing summary+chapters JSON, streaming order, and over-budget split this feature extends"}
+{"file": ".trellis/tasks/08-26-outline-brief-detail/design.md", "reason": "Extracted 简略/详情 UI, nested JSON, and highlight rules from the design mock"}
