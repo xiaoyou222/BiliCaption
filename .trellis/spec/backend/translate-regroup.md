@@ -169,7 +169,7 @@ Translation overwrites `cue.content` with Simplified Chinese and writes `cue.ori
 The 中 | EN control is visible **only when both Chinese and English actually exist**. Chinese-only official tracks or Chinese-only plugin ASR must not show the switch. Default `captionLang` is `"zh"`.
 
 - Plugin ASR + translate with `cue.original`: **display-only**. Never `SWITCH_TRACK`.
-- Official Bilibili zh **and** en tracks (not plugin): 中 / EN calls `SWITCH_TRACK`. Hide `trackSelect` when every track is zh or en.
+- Official Bilibili zh **and** en tracks (not plugin): 中 / EN calls `SWITCH_TRACK`. Never show the old `trackSelect` dropdown — 中/EN replaces it.
 - Plugin English ASR not yet translated, or Chinese-only ASR: hide the switch.
 - `captionListHasLang`: zh = any CJK `content`; en = `cueHasOriginal` or the list is predominantly English (`needsTranslation` and no CJK, count >= Chinese). A few English loanwords in Chinese captions do not count as English.
 

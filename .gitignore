@@ -1,2 +1,6 @@
 .DS_Store
 *.log
+参考/
+BiliCaption/screenshots/
+BiliCaption/uploads/
+BiliCaption/.thumbnail

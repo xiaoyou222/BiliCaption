@@ -13,7 +13,7 @@ Frontend quality is visual tokens + message/state consistency + source-scan test
 
 - React/Vue/Svelte for this extension.
 - Showing both float dock and Chrome side panel.
-- `trackSelect` as the language switch.
+- Re-adding `#trackSelect` — 中/EN replaced it.
 - Inline styles for colors that already have tokens, except `library.html` which already inlines (keep those values on the token palette).
 
 ## Testing

@@ -14,7 +14,7 @@ options.html / .css / .js      options_ui open_in_tab
 library.html / .js             marker library (styles inlined in html)
 content.js                     overlay, dock, player events (injects its own CSS)
 icons/                         action icons
-BiliCaption/BiliCaption Sidebar.dc.html   design source of truth for tokens
+BiliCaption/BiliCaption Sidebar.dc.html   design draft (tokens already in sidepanel.css)
 ```
 
 `manifest.json` `side_panel.default_path` is `sidepanel.html`. Float loads the same file as `sidepanel.html?embed=1` inside `#bilicaption-dock`.

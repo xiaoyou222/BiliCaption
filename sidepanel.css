@@ -269,27 +269,6 @@ html.float-embed #btnFloat { display: none !important; }
   flex-direction: column;
 }
 
-.track-speed {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--line);
-  flex: none;
-}
-
-.track-speed select {
-  flex: 1;
-  min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
-  padding: 4px 5px;
-  color: var(--text-2);
-  font-size: 10.5px;
-  outline: none;
-}
-
 .view-tabs {
   display: flex;
   align-items: center;

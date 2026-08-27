@@ -4,7 +4,7 @@ There are no React components. UI is static HTML plus class toggles.
 
 ## Tokens
 
-From `sidepanel.css` `:root` and `BiliCaption/BiliCaption Sidebar.dc.html`:
+From `sidepanel.css` `:root` (design draft: `BiliCaption/BiliCaption Sidebar.dc.html`):
 
 | Role | Value |
 |---|---|

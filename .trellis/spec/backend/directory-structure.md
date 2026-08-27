@@ -30,7 +30,7 @@ Single-repo Chrome MV3 extension. Business logic lives in root scripts and `lib/
 └── 测试/                   node:test files (Chinese names)
 ```
 
-`BiliCaption/` is the design prototype (`BiliCaption Sidebar.dc.html`). `参考/` is third-party reference, not product code.
+`BiliCaption/BiliCaption Sidebar.dc.html` is the interactive design draft (needs `support.js` to open). Do not check in `参考/` clones, screenshots, or design-tool uploads.
 
 ## Module Organization
 

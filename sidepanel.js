@@ -18,8 +18,6 @@ const ui = {
   noVideoTitle: $("noVideoTitle"),
   lastVideoHint: $("lastVideoHint"),
   videoView: $("videoView"),
-  controlRow: $("controlRow"),
-  trackSelect: $("trackSelect"),
   speedSelect: $("speedSelect"),
   speedBtn: $("speedBtn"),
   speedValue: $("speedValue"),
@@ -2735,8 +2733,6 @@ function renderState(next) {
   const onMarkers = onVideoReady && view === "markers";
 
   show(ui.speedSelect, true);
-  show(ui.controlRow, false);
-  ui.trackSelect.classList.add("hidden");
   show(ui.viewTabs, hasList || onMarkers || generating || translating);
 
   ui.viewTabs.querySelectorAll("button[data-view]").forEach((btn) => {
@@ -4006,11 +4002,6 @@ $("btnClearCache")?.addEventListener("click", async () => {
   } else {
     flash("已清理本视频的转写、翻译和大纲缓存");
   }
-});
-
-ui.trackSelect.addEventListener("change", async () => {
-  const next = await sendToTab({ type: "SWITCH_TRACK", lan: ui.trackSelect.value });
-  renderState(next);
 });
 
 function applySelKeyState(held) {
