@@ -73,9 +73,11 @@ const ui = {
   outlineHeadLabel: $("outlineHeadLabel"),
   cueList: $("cueList"),
   cueWrap: $("cueWrap"),
+  selKeyHint: $("selKeyHint"),
   selectTrail: $("selectTrail"),
   selectBar: $("selectBar"),
   selectInfo: $("selectInfo"),
+  btnLoopSel: $("btnLoopSel"),
   actionBar: $("actionBar"),
   btnGenerate: $("btnGenerate"),
   btnGenerateEmpty: $("btnGenerateEmpty"),
@@ -94,6 +96,8 @@ let generateToken = 0;
 let genError = "";
 let selecting = false;
 let selectHeld = false;
+let loopSel = false;
+let lastLoopSent = "";
 let selKey = "Shift";
 let hasSttKey = false;
 let range = { start: -1, end: -1 };
@@ -117,9 +121,11 @@ let moreOpen = false;
 let toastTimer = 0;
 let summaryModel = "";
 let hasSummary = false;
+let summaryMarkTime = NaN;
 let lastRenderKey = "";
 let overlayOn = true;
 let captionLang = "zh";
+let captionLangPinned = false;
 let summaryPad = 10;
 let translateConcurrency = 4;
 let view = "captions";
@@ -127,6 +133,9 @@ let markers = [];
 let markerKey = "";
 let editingMarkerId = null;
 let markerDrafts = new Map();
+let polishingIds = new Set();
+let polishAbort = new Map();
+let polishDrafts = new Map();
 let markerMoreOpen = false;
 let outline = null;
 let videoSummary = "";
@@ -421,16 +430,38 @@ function canShowCaptionLang(lang) {
   return Boolean(pickTrackByLang(state?.tracks, lang));
 }
 
+function persistCaptionLang() {
+  chrome.storage.sync.set({ captionLang }).catch(() => {});
+  sendToTab({ type: "SET_CAPTION_LANG", lang: captionLang }).catch(() => {});
+}
+
+function revealChineseIfReady(cues = state?.cues) {
+  if (captionLangPinned || captionLang !== "en") return false;
+  if (!isPluginCaptions()) return false;
+  const hasZh = (cues || []).some((cue) => cueHasCjk(cue?.content));
+  if (!hasZh) return false;
+  captionLang = "zh";
+  persistCaptionLang();
+  return true;
+}
+
 function syncCaptionLangFromState(next = state) {
-  if (hasBilingualCaptions(next?.cues)) return;
   if (isPluginCaptions(next)) {
     const cues = next?.cues || [];
     const hasZh = cues.some((cue) => cueHasCjk(cue.content));
     const hasEn = cues.some((cue) => String(cue.original || "").trim() || cueLooksEnglish(cue.content));
-    if (hasEn && !hasZh) captionLang = "en";
-    else if (hasZh && !hasEn) captionLang = "zh";
+    if (hasEn && !hasZh) {
+      captionLang = "en";
+      return;
+    }
+    if (hasZh && !hasEn) {
+      captionLang = "zh";
+      return;
+    }
+    revealChineseIfReady(cues);
     return;
   }
+  if (hasBilingualCaptions(next?.cues)) return;
   const kind = trackLangKind({ lan: next?.activeLan || "", lanDoc: "" });
   if (kind) captionLang = kind;
 }
@@ -466,6 +497,7 @@ async function setCaptionLang(lang) {
     return;
   }
   captionLang = next;
+  captionLangPinned = true;
   chrome.storage.sync.set({ captionLang }).catch(() => {});
   // 自己转写/翻译的字幕绝不能切到 B 站官方轨，否则生成结果会被盖掉。
   if (!isPluginCaptions()) {
@@ -505,17 +537,23 @@ function show(el, on) {
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 
+function snapRate(rate) {
+  const n = Number(rate) || 1;
+  return Math.min(10, Math.max(0.1, Math.round(n * 100) / 100));
+}
+
 function currentRate() {
-  return Math.min(10, Math.max(0.1, Math.round((Number(state?.rate) || 1) * 10) / 10));
+  return snapRate(state?.rate || 1);
 }
 
 function formatRate(rate) {
-  const n = Math.min(10, Math.max(0.1, Math.round((Number(rate) || 1) * 10) / 10));
-  return Number.isInteger(n) ? `${n}×` : `${n.toFixed(1)}×`;
+  const n = snapRate(rate);
+  if (Number.isInteger(n)) return `${n}×`;
+  return `${n.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}×`;
 }
 
 function renderSpeed(rate) {
-  const value = Math.min(10, Math.max(0.1, Math.round((Number(rate) || 1) * 10) / 10));
+  const value = snapRate(rate);
   if (state) state.rate = value;
   if (ui.speedValue) ui.speedValue.textContent = formatRate(value);
   ui.speedBtn?.classList.toggle("boosted", Math.abs(value - 1) > 0.001);
@@ -669,6 +707,20 @@ async function loadMarkers(next = state) {
   const list = await M.load(next.bvid, next.cid);
   if (marksVideoKey(state) !== key && marksVideoKey(next) !== marksVideoKey(state)) return;
   markers = list;
+  syncProgressMarks(list, next);
+}
+
+function syncProgressMarks(list = markers, next = state) {
+  sendToTab({
+    type: "SYNC_MARKERS",
+    bvid: next?.bvid || "",
+    cid: Number(next?.cid) || 0,
+    markers: (list || []).map((m) => ({
+      id: m.id,
+      time: Number(m.time) || 0,
+      text: String(m.text || "")
+    }))
+  }).catch(() => {});
 }
 
 function sameMarkerId(a, b) {
@@ -697,7 +749,8 @@ function renderMarkers() {
 
   for (const m of markers) {
     const row = document.createElement("div");
-    row.className = "marker-row";
+    const polishing = polishingIds.has(String(m.id));
+    row.className = polishing ? "marker-row is-polishing" : "marker-row";
     row.dataset.id = String(m.id);
 
     const time = document.createElement("time");
@@ -741,8 +794,9 @@ function renderMarkers() {
       });
     } else {
       const p = document.createElement("span");
-      p.className = `marker-text${m.text ? "" : " empty"}`;
-      p.textContent = m.text || "（空）";
+      const live = polishing ? (polishDrafts.get(String(m.id)) ?? m.text) : m.text;
+      p.className = `marker-text${live ? "" : " empty"}${polishing ? " streaming" : ""}`;
+      p.textContent = live || "（空）";
       p.addEventListener("dblclick", (e) => {
         e.stopPropagation();
         startEditMarker(m.id);
@@ -752,12 +806,14 @@ function renderMarkers() {
 
     const tools = document.createElement("div");
     tools.className = "marker-tools";
-    const edit = document.createElement("button");
-    edit.type = "button";
-    edit.textContent = "改";
-    edit.addEventListener("click", (e) => {
+    const ai = document.createElement("button");
+    ai.type = "button";
+    ai.className = "marker-ai";
+    ai.textContent = "AI";
+    ai.title = "用 AI 润色这条笔记";
+    ai.addEventListener("click", (e) => {
       e.stopPropagation();
-      startEditMarker(m.id);
+      polishMarker(m.id);
     });
     const del = document.createElement("button");
     del.type = "button";
@@ -766,11 +822,17 @@ function renderMarkers() {
       e.stopPropagation();
       deleteMarker(m.id);
     });
-    tools.append(edit, del);
+    tools.append(ai, del);
 
     row.append(time, body, tools);
+    if (polishing) {
+      const cover = document.createElement("div");
+      cover.className = "marker-polish";
+      row.appendChild(cover);
+      setBeam(cover, true);
+    }
     row.addEventListener("click", () => {
-      if (sameMarkerId(editingMarkerId, m.id)) return;
+      if (sameMarkerId(editingMarkerId, m.id) || polishing) return;
       sendToTab({ type: "SEEK", time: m.time }).catch((error) => {
         flash(error.message || "跳转失败，请先点一下视频页");
       });
@@ -797,18 +859,87 @@ async function commitMarker(id) {
   if (sameMarkerId(editingMarkerId, id)) editingMarkerId = null;
   try {
     markers = await M.update(state.bvid, state.cid, id, draft, markerMeta());
+    syncProgressMarks();
   } catch {
     await loadMarkers(state);
   }
   renderMarkers();
 }
 
+const POLISH_SYSTEM = [
+  "你是中文文字编辑。把口语、随意的笔记改写成标准、专业、准确的书面描述。",
+  "去掉口语风格，信息点全部保留，不总结、不省略。只输出正文。"
+].join("");
+
+function buildPolishPrompt(text) {
+  return [
+    "请把下面这段中文笔记润色成标准、专业的书面描述。",
+    "原文多半是随手记、口语化的。请改成更精准的表述：去掉「呃、那个、就是、然后、我觉得」这类口头禅和含糊说法，用书面语把意思写清楚。",
+    "可以调整语序、合并重复、拆开含糊的长句。术语、数字、人名、例子、条件、对比都要留下。",
+    "口头禅去掉后可以略短，但每个信息点都要在，不要收成摘要，不要只留中心思想。",
+    "不要标题、不要列表、不要加粗、不要解释你改了什么。只输出润色后的正文。",
+    "",
+    "【原文】",
+    String(text || "").trim()
+  ].join("\n");
+}
+
+async function polishMarker(id) {
+  const m = markers.find((x) => sameMarkerId(x.id, id));
+  if (!m || polishingIds.has(String(id))) return;
+  const text = String(m.text || "").trim();
+  if (!text) {
+    flash("这条还没有内容，先写点什么再润色");
+    return;
+  }
+  polishingIds.add(String(id));
+  polishDrafts.set(String(id), text);
+  if (sameMarkerId(editingMarkerId, id)) editingMarkerId = null;
+  renderMarkers();
+  const ac = new AbortController();
+  polishAbort.set(String(id), ac);
+  const paint = (full) => {
+    polishDrafts.set(String(id), full);
+    const node = document.querySelector(`#markerList .marker-row[data-id="${CSS.escape(String(id))}"] .marker-text`);
+    if (!node) return;
+    node.textContent = full || "（空）";
+    node.classList.toggle("empty", !full);
+    node.classList.add("streaming");
+  };
+  try {
+    const out = String(await runModel(buildPolishPrompt(text), {
+      signal: ac.signal,
+      system: POLISH_SYSTEM,
+      onDelta(full) { paint(full); }
+    }) || "").trim();
+    if (!out) throw new Error("润色结果是空的");
+    const M = markersApi();
+    if (!M || !state) return;
+    markers = await M.update(state.bvid, state.cid, id, out, markerMeta());
+    syncProgressMarks();
+    flash(`已润色 · ${formatTime(m.time)}`);
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.canceled) return;
+    flash(error.message || "润色失败");
+  } finally {
+    polishingIds.delete(String(id));
+    polishAbort.delete(String(id));
+    polishDrafts.delete(String(id));
+    renderMarkers();
+  }
+}
+
 async function deleteMarker(id) {
+  polishAbort.get(String(id))?.abort();
+  polishingIds.delete(String(id));
+  polishAbort.delete(String(id));
+  polishDrafts.delete(String(id));
   const M = markersApi();
   if (!M || !state) return;
   if (sameMarkerId(editingMarkerId, id)) editingMarkerId = null;
   markerDrafts.delete(id);
   markers = await M.remove(state.bvid, state.cid, id, markerMeta());
+  syncProgressMarks();
   renderMarkers();
 }
 
@@ -819,6 +950,7 @@ async function addManualMarker() {
   if (!M) return;
   try {
     markers = await M.add(state.bvid, state.cid, { time, text: "" }, markerMeta());
+    syncProgressMarks();
     const added = markers.find((m) => Math.floor(m.time) === time);
     editingMarkerId = added?.id ?? null;
     if (editingMarkerId != null) markerDrafts.set(editingMarkerId, "");
@@ -840,6 +972,7 @@ function summaryMarkerText() {
 }
 
 function summaryMarkerTime() {
+  if (Number.isFinite(summaryMarkTime)) return summaryMarkTime;
   const from = Math.min(range.start, range.end >= 0 ? range.end : range.start);
   if (from >= 0 && state?.cues?.[from]) return Number(state.cues[from].from) || 0;
   return Number(state?.currentTime) || 0;
@@ -856,6 +989,7 @@ async function addMarkerFromSummary() {
   if (!M || !state) return;
   try {
     markers = await M.add(state.bvid, state.cid, { time, text }, markerMeta());
+    syncProgressMarks();
     flash(`已添加标记 · ${formatTime(time)}`);
     updateSummaryMarkerBtn();
   } catch (error) {
@@ -866,6 +1000,11 @@ async function addMarkerFromSummary() {
 function updateSummaryMarkerBtn() {
   const btn = $("btnAddMarkerSummary");
   if (!btn) return;
+  if (!hasSummary) {
+    btn.textContent = "+ 标记";
+    btn.classList.remove("active");
+    return;
+  }
   const time = summaryMarkerTime();
   const exists = markers.some((m) => Math.floor(m.time) === Math.floor(time));
   btn.textContent = exists ? "已标记" : "+ 标记";
@@ -944,6 +1083,13 @@ function startOrb(host, options) {
   } catch {
     return () => {};
   }
+}
+
+function setBeam(el, on) {
+  const api = globalThis.BiliCaptionBorderBeam;
+  if (!api || !el) return;
+  if (on) api.attach(el, { strength: 0.7 });
+  else api.detach(el);
 }
 
 function showSummaryThinking(on) {
@@ -1739,6 +1885,7 @@ function applyTranslateProgress(info) {
       source: "translated",
       activeLan: "translated"
     };
+    revealChineseIfReady(state.cues);
     renderCues();
     renderCaptionLang();
   }
@@ -1926,12 +2073,34 @@ function syncSelectChrome(onCaptions = view === "captions") {
   show(ui.actionBar, onCaptions && !hasSummary && !selectOpen);
 }
 
+function selKeyIsHeld() {
+  return selKeyHeldFromPage === true;
+}
+
+function syncSelKeyArmed() {
+  const armed = Boolean(
+    selKeyIsHeld()
+    && view === "captions"
+    && state?.cues?.length
+    && !selecting
+  );
+  const hint = armed && !selectHeld && !dragSelect;
+  ui.cueList?.classList.toggle("key-armed", armed);
+  if (ui.selKeyHint) {
+    show(ui.selKeyHint, hint);
+    ui.selKeyHint.setAttribute("aria-hidden", hint ? "false" : "true");
+  }
+}
+
 function paintSelection() {
   paintVisibleCues();
   const start = range.start;
   const ready = start >= 0;
 
   ui.cueList.classList.toggle("selecting", selectHeld || selecting);
+  syncSelKeyArmed();
+  renderLoopBtn();
+  syncLoopRange();
 
   if (!ready && !selecting) {
     syncSelectChrome();
@@ -1954,7 +2123,9 @@ function paintSelection() {
       ? `鼠标放在起点，按住 ${keyLabel(selKey)} 再滑动`
       : "点第一行作为起点";
   } else if (range.end < 0) {
-    ui.selectInfo.textContent = `起点 ${formatTime(state.cues[start].from)} · 滑到终点`;
+    ui.selectInfo.textContent = selecting
+      ? `起点 ${formatTime(state.cues[start].from)} · 再点终点`
+      : `起点 ${formatTime(state.cues[start].from)} · 滑到终点`;
   } else {
     const a = Math.min(start, range.end);
     const b = Math.max(start, range.end);
@@ -1963,7 +2134,65 @@ function paintSelection() {
 }
 
 function pausePlayback() {
+  if (loopSel) return;
   sendToTab({ type: "PAUSE" }).catch(() => {});
+}
+
+function selectedLoopRange() {
+  if (!state?.cues?.length || range.start < 0) return null;
+  const end = range.end >= 0 ? range.end : range.start;
+  const a = Math.min(range.start, end);
+  const b = Math.max(range.start, end);
+  const startCue = state.cues[a];
+  const lastCue = state.cues[b];
+  if (!startCue || !lastCue) return null;
+  const from = Number(startCue.from);
+  const next = state.cues[b + 1];
+  const to = next ? Number(next.from) : Number(lastCue.to);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return null;
+  return { from, to };
+}
+
+function renderLoopBtn() {
+  const btn = ui.btnLoopSel;
+  if (!btn) return;
+  btn.textContent = loopSel ? "循环中" : "循环";
+  btn.classList.toggle("on", loopSel);
+  btn.setAttribute("aria-pressed", loopSel ? "true" : "false");
+}
+
+function syncLoopRange() {
+  if (!loopSel) return;
+  const span = selectedLoopRange();
+  if (!span) return;
+  const key = `${span.from}:${span.to}`;
+  if (key === lastLoopSent) return;
+  lastLoopSent = key;
+  sendToTab({ type: "LOOP_SEL", from: span.from, to: span.to }).catch(() => {});
+}
+
+function setLoopSel(on) {
+  if (on) {
+    const span = selectedLoopRange();
+    if (!span) {
+      flash("先划选一段字幕再循环");
+      return;
+    }
+    loopSel = true;
+    lastLoopSent = `${span.from}:${span.to}`;
+    renderLoopBtn();
+    sendToTab({ type: "LOOP_SEL", from: span.from, to: span.to, seek: true, play: true })
+      .catch((error) => flash(error.message || "循环失败，请先点一下视频页"));
+    return;
+  }
+  if (!loopSel) {
+    renderLoopBtn();
+    return;
+  }
+  loopSel = false;
+  lastLoopSent = "";
+  renderLoopBtn();
+  sendToTab({ type: "LOOP_SEL" }).catch(() => {});
 }
 
 function notifyPageSelKey(held) {
@@ -2154,18 +2383,7 @@ function onCuePointerDown(event, index) {
     event.preventDefault();
     return;
   }
-  if (event.button !== 0 || !selecting) return;
-  event.preventDefault();
-  pausePlayback();
-  hasSummary = false;
-  show(ui.summaryBox, false);
-  dragSelect = { start: index, pointerId: event.pointerId, moved: false };
-  range = { start: index, end: index };
-  anchor = index;
-  trailPoints = [trailPointFromEvent(event)];
-  drawTrail();
-  paintSelection();
-  ui.cueList.setPointerCapture?.(event.pointerId);
+  if (selecting) return;
 }
 
 function onCuePointerMove(event) {
@@ -2204,15 +2422,30 @@ function onCuePointerUp(event) {
   const index = cueIndexFromPoint(event.clientX, event.clientY);
   if (index >= 0) range.end = index;
   if (range.end < 0) range.end = range.start;
-  selecting = false;
+  if (dragSelect.moved) selecting = false;
   dragSelect = null;
   paintSelection();
   window.setTimeout(clearTrail, 280);
 }
 
 function onCueClick(index, cue, event) {
-  if (selectModeOn(event) || Date.now() < ignoreCueClickUntil) {
+  if (selectHeld || Date.now() < ignoreCueClickUntil) {
     event.preventDefault();
+    return;
+  }
+  if (selecting) {
+    event.preventDefault();
+    pausePlayback();
+    hasSummary = false;
+    show(ui.summaryBox, false);
+    if (range.start < 0) {
+      range = { start: index, end: -1 };
+      anchor = index;
+    } else {
+      range.end = index;
+      selecting = false;
+    }
+    paintSelection();
     return;
   }
 
@@ -2220,6 +2453,7 @@ function onCueClick(index, cue, event) {
   anchor = -1;
   hasSummary = false;
   show(ui.summaryBox, false);
+  setLoopSel(false);
   paintSelection();
   sendToTab({ type: "SEEK", time: cue.from }).catch(() => {});
 }
@@ -2680,6 +2914,7 @@ function renderState(next) {
   const isOther = !next || next.page === "other";
 
   if (isOther && !noScript) {
+    setLoopSel(false);
     show(ui.noVideoView, true);
     show(ui.videoView, false);
     show(ui.speedSelect, false);
@@ -2694,7 +2929,16 @@ function renderState(next) {
 
   const renderKey = `${next?.bvid || ""}:${next?.cid || ""}:${next?.aid || ""}`;
   if (renderKey && renderKey !== lastRenderKey) {
+    selecting = false;
+    selectHeld = false;
+    dragSelect = null;
+    hoverSelectFrom = null;
+    range = { start: -1, end: -1 };
+    anchor = -1;
+    captionLangPinned = false;
+    setLoopSel(false);
     hasSummary = false;
+    summaryMarkTime = NaN;
     ui.summaryText.textContent = "";
     if (outlineLoading) {
       outlineAbort?.abort();
@@ -2847,6 +3091,7 @@ function renderState(next) {
     renderCues();
   } else if (!onCaptions) {
     ui.cueList.classList.remove("selecting");
+    syncSelKeyArmed();
   }
 }
 
@@ -3209,13 +3454,14 @@ async function readChatStream(res, onDelta) {
   return full;
 }
 
-async function requestPromptModel(prompt, { base, key, model, onDelta, signal, validate }) {
+async function requestPromptModel(prompt, { base, key, model, onDelta, signal, validate, system } = {}) {
   const route = globalThis.BiliCaptionModelRoute;
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   signal?.addEventListener("abort", onAbort);
   const timer = setTimeout(() => controller.abort(), 90000);
   try {
+    globalThis.BiliCaptionProviders?.assertSafeApiUrl?.(base);
     const res = await fetch(`${base}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
@@ -3229,7 +3475,7 @@ async function requestPromptModel(prompt, { base, key, model, onDelta, signal, v
         stream: Boolean(onDelta),
         ...(route?.requestFields?.(model, "low") || {}),
         messages: [
-          { role: "system", content: "你是简洁的中文助手。只输出结果，不要客套。" },
+          { role: "system", content: system || "你是简洁的中文助手。只输出结果，不要客套。" },
           { role: "user", content: prompt }
         ]
       })
@@ -3277,7 +3523,7 @@ async function requestPromptModel(prompt, { base, key, model, onDelta, signal, v
   }
 }
 
-async function openaiPrompt(prompt, { onDelta, signal, validate } = {}) {
+async function openaiPrompt(prompt, { onDelta, signal, validate, system } = {}) {
   const settings = await BiliCaptionPrefs.loadSettings({
     sumProvider: "OpenAI",
     apiBase: "",
@@ -3296,7 +3542,8 @@ async function openaiPrompt(prompt, { onDelta, signal, validate } = {}) {
     model,
     onDelta,
     signal,
-    validate
+    validate,
+    system
   });
 }
 
@@ -3317,6 +3564,8 @@ async function summarizeSelection() {
   const prompt = buildSummaryPrompt(from, to);
   const span = `${formatTime(state.cues[from].from)}–${formatTime(state.cues[to].from)}`;
   hasSummary = true;
+  summaryMarkTime = Number(state.cues[from].from) || 0;
+  updateSummaryMarkerBtn();
   cueScrollAnim = null;
   if (cueScrollRaf) cancelAnimationFrame(cueScrollRaf);
   cueScrollRaf = 0;
@@ -3510,8 +3759,11 @@ function onSidepanelHotkey(event) {
 
   if (matchesSelKey(event)) {
     event.preventDefault();
-    selKeyHeldFromPage = true;
-    notifyPageSelKey(true);
+    if (selKeyHeldFromPage !== true) {
+      selKeyHeldFromPage = true;
+      notifyPageSelKey(true);
+      syncSelKeyArmed();
+    }
     return;
   }
 
@@ -3547,6 +3799,8 @@ function finishHeldSelect() {
 
 function onSelKeyUp(event) {
   if (event.type === "blur") {
+    selKeyHeldFromPage = false;
+    notifyPageSelKey(false);
     finishHeldSelect();
     return;
   }
@@ -3835,14 +4089,17 @@ ui.btnSelect.addEventListener("click", () => {
   anchor = -1;
   hasSummary = false;
   show(ui.summaryBox, false);
+  setLoopSel(false);
   if (selecting) pausePlayback();
   paintSelection();
 });
+$("btnLoopSel")?.addEventListener("click", () => setLoopSel(!loopSel));
 $("btnClearSelect").addEventListener("click", () => {
   selecting = false;
   range = { start: -1, end: -1 };
   hasSummary = false;
   show(ui.summaryBox, false);
+  setLoopSel(false);
   paintSelection();
 });
 $("btnCopy").addEventListener("click", async () => {
@@ -3857,8 +4114,8 @@ $("btnCopy").addEventListener("click", async () => {
 });
 function closeSummary() {
   hasSummary = false;
+  summaryMarkTime = NaN;
   showSummaryThinking(false);
-  ui.summaryBox?.classList.remove("is-beam");
   ui.summaryText?.classList.remove("streaming");
   endSummaryEdit(true);
   show(ui.summaryBox, false);
@@ -4005,8 +4262,11 @@ $("btnClearCache")?.addEventListener("click", async () => {
 });
 
 function applySelKeyState(held) {
-  selKeyHeldFromPage = Boolean(held);
-  if (!selKeyHeldFromPage && selectHeld) finishHeldSelect();
+  const next = Boolean(held);
+  const changed = selKeyHeldFromPage !== next;
+  selKeyHeldFromPage = next;
+  if (!next && selectHeld) finishHeldSelect();
+  else if (changed) syncSelKeyArmed();
 }
 
 function applyForwardedKey(data) {
@@ -4035,6 +4295,12 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
   if (message?.type === "SEL_KEY_STATE") {
     applySelKeyState(Boolean(message.held));
+    return;
+  }
+  if (message?.type === "LOOP_ENDED") {
+    loopSel = false;
+    lastLoopSent = "";
+    renderLoopBtn();
     return;
   }
   if (message?.type === "PANEL_KEY" || message?.type === "BC_DOCK_KEY") {

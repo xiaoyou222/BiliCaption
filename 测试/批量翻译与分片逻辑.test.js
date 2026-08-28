@@ -508,6 +508,11 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.doesNotMatch(content, /className = "bc-overlay-note"/);
   assert.match(content, /bc-overlay-note"\)\?\.remove/);
   assert.doesNotMatch(content, /\.bc-dock-win \{[\s\S]{0,320}opacity:\s*var\(--bc-dock-alpha\)/);
+  assert.match(content, /function clampDockAlpha/);
+  assert.match(content, /alpha\.min = "0"/);
+  assert.doesNotMatch(content, /alpha\.min = "30"/);
+  assert.match(content, /Math\.min\(1, Math\.max\(0, n\)\)/);
+  assert.doesNotMatch(content, /Number\(dockAlpha\) \|\| 0\.82/);
   assert.match(panel, /visible && wasHidden[\s\S]{0,80}resetJobPillClosed/);
   assert.match(panel, /stage: started\.stage \|\| "run"/);
   assert.match(panel, /info\.status === "complete" \|\| info\.url/);
@@ -527,8 +532,64 @@ test("关键跨文件约束不会退回旧实现", () => {
     content,
     /onMessage\.addListener\(\(message[\s\S]*?if \(message\?\.type === "PING"\)[\s\S]*?if \(!isCurrentScript\(\)\) return;/
   );
+  assert.match(background, /GET_ASR_JOB[\s\S]{0,80}return reply\(getAsrJobStatus/);
+  assert.match(background, /if \(cur\?\.jobId === jobId && !cur\.work\) asrJobLocks\.delete/);
+  assert.match(background, /CLEAR_VIDEO_CACHE",\s*"DAV_SYNC_NOW"/);
+  assert.match(
+    panel,
+    /renderKey !== lastRenderKey[\s\S]{0,280}range = \{ start: -1, end: -1 \}/
+  );
+  assert.match(content, /event\.origin !== `chrome-extension:\/\/\$\{chrome\.runtime\.id\}`/);
   assert.doesNotMatch(background, /xy-backup/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "lib/模型路由.js"), "utf8"), /xy-backup|xy-fast|xy-smart/);
+});
+
+test("点划选是先点起点再点终点，松手不会结束划选", () => {
+  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const down = panel.match(/function onCuePointerDown\([\s\S]*?\n\}\n/)?.[0] || "";
+  assert.match(down, /if \(selecting\) return;/);
+  assert.doesNotMatch(down, /dragSelect = \{/);
+  const click = panel.match(/function onCueClick\([\s\S]*?\n\}\n/)?.[0] || "";
+  assert.match(click, /if \(selecting\) \{/);
+  assert.match(click, /range\.end = index/);
+  const up = panel.match(/function onCuePointerUp\([\s\S]*?\n\}\n/)?.[0] || "";
+  assert.match(up, /if \(dragSelect\.moved\) selecting = false/);
+});
+
+test("选区条有循环，回跳在播放器里做", () => {
+  const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
+  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+  assert.match(html, /id="btnLoopSel"/);
+  assert.match(html, />循环</);
+  assert.match(css, /\.btn-loop\.on/);
+  assert.match(panel, /function setLoopSel/);
+  assert.match(panel, /type: "LOOP_SEL"/);
+  assert.match(panel, /循环中/);
+  assert.match(panel, /if \(loopSel\) return;/);
+  assert.match(content, /function applyCueLoop/);
+  assert.match(content, /function tickCueLoop/);
+  assert.match(content, /LOOP_ENDED/);
+  assert.match(panel, /toFixed\(2\)\.replace\(\/0\+\$\/, ""\)/);
+  assert.match(css, /\.speed-menu\s*\{[^}]*z-index:\s*60/);
+  assert.match(content, /message\?\.type === "LOOP_SEL"/);
+  assert.doesNotMatch(panel, /video\.currentTime/);
+});
+
+test("按住划选键立刻点亮字幕列表，不必等开始滑动", () => {
+  const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
+  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  assert.match(html, /id="selKeyHint"/);
+  assert.match(html, /划动选择字幕/);
+  assert.match(css, /\.cues\.key-armed/);
+  assert.match(css, /inset 0 0 0 1px rgba\(77,\s*142,\s*240,\s*\.42\)/);
+  assert.match(panel, /function syncSelKeyArmed/);
+  assert.match(panel, /selKeyHeldFromPage !== true/);
+  assert.match(panel, /syncSelKeyArmed\(\)/);
+  const paint = panel.match(/function paintSelection\([\s\S]*?\n\}\n/)?.[0] || "";
+  assert.match(paint, /syncSelKeyArmed\(\)/);
 });
 
 test("英文长段按句号切开，不按 56 字硬切", () => {

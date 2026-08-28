@@ -36,6 +36,8 @@ Toasts: `flash(msg)` (~1600 ms) on `#toast`.
 
 Thinking: `lib/thinking-orb.js` hosts, not a CSS spinner of a different size.
 
+Marker polish uses `lib/border-beam.js`, a vanilla port of `border-beam@1.3.0` `pulse-inner` + `ocean` + `strength={0.7}`. Do not copy the design-draft CSS ring. Do not put the beam on the selection-summary card: summarizing keeps the thinking orb + title shimmer only. Polish overlay is a light translucent wash (no `backdrop-filter` blur). Double-click edits a marker; the row button is **AI**, not 改. Marker polish rewrites casual/oral notes into standard professional Chinese: drop filler and vague talk, keep every information point. It is not the design-draft `condense()` mock (two sentences / 52 characters) and not a summary. Polish calls must pass `POLISH_SYSTEM`; do not reuse the default「简洁的中文助手」system prompt.
+
 ## Markdown in the selection card
 
 `#summaryText` is a `<p>` with `white-space: pre-wrap`. `renderMarkdownLite` maps `- ` to `• `. Selection summaries are a paragraph by default; lists only when the model returns real parallel points (`outline-and-subtitles.md`).
@@ -47,5 +49,9 @@ Icon-only buttons have `aria-label`. Menus use `aria-expanded` / `listbox` where
 ## Common mistakes
 
 - Showing `#trackSelect` again; 中/EN replaced it (`translate-regroup.md`).
+- Putting `#captionLang` before `.job-pill-slot`. The slot is `flex: 1` and pins the pill to its right; 中/EN must come after the slot so it stays at the bar’s right edge and only yields the pill’s width.
 - Mixing float and side panel (non-embed sidepanel sends `CLOSE_FLOAT`).
 - Styling float-embed with opaque panel backgrounds; `html.float-embed` already forces transparent chrome.
+- Clamping float dock alpha with `value || 0.82`: `0` is a valid opacity. Slider is 0–100; `clampDockAlpha` uses `Number.isFinite`.
+- Forgetting the sel-key armed hint: holding `selKey` on the captions list must add `.key-armed` (inset 1px `rgba(77,142,240,.42)`, wash `.045`) and `#selKeyHint` 「划动选择字幕」 immediately. Hide the pill once drag starts. Do not wait for `pointermove`. Click-mode 划选 (`selecting`) does not use this.
+- Selection-bar **循环** (`#btnLoopSel`): off is ghost outline, on is 「循环中」 with blue wash (`#79ACF5`). Turning on seeks to the first selected cue and plays; wrap lives in the content script (`LOOP_SEL`), end is the next cue’s `from` (last cue uses its `to`). Clicking another cue or clearing the selection turns it off. Do not pause the player while looping.

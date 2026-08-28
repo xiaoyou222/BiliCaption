@@ -12,7 +12,7 @@ Each Chrome page is a triad: `name.html` + `name.css` + `name.js`. Shared look i
 sidepanel.html / .css / .js    Chrome side_panel + float iframe (?embed=1)
 options.html / .css / .js      options_ui open_in_tab
 library.html / .js             marker library (styles inlined in html)
-content.js                     overlay, dock, player events (injects its own CSS)
+content.js                     overlay, dock, progress-bar marker dots, player events (injects its own CSS)
 icons/                         action icons
 BiliCaption/BiliCaption Sidebar.dc.html   design draft (tokens already in sidepanel.css)
 ```

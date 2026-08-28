@@ -110,3 +110,74 @@ test("超过 30 天的回收站条目会在读取时清掉", async () => {
   const trash = await M.loadTrash();
   assert.equal(trash.length, 0);
 });
+
+test("播放器进度条会打标记点，点击跳转", () => {
+  const root = path.join(__dirname, "..");
+  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
+  assert.match(content, /id = "bilicaption-progress-marks"/);
+  assert.match(content, /bc-progress-mark::after[\s\S]{0,220}background: #F0B84D/);
+  assert.match(content, /bc-progress-mark::after[\s\S]{0,180}width: 2px/);
+  assert.match(content, /bpx-player-progress/);
+  assert.match(content, /\(time \/ duration\) \* 100/);
+  assert.match(content, /type === "SYNC_MARKERS"/);
+  assert.match(content, /GET_MARKERS/);
+  assert.match(content, /seekTo\(time\)/);
+  assert.match(content, /pointerdown/);
+  assert.match(content, /progressMarksSig/);
+  assert.match(content, /LOOP_ENDED/);
+  assert.match(content, /video\.seeking/);
+  assert.match(panel, /type: "SYNC_MARKERS"/);
+  assert.match(panel, /function syncProgressMarks/);
+  assert.match(background, /"GET_MARKERS"/);
+  assert.doesNotMatch(content, /chrome\.storage\.local\.get/);
+});
+
+test("标记行用 AI 润色，双击编辑；边缘光只给润色，不给选区总结", () => {
+  const root = path.join(__dirname, "..");
+  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
+  const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
+  assert.match(panel, /function polishMarker/);
+  assert.match(panel, /function buildPolishPrompt/);
+  assert.match(panel, /system: POLISH_SYSTEM/);
+  assert.match(panel, /你是中文文字编辑/);
+  assert.match(panel, /润色成标准、专业的书面描述/);
+  assert.match(panel, /去掉口语风格/);
+  assert.match(panel, /不要收成摘要/);
+  assert.doesNotMatch(panel, /压得更短更准/);
+  const polishPrompt = panel.match(/function buildPolishPrompt\([\s\S]*?\n\}\n/)?.[0] || "";
+  assert.doesNotMatch(polishPrompt, /一两句话|更短、更准|压得更短|句子不要动/);
+  assert.match(panel, /textContent = "AI"/);
+  assert.doesNotMatch(panel, /润色中…/);
+  assert.match(panel, /onDelta\(full\) \{ paint\(full\); \}/);
+  assert.doesNotMatch(panel, /edit\.textContent = "改"/);
+  assert.match(panel, /BiliCaptionBorderBeam/);
+  assert.match(panel, /setBeam\(cover, true\)/);
+  assert.doesNotMatch(panel, /setBeam\(ui\.summaryBox/);
+  assert.match(html, /lib\/border-beam\.js/);
+  assert.doesNotMatch(css, /backdrop-filter/);
+  assert.doesNotMatch(css, /\.marker-polish\s*\{[^}]*background:\s*#14171B/);
+  const beam = fs.readFileSync(path.join(root, "lib/border-beam.js"), "utf8");
+  assert.match(beam, /pulse-inner/);
+  assert.match(beam, /strength = 0\.7/);
+  assert.match(beam, /100, 80, 220/);
+  assert.doesNotMatch(beam, /255, 50, 100/);
+  assert.match(beam, /--beam-inset/);
+  assert.doesNotMatch(beam, /180, 180, 180/);
+  assert.match(beam, /HUE_PERIOD = 16/);
+});
+
+test("选区总结的已标记跟这条总结的起点走，不沿用上一条", () => {
+  const panel = fs.readFileSync(path.join(__dirname, "..", "sidepanel.js"), "utf8");
+  const summarize = panel.match(/async function summarizeSelection\([\s\S]*?\n\}\n/);
+  assert.ok(summarize, "找不到 summarizeSelection");
+  assert.match(summarize[0], /summaryMarkTime = Number\(state\.cues\[from\]\.from\)/);
+  assert.match(summarize[0], /updateSummaryMarkerBtn\(\)/);
+  assert.match(panel, /if \(Number\.isFinite\(summaryMarkTime\)\) return summaryMarkTime/);
+  assert.doesNotMatch(
+    panel.match(/function updateSummaryMarkerBtn\([\s\S]*?\n\}\n/)?.[0] || "",
+    /currentTime/
+  );
+});

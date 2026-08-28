@@ -68,6 +68,7 @@ const CONTENT_MESSAGE_TYPES = new Set([
   "FETCH_CUES",
   "GENERATE_ASR",
   "GET_TRANSLATE_JOB",
+  "GET_MARKERS",
   "CLOSE_SIDE_PANEL",
   "RESTORE_SIDE_PANEL"
 ]);
@@ -793,6 +794,7 @@ function chatErrorMessage(json, status) {
 async function translateChat(prompt, { apiBase, apiKey, apiModel, signal, system } = {}) {
   const base = String(apiBase || "").replace(/\/$/, "");
   if (!base) throw new Error("请先在设置里填写接口地址");
+  self.BiliCaptionProviders?.assertSafeApiUrl?.(base);
   const model = defaultChatModel(base, apiModel);
   const route = self.BiliCaptionModelRoute;
   const timeout = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(90000) : null;
@@ -3809,6 +3811,14 @@ async function generateAsr(input, sender) {
     throw error;
   } finally {
     asrJobs.delete(jobId);
+    const keys = new Set([
+      asrLockKey(input.bvid, input.cid),
+      asrLockKey(job.bvid, job.cid)
+    ]);
+    for (const key of keys) {
+      const cur = asrJobLocks.get(key);
+      if (cur?.jobId === jobId && !cur.work) asrJobLocks.delete(key);
+    }
   }
 }
 
@@ -3941,7 +3951,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     "APPEND_LOG",
     "START_TRANSLATE",
     "CANCEL_TRANSLATE",
-    "CLEAR_VIDEO_CACHE"
+    "CLEAR_VIDEO_CACHE",
+    "DAV_SYNC_NOW"
   ]);
   if (handled.has(type) && !allowMessage(type, _sender)) {
     sendResponse({ error: "无权调用" });
@@ -3967,6 +3978,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "GET_LOGIN") {
     return reply(fetchLoginStatus());
   }
+  if (message?.type === "GET_MARKERS") {
+    const loading = self.BiliCaptionMarkers
+      ? self.BiliCaptionMarkers.load(message.bvid || "", Number(message.cid) || 0)
+      : [];
+    return reply(
+      Promise.resolve(loading).then((list) => ({
+        markers: (list || []).map((m) => ({
+          id: m.id,
+          time: Number(m.time) || 0,
+          text: String(m.text || "")
+        }))
+      }))
+    );
+  }
   if (message?.type === "SAVE_CUES_CACHE") {
     return reply(saveCachedAsr(message.bvid, message.cid, {
       cues: clampCues(message.cues),
@@ -3987,8 +4012,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return reply(appLog(message.level || "info", message.scope || "set", message.message || "", message.extra));
   }
   if (message?.type === "GET_ASR_JOB") {
-    sendResponse(getAsrJobStatus(message));
-    return true;
+    return reply(getAsrJobStatus(message));
   }
   if (message?.type === "CANCEL_ASR") {
     const ok = cancelAsrJob(message.jobId, {

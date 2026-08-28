@@ -244,12 +244,17 @@ test("侧栏有中英切换，浮层会跟语言", () => {
   const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
   const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
   assert.match(html, /id="captionLang"/);
+  assert.match(html, /job-pill-slot[\s\S]*id="captionLang"/);
+  assert.doesNotMatch(html, /id="captionLang"[\s\S]*job-pill-slot/);
   assert.match(html, /data-lang="zh"/);
   assert.match(html, /data-lang="en"/);
   assert.match(css, /\.lang-switch\s*\{/);
+  assert.doesNotMatch(css, /\.lang-switch\s*\{[^}]*margin-left:\s*auto/);
   assert.match(css, /html\.float-embed \.lang-switch/);
   assert.match(panel, /SET_CAPTION_LANG/);
   assert.match(panel, /function setCaptionLang/);
+  assert.match(panel, /function revealChineseIfReady/);
+  assert.match(panel, /captionLangPinned = true/);
   assert.match(panel, /canShowCaptionLang\("zh"\)/);
   assert.match(panel, /canShowCaptionLang\("en"\)/);
   assert.doesNotMatch(panel, /const onCaptions = view === "captions" && Boolean\(state\?\.cues\?\.length\)/);

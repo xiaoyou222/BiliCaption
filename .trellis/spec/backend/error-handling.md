@@ -29,7 +29,9 @@ const reply = (promise) => {
 };
 ```
 
-Callers check `result.error`. Do not throw out of the `onMessage` listener.
+Callers check `result.error`. Do not throw out of the `onMessage` listener. `GET_ASR_JOB` is sync but still goes through `reply()` like the other RPCs.
+
+Custom LLM/STT bases: `BiliCaptionProviders.assertSafeApiUrl` — `https` or `http://127.0.0.1|localhost|::1` only. Call it before any Bearer fetch (`translateChat`, sidepanel `requestPromptModel`, `stt.ensureOrigin`). Do not copy WebDAV’s blanket-https helper; local Ollama uses http.
 
 ### Chat / STT errors
 

@@ -9,6 +9,7 @@
   // 上一版扩展的 iframe 地址已经失效；同一次注入里旧事件处理器也会叠。
   // 只在接手前拆一次，之后不再由失去所有权的脚本去 remove。
   document.getElementById("bilicaption-dock")?.remove();
+  document.getElementById("bilicaption-progress-marks")?.remove();
 
   let targetRate = 1;
   let applyingRate = false;
@@ -21,10 +22,12 @@
   let hookedCleanups = [];
   let hudTimer = 0;
   let overlayCues = [];
+  let progressMarks = [];
   let lastOverlayText = "";
   let overlayOn = true;
   let captionLang = "zh";
   let overlayRo = null;
+  let progressMarksSig = "";
   const DOCK_SNAP = 26;
   const DOCK_MIN_W = 260;
   const DOCK_MIN_H = 200;
@@ -34,9 +37,18 @@
   let dockGeom = { page: null, full: null };
   let dockAlpha = 0.82;
   let preferSidebar = true;
+
+  function clampDockAlpha(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0.82;
+    return Math.min(1, Math.max(0, n));
+  }
   let dockHover = false;
   let selKey = "Shift";
   let selKeyHeld = false;
+  let cueLoop = null;
+  let cueLoopSeekAt = 0;
+  let cueLoopTimer = 0;
 
   function requestChromePanelHidden() {
     postRuntime({ type: "CLOSE_SIDE_PANEL" });
@@ -716,7 +728,7 @@
 
   function applyDockAlpha(el = document.getElementById("bilicaption-dock")) {
     if (!el) return;
-    const alpha = Math.min(1, Math.max(0.3, Number(dockAlpha) || 0.82));
+    const alpha = clampDockAlpha(dockAlpha);
     dockAlpha = alpha;
     el.style.setProperty("--bc-dock-alpha", String(alpha));
     const slider = el.querySelector(".bc-dock-alpha");
@@ -727,7 +739,7 @@
   }
 
   function setDockAlpha(value) {
-    dockAlpha = Math.min(1, Math.max(0.3, Number(value) || 0.82));
+    dockAlpha = clampDockAlpha(value);
     applyDockAlpha();
     chrome.storage.sync.set({ dockAlpha }).catch(() => {});
   }
@@ -853,7 +865,7 @@
     const alpha = document.createElement("input");
     alpha.type = "range";
     alpha.className = "bc-dock-alpha";
-    alpha.min = "30";
+    alpha.min = "0";
     alpha.max = "100";
     alpha.step = "1";
     alpha.value = String(Math.round(dockAlpha * 100));
@@ -1353,6 +1365,7 @@
     const onMeta = () => {
       if (!isCurrentScript()) return;
       applyRate(targetRate, { notify: false });
+      renderProgressMarks();
     };
     let lastSent = 0;
     const sendTime = ({ force = false } = {}) => {
@@ -1376,7 +1389,10 @@
       // seek 后即使撞上普通 timeupdate 的节流窗口，也必须把最终时间同步给侧栏。
       sendTime({ force: true });
     };
-    const onTimeUpdate = () => sendTime();
+    const onTimeUpdate = () => {
+      tickCueLoop(video);
+      sendTime();
+    };
     video.addEventListener("ratechange", onRate);
     video.addEventListener("loadedmetadata", onMeta);
     video.addEventListener("timeupdate", onTimeUpdate);
@@ -1389,22 +1405,259 @@
     });
     applyRate(targetRate, { notify: false });
     updateOverlay(video.currentTime || 0);
+    renderProgressMarks();
   }
 
   function seekTo(time) {
     const video = getVideo();
     if (!video) return;
+    cueLoopSeekAt = Date.now();
     video.currentTime = Math.max(0, Number(time) || 0);
+  }
+
+  function clearCueLoop(notifyPanel) {
+    const had = Boolean(cueLoop);
+    cueLoop = null;
+    if (cueLoopTimer) {
+      clearInterval(cueLoopTimer);
+      cueLoopTimer = 0;
+    }
+    if (had && notifyPanel) postRuntime({ type: "LOOP_ENDED" });
+  }
+
+  function startCueLoopWatch() {
+    if (cueLoopTimer) return;
+    cueLoopTimer = setInterval(() => {
+      if (!isCurrentScript() || !cueLoop) {
+        clearCueLoop();
+        return;
+      }
+      const video = getVideo();
+      if (video) tickCueLoop(video);
+    }, 50);
+  }
+
+  function tickCueLoop(video) {
+    if (!cueLoop || !video) return;
+    if (video.seeking) return;
+    if (Date.now() - cueLoopSeekAt < 220) return;
+    const t = Number(video.currentTime) || 0;
+    const from = cueLoop.from;
+    const to = cueLoop.to;
+    if (t >= to && t - to < 1.2) {
+      cueLoopSeekAt = Date.now();
+      video.currentTime = Math.max(0, from);
+      if (video.paused) video.play()?.catch(() => {});
+      return;
+    }
+    if (t < from - 0.2 || t > to + 0.35) clearCueLoop(true);
+  }
+
+  function applyCueLoop(message) {
+    const from = Number(message?.from);
+    const to = Number(message?.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+      clearCueLoop();
+      return;
+    }
+    cueLoop = { from, to };
+    startCueLoopWatch();
+    const video = getVideo();
+    if (!video) return;
+    if (message.seek) {
+      cueLoopSeekAt = Date.now();
+      video.currentTime = Math.max(0, from);
+    }
+    if (message.play && video.paused) video.play()?.catch(() => {});
+    tickCueLoop(video);
+  }
+
+  function formatMarkClock(seconds) {
+    const total = Math.max(0, Math.floor(Number(seconds) || 0));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  function getProgressHost() {
+    return (
+      document.querySelector(".bpx-player-progress") ||
+      document.querySelector(".bpx-player-progress-wrap") ||
+      document.querySelector(".squirtle-progress-wrap") ||
+      document.querySelector(".bilibili-player-video-progress")
+    );
+  }
+
+  function ensureProgressMarkStyle() {
+    let style = document.getElementById("bilicaption-progress-style");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "bilicaption-progress-style";
+      (document.head || document.documentElement).appendChild(style);
+    }
+    if (style.dataset.bcOwner === ownerToken) return;
+    style.dataset.bcOwner = ownerToken;
+    style.textContent = `
+      #bilicaption-progress-marks {
+        position: absolute;
+        inset: 0;
+        z-index: 8;
+        pointer-events: none;
+      }
+      #bilicaption-progress-marks .bc-progress-mark {
+        position: absolute;
+        top: 50%;
+        width: 8px;
+        height: 10px;
+        margin: -5px 0 0 -4px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      #bilicaption-progress-marks .bc-progress-mark::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 2px;
+        height: 7px;
+        margin: -3.5px 0 0 -1px;
+        border-radius: 1px;
+        background: #F0B84D;
+        box-shadow: 0 0 0 1px rgba(11, 12, 14, .35);
+      }
+      #bilicaption-progress-marks .bc-progress-mark:hover::after {
+        height: 9px;
+        margin-top: -4.5px;
+        background: #F5C86A;
+      }
+      #bilicaption-progress-marks .bc-progress-tip {
+        position: absolute;
+        bottom: 12px;
+        max-width: 220px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: #1A1D22;
+        color: #E7E9ED;
+        font: 11px/1.45 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        pointer-events: none;
+        transform: translateX(-50%);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
+      }
+    `;
+  }
+
+  function ensureProgressMarks() {
+    ensureProgressMarkStyle();
+    const host = getProgressHost();
+    if (!host) return null;
+    let el = document.getElementById("bilicaption-progress-marks");
+    if (el && el.parentElement !== host) {
+      el.remove();
+      el = null;
+    }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "bilicaption-progress-marks";
+      host.appendChild(el);
+    }
+    if (getComputedStyle(host).position === "static") host.style.position = "relative";
+    return el;
+  }
+
+  function setProgressMarks(list) {
+    progressMarks = Array.isArray(list) ? list : [];
+    progressMarksSig = "";
+    renderProgressMarks();
+  }
+
+  function jumpProgressMark(time) {
+    if (cueLoop && (time < cueLoop.from - 0.15 || time > cueLoop.to + 0.15)) {
+      clearCueLoop(true);
+    }
+    seekTo(time);
+  }
+
+  function renderProgressMarks() {
+    const duration = Number(getVideo()?.duration) || 0;
+    const el = ensureProgressMarks();
+    if (!el) return;
+    if (!(duration > 0) || !progressMarks.length) {
+      progressMarksSig = "";
+      el.replaceChildren();
+      return;
+    }
+    const sig = `${duration.toFixed(2)}:${progressMarks.map((m) => `${Number(m.time) || 0}:${String(m.text || "")}`).join("|")}`;
+    if (sig === progressMarksSig && el.querySelector(".bc-progress-mark")) return;
+    progressMarksSig = sig;
+    const tip = document.createElement("div");
+    tip.className = "bc-progress-tip";
+    tip.hidden = true;
+    const dots = progressMarks.map((mark) => {
+      const time = Number(mark.time) || 0;
+      const pct = Math.min(100, Math.max(0, (time / duration) * 100));
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bc-progress-mark";
+      btn.style.left = `${pct}%`;
+      const label = String(mark.text || "").trim() || formatMarkClock(time);
+      btn.setAttribute("aria-label", label);
+      const jump = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        jumpProgressMark(time);
+      };
+      btn.addEventListener("pointerdown", jump, true);
+      btn.addEventListener("click", jump, true);
+      btn.addEventListener("pointerenter", () => {
+        tip.hidden = false;
+        tip.textContent = label;
+        tip.style.left = `${pct}%`;
+      });
+      btn.addEventListener("pointerleave", () => {
+        tip.hidden = true;
+      });
+      return btn;
+    });
+    el.replaceChildren(...dots, tip);
+  }
+
+  async function pullProgressMarks() {
+    const bvid = cachedState.bvid || parsePage().bvid || "";
+    const cid = Number(cachedState.cid || parsePage().cid) || 0;
+    if (!bvid && !cid) {
+      setProgressMarks([]);
+      return;
+    }
+    try {
+      const data = await askBackground({ type: "GET_MARKERS", bvid, cid });
+      setProgressMarks(data?.markers || []);
+    } catch {
+      // 侧栏稍后会 SYNC_MARKERS
+    }
   }
 
   async function loadState() {
     const token = ++loadToken;
     const page = parsePage();
     const key = pageKey(page);
+    if (key !== lastStateKey) clearCueLoop();
     if (page.kind === "other") {
+      clearCueLoop();
       cachedState = emptyState("other");
       lastStateKey = key;
       setOverlayCues([]);
+      setProgressMarks([]);
       return cachedState;
     }
 
@@ -1440,6 +1693,7 @@
       };
       setOverlayCues(cachedState.cues);
       lastStateKey = key;
+      pullProgressMarks();
       return cachedState;
     } catch (error) {
       if (token !== loadToken || pageKey() !== key) return cachedState;
@@ -1452,6 +1706,7 @@
         canGenerate: true
       });
       lastStateKey = key;
+      pullProgressMarks();
       return cachedState;
     }
   }
@@ -1536,6 +1791,10 @@
       if (video && !video.paused) video.pause();
       return reply(Promise.resolve(snapshot()));
     }
+    if (message?.type === "LOOP_SEL") {
+      applyCueLoop(message);
+      return reply(Promise.resolve(snapshot()));
+    }
     if (message?.type === "SEEK") {
       seekTo(message.time);
       return reply(Promise.resolve(snapshot()));
@@ -1563,6 +1822,15 @@
     }
     if (message?.type === "SET_OVERLAY") {
       setOverlayVisible(message.on !== false);
+      return reply(Promise.resolve(snapshot()));
+    }
+    if (message?.type === "SYNC_MARKERS") {
+      const hasIdentity = Boolean(message.bvid || message.cid);
+      const sameVideo =
+        (!message.bvid || (cachedState.bvid && message.bvid === cachedState.bvid)) &&
+        (!message.cid || (cachedState.cid && Number(message.cid) === Number(cachedState.cid)));
+      if (!hasIdentity || !sameVideo) return reply(Promise.resolve(snapshot()));
+      setProgressMarks(message.markers || []);
       return reply(Promise.resolve(snapshot()));
     }
     if (message?.type === "SET_CAPTION_LANG") {
@@ -1673,6 +1941,7 @@
     if (!isCurrentScript()) return;
     if (event.data?.type !== "BC_SEL_KEY") return;
     if (event.source !== dockFrame()?.contentWindow) return;
+    if (event.origin !== `chrome-extension://${chrome.runtime.id}`) return;
     setSelKeyHeld(Boolean(event.data.held));
   });
   const onPlayerResize = () => {
@@ -1707,6 +1976,7 @@
       document.getElementById("bilicaption-dock")?.remove();
       document.getElementById("bilicaption-overlay")?.remove();
       document.getElementById("bilicaption-rate-hud")?.remove();
+      document.getElementById("bilicaption-progress-marks")?.remove();
       return;
     }
     const key = pageKey();
@@ -1714,6 +1984,7 @@
       notifyNav();
     }
     if (parsePage().kind !== "other") hookVideo(getVideo());
+    if (progressMarks.length) renderProgressMarks();
     if (overlayCues.length) {
       const el = document.getElementById("bilicaption-overlay");
       if (!el) updateOverlay(getVideo()?.currentTime || 0);
@@ -1748,7 +2019,7 @@
       if (!isCurrentScript()) return;
       dockGeom.page = data.dockGeomPage || null;
       dockGeom.full = data.dockGeomFull || null;
-      dockAlpha = Math.min(1, Math.max(0.3, Number(data.dockAlpha) || 0.82));
+      dockAlpha = clampDockAlpha(data.dockAlpha);
       preferSidebar = myTabId ? data[`preferSidebar:${myTabId}`] !== false : true;
       dockOpen = myTabId ? data[`dockOpen:${myTabId}`] === true && !preferSidebar : false;
       if (dockOpen || !preferSidebar) placeDock();
@@ -1765,7 +2036,7 @@
       else document.getElementById("bilicaption-dock")?.remove();
     }
     if (area === "sync" && changes.dockAlpha) {
-      dockAlpha = Math.min(1, Math.max(0.3, Number(changes.dockAlpha.newValue) || 0.82));
+      dockAlpha = clampDockAlpha(changes.dockAlpha.newValue);
       applyDockAlpha();
     }
     if (area === "sync" && (changes.dockGeomPage || changes.dockGeomFull)) {

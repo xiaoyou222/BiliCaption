@@ -36,10 +36,6 @@
         <button type="button" data-view="captions" class="active">字幕</button>
         <button type="button" data-view="outline">大纲</button>
         <button type="button" data-view="markers">标记</button>
-        <div id="captionLang" class="lang-switch hidden" role="group" aria-label="字幕语言">
-          <button type="button" data-lang="zh" class="active" aria-pressed="true">中</button>
-          <button type="button" data-lang="en" aria-pressed="false">EN</button>
-        </div>
         <div class="job-pill-slot">
           <div id="jobPill" class="job-pill hidden">
             <button id="jobPillHead" type="button" class="job-pill-head" aria-expanded="false" aria-controls="jobPillBody">
@@ -77,6 +73,10 @@
               </div>
             </div>
           </div>
+        </div>
+        <div id="captionLang" class="lang-switch hidden" role="group" aria-label="字幕语言">
+          <button type="button" data-lang="zh" class="active" aria-pressed="true">中</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
         </div>
       </div>
 
@@ -146,12 +146,14 @@
 
       <div id="cueWrap" class="cue-wrap hidden">
         <div id="cueList" class="cues"></div>
+        <div id="selKeyHint" class="sel-key-hint hidden" aria-hidden="true">划动选择字幕</div>
         <div id="cueGhosts" class="cue-ghosts hidden"></div>
       </div>
 
       <div id="selectBar" class="select-bar hidden">
         <span id="selectInfo">点两行字幕作为起止</span>
         <div class="select-actions">
+          <button id="btnLoopSel" type="button" class="btn-loop" aria-pressed="false">循环</button>
           <button id="btnCopy" type="button" class="btn-outline">复制</button>
           <button id="btnSummary" type="button" class="btn-primary">总结</button>
           <button id="btnClearSelect" type="button" class="btn-text" aria-label="取消划选">×</button>
@@ -213,6 +215,7 @@
 
   <script src="lib/thinking-orbs-engine.js"></script>
   <script src="lib/thinking-orb.js"></script>
+  <script src="lib/border-beam.js"></script>
   <script src="lib/zh-simp.js"></script>
   <script src="lib/translate.js"></script>
   <script src="lib/outline.js"></script>

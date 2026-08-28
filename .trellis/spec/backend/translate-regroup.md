@@ -166,7 +166,7 @@ Translation overwrites `cue.content` with Simplified Chinese and writes `cue.ori
 
 `loadSubtitles` / ASR cache round-trip must keep `original`. `flattenCueParts` copies `original` onto split pieces. `mergeTranslatedCues` / `preserveCueText` set `original` from the incoming English line when overlaying a previous Chinese translation.
 
-The 中 | EN control is visible **only when both Chinese and English actually exist**. Chinese-only official tracks or Chinese-only plugin ASR must not show the switch. Default `captionLang` is `"zh"`.
+The 中 | EN control is visible **only when both Chinese and English actually exist**. Chinese-only official tracks or Chinese-only plugin ASR must not show the switch. Default `captionLang` is `"zh"`. Plugin English-only ASR may temporarily show as EN; the first translated Chinese line must auto-switch to 中 (`revealChineseIfReady`) unless the user already clicked 中/EN (`captionLangPinned`). Overlay follows via `SET_CAPTION_LANG`.
 
 - Plugin ASR + translate with `cue.original`: **display-only**. Never `SWITCH_TRACK`.
 - Official Bilibili zh **and** en tracks (not plugin): 中 / EN calls `SWITCH_TRACK`. Never show the old `trackSelect` dropdown — 中/EN replaces it.

@@ -657,8 +657,33 @@ function collect() {
   };
 }
 
+function configStamp(data) {
+  return JSON.stringify({
+    sttChannels: data.sttChannels,
+    sttProvider: data.sttProvider,
+    sttModel: data.sttModel,
+    sumProvider: data.sumProvider,
+    apiBase: data.apiBase,
+    apiModel: data.apiModel,
+    translateModel: data.translateModel,
+    selKey: data.selKey,
+    summaryPad: data.summaryPad,
+    translateConcurrency: data.translateConcurrency,
+    syncOn: data.syncOn,
+    syncMarks: data.syncMarks,
+    syncConfig: data.syncConfig,
+    syncKeys: data.syncKeys,
+    davUrl: data.davUrl,
+    davUser: data.davUser,
+    davPass: data.davPass
+  });
+}
+
 async function saveSettings() {
   const data = collect();
+  if (configStamp(data) === configStamp(settings)) {
+    data.davConfigAt = Number(settings.davConfigAt) || data.davConfigAt;
+  }
   const usable = data.sttChannels.some((ch) => P.channelUsable(P.normalizeChannel(ch)));
   await Prefs.saveSettings(data);
   settings = { ...settings, ...data };

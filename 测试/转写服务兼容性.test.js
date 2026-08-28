@@ -36,6 +36,15 @@ function loadStt(fetchImpl) {
   return context;
 }
 
+test("自定义接口只允许 https，本机可用 http", () => {
+  const C = loadStt(async () => { throw new Error("不应请求网络"); });
+  const P = C.BiliCaptionProviders;
+  assert.equal(P.assertSafeApiUrl("https://api.openai.com/v1").protocol, "https:");
+  assert.equal(P.assertSafeApiUrl("http://127.0.0.1:11434/v1").hostname, "127.0.0.1");
+  assert.throws(() => P.assertSafeApiUrl("http://example.com/v1"), /https/);
+  assert.throws(() => P.assertSafeApiUrl("not-a-url"), /无效/);
+});
+
 test("转写服务商只剩 Fish Audio / Groq / OpenAI", () => {
   const C = loadStt(async () => { throw new Error("不应请求网络"); });
   assert.deepEqual(Array.from(C.BiliCaptionProviders.STT_PROVIDERS), ["Fish Audio", "Groq", "OpenAI", "ElevenLabs"]);

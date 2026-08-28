@@ -61,6 +61,44 @@ test("两边都改过则较新的赢", () => {
   assert.equal(D.decideSync(250, 300, 100), "conflict-pull");
 });
 
+test("未勾选同步 API Key 时转写通道的 key 不上云", () => {
+  const D = loadDav();
+  const payload = D.configPayload({
+    sttChannels: [{ provider: "Groq", key: "gsk_secret", model: "whisper-large-v3-turbo" }],
+    apiKey: "sk-sum",
+    backupKey: "sk-bak",
+    sttCreds: { Groq: { key: "gsk_secret" } },
+    syncKeys: false
+  });
+  assert.equal(payload.sttChannels[0].key, "");
+  assert.equal(payload.sttChannels[0].provider, "Groq");
+  assert.equal(payload.apiKey, undefined);
+  assert.equal(payload.backupKey, undefined);
+  assert.equal(payload.sttCreds, undefined);
+});
+
+test("勾选同步 API Key 时转写通道的 key 保留", () => {
+  const D = loadDav();
+  const payload = D.configPayload({
+    sttChannels: [{ provider: "Groq", key: "gsk_secret", model: "whisper-large-v3-turbo" }],
+    apiKey: "sk-sum",
+    syncKeys: true
+  });
+  assert.equal(payload.sttChannels[0].key, "gsk_secret");
+  assert.equal(payload.apiKey, "sk-sum");
+});
+
+test("回拉配置时未勾选同步 Key 会清掉通道里的 key", () => {
+  const D = loadDav();
+  const cleaned = D.stripChannelKeys([
+    { provider: "Groq", key: "gsk_secret", model: "w" },
+    { provider: "Fish Audio", key: "sk-fish", off: true }
+  ]);
+  assert.equal(cleaned[0].key, "");
+  assert.equal(cleaned[1].key, "");
+  assert.equal(cleaned[1].off, true);
+});
+
 test("回收站两边各删一条时合并保留", () => {
   const D = loadDav();
   const merged = D.mergeTrash(

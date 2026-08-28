@@ -24,8 +24,9 @@ Player time: ordinary `timeupdate` may throttle (120 ms). `seeked` must `sendTim
 
 | Direction | Examples |
 |---|---|
-| sidepanel → content | `SEEK`, `SET_CAPTION_LANG`, `SYNC_CUES` |
-| content → sidepanel | `TIME`, page identity |
+| sidepanel → content | `SEEK`, `PAUSE`, `LOOP_SEL` (选区循环；`from`/`to` 秒，缺省则关闭；可选 `seek`/`play`), `SET_CAPTION_LANG`, `SYNC_CUES`, `SYNC_MARKERS` |
+| content → sidepanel | `TIME`, page identity, `SEL_KEY_STATE` (划选键按下/松开；侧栏据此立刻点亮 `.key-armed`) |
+| content → background | `GET_MARKERS` (progress-bar dots; content cannot read `storage.local`) |
 | sidepanel → background | `LOAD_SUBTITLES`, `GENERATE_ASR`, `START_TRANSLATE`, `CLEAR_VIDEO_CACHE` |
 | background → pages | `ASR_PROGRESS`, `TRANSLATE_PROGRESS`, `APP_LOG`, `DAV_SYNCED` |
 
@@ -39,4 +40,5 @@ Float embed binds `myTabId`; non-embed uses `boundTabId`. Ignore messages for ot
 
 - Casting raw payload fields in three UIs instead of one `lib/` normalize.
 - Writing `state.currentTime` only from throttled `TIME` after a click-to-seek (click must set it immediately).
+- Switching videos without resetting `range` / `selecting` / `dragSelect` (cue index then points at the new list).
 - `executeScript` on a failed PING inside the float iframe (tears down the embed).

@@ -22,6 +22,8 @@ There is no database. Persistence is `chrome.storage.sync` (settings) and `chrom
 
 Do not put new API keys in `sync`. Add the key name to `SECRET_KEYS` if a setting is a credential.
 
+WebDAV `config.json` includes `sttChannels`. Each channel has a `key`. `configPayload` must strip those keys (and omit `sttCreds` / `apiKey` / `backupKey`) unless `syncKeys` is on. Pull must strip the same way so a previously leaked remote file cannot write keys back.
+
 ## Video and job keys (`local`)
 
 Per `bvid` + `cid`:

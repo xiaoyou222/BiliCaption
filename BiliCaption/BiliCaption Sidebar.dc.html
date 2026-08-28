@@ -27,6 +27,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 @keyframes bcCaret{0%,45%{opacity:1}50%,100%{opacity:0}}
 @keyframes bcBeamPulse{0%,100%{border-color:rgba(77,142,240,.26);box-shadow:0 0 0 0 rgba(77,142,240,0)}50%{border-color:rgba(77,142,240,.8);box-shadow:0 0 16px 0 rgba(77,142,240,.22)}}
 @keyframes bcBeamEdge{0%,100%{opacity:.2}50%{opacity:1}}
+@keyframes bcRingSpin{to{transform:rotate(360deg)}}
+@keyframes bcRingBreathe{0%,100%{opacity:.4}50%{opacity:1}}
+@keyframes bcTextShine{from{background-position:180% 0}to{background-position:-80% 0}}
 </style></helmet>
 
 <div style="height:100vh;overflow:hidden;display:flex;flex-direction:column;background:#0B0C0E">
@@ -633,6 +636,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                     <span style="{{ r.text }}">{{ r.textLabel }}</span>
                   </div>
                 </sc-for>
+                <sc-if value="{{ keyArmedHint }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:sticky;bottom:10px;display:flex;justify-content:center;pointer-events:none;z-index:2">
+                    <span style="font-size:10px;line-height:18px;color:#79ACF5;background:rgba(15,26,44,.94);border:1px solid rgba(77,142,240,.4);border-radius:20px;padding:0 10px;white-space:nowrap">{{ keyArmedLabel }}</span>
+                  </div>
+                </sc-if>
                 <div style="height:6px"></div>
               </div>
 
@@ -640,6 +648,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                 <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#1A1D22;display:flex;align-items:center;gap:7px;flex:none;flex-wrap:wrap">
                   <span style="font-size:10.5px;color:#8A9099;flex:none">{{ selStatusLabel }}</span>
                   <div style="flex:1"></div>
+                  <button style="{{ loopSelStyle }}" style-hover="border-color:rgba(77,142,240,.55);color:#79ACF5" onClick="{{ toggleLoopSel }}">{{ loopSelLabel }}</button>
                   <button style="{{ copySelBtnStyle }}" style-hover="filter:brightness(1.2)" onClick="{{ copySel }}">{{ copySelLabel }}</button>
                   <button style="border:none;background:#4D8EF0;color:#0B0C0E;font-weight:500;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:#5D9AF2" onClick="{{ summarize }}">总结</button>
                   <button style="border:none;background:transparent;color:#8A9099;font-size:12px;padding:4px 6px;border-radius:6px;cursor:pointer;flex:none" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ clearSel }}">×</button>
@@ -677,8 +686,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                         <span style="{{ mk.textStyle }}">{{ mk.textLabel }}</span>
                       </sc-if>
                     </div>
+                    <sc-if value="{{ mk.polishing }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:absolute;inset:0;border-radius:8px;animation:bcRingBreathe 1.6s ease-in-out infinite">
+                        <div style="position:absolute;inset:-1px;border-radius:9px;overflow:hidden">
+                          <div style="position:absolute;left:50%;top:50%;width:220%;aspect-ratio:1;transform:translate(-50%,-50%);background:conic-gradient(from 0deg,#4D8EF0,#B36BE8,#E8B84D,#4DD3E8,#4D8EF0);filter:blur(6px);animation:bcRingSpin 3.2s linear infinite"></div>
+                        </div>
+                        <div style="position:absolute;inset:0;border-radius:8px;overflow:hidden;background:#14171B;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 11px">
+                        <span style="position:relative;font-size:10.5px;line-height:19px;background:linear-gradient(100deg,#5C6472 34%,#DCE8FF 50%,#5C6472 66%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:bcTextShine 1.5s linear infinite">润色中…</span>
+                        </div>
+                      </div>
+                    </sc-if>
                     <div style="{{ mk.toolsStyle }}">
-                      <button style="{{ mk.editStyle }}" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ mk.onEdit }}">改</button>
+                      <button style="{{ mk.polishStyle }}" style-hover="background:rgba(77,142,240,.16);color:#79ACF5" onClick="{{ mk.onPolish }}" title="用 AI 把这条压得更短更准">AI</button>
                       <button style="{{ mk.delStyle }}" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ mk.onDelete }}">×</button>
                     </div>
                   </div>
@@ -1030,6 +1049,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                         <span style="{{ r.text }}">{{ r.textLabel }}</span>
                       </div>
                     </sc-for>
+                    <sc-if value="{{ keyArmedHint }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:sticky;bottom:10px;display:flex;justify-content:center;pointer-events:none;z-index:2">
+                        <span style="font-size:10px;line-height:18px;color:#79ACF5;background:rgba(15,26,44,.94);border:1px solid rgba(77,142,240,.4);border-radius:20px;padding:0 10px;white-space:nowrap">{{ keyArmedLabel }}</span>
+                      </div>
+                    </sc-if>
                     <div style="height:6px"></div>
                   </div>
 
@@ -1037,7 +1061,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                     <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);display:flex;align-items:center;gap:7px;flex:none;flex-wrap:wrap">
                       <span style="font-size:10.5px;color:#8A9099;flex:none">{{ selStatusLabel }}</span>
                       <div style="flex:1"></div>
-                      <button style="{{ copySelBtnStyle }}" style-hover="filter:brightness(1.2)" onClick="{{ copySel }}">{{ copySelLabel }}</button>
+                      <button style="{{ loopSelStyle }}" style-hover="border-color:rgba(77,142,240,.55);color:#79ACF5" onClick="{{ toggleLoopSel }}">{{ loopSelLabel }}</button>
+                  <button style="{{ copySelBtnStyle }}" style-hover="filter:brightness(1.2)" onClick="{{ copySel }}">{{ copySelLabel }}</button>
                       <button style="border:none;background:#4D8EF0;color:#0B0C0E;font-weight:500;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:#5D9AF2" onClick="{{ summarize }}">总结</button>
                       <button style="border:none;background:transparent;color:#8A9099;font-size:12px;padding:4px 6px;border-radius:6px;cursor:pointer;flex:none" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ clearSel }}">×</button>
                     </div>
@@ -1074,8 +1099,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                             <span style="{{ mk.textStyle }}">{{ mk.textLabel }}</span>
                           </sc-if>
                         </div>
-                        <div style="{{ mk.toolsStyle }}">
-                          <button style="{{ mk.editStyle }}" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ mk.onEdit }}">改</button>
+                        <sc-if value="{{ mk.polishing }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:absolute;inset:0;border-radius:8px;animation:bcRingBreathe 1.6s ease-in-out infinite">
+                        <div style="position:absolute;inset:-1px;border-radius:9px;overflow:hidden">
+                          <div style="position:absolute;left:50%;top:50%;width:220%;aspect-ratio:1;transform:translate(-50%,-50%);background:conic-gradient(from 0deg,#4D8EF0,#B36BE8,#E8B84D,#4DD3E8,#4D8EF0);filter:blur(6px);animation:bcRingSpin 3.2s linear infinite"></div>
+                        </div>
+                        <div style="position:absolute;inset:0;border-radius:8px;overflow:hidden;background:#14171B;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 11px">
+                        <span style="position:relative;font-size:10.5px;line-height:19px;background:linear-gradient(100deg,#5C6472 34%,#DCE8FF 50%,#5C6472 66%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:bcTextShine 1.5s linear infinite">润色中…</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                    <div style="{{ mk.toolsStyle }}">
+                          <button style="{{ mk.polishStyle }}" style-hover="background:rgba(77,142,240,.16);color:#79ACF5" onClick="{{ mk.onPolish }}" title="用 AI 把这条压得更短更准">AI</button>
                           <button style="{{ mk.delStyle }}" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ mk.onDelete }}">×</button>
                         </div>
                       </div>
@@ -1359,7 +1394,7 @@ class Component extends DCLogic {
     scenario:'sidebar', playing:true, t:66, speed:1, speedMenuOpen:false,
     loggedIn:true, userName:'夜航西飞的小猫罐头', isVip:true,
     view:'captions', showOverlay:true, lang:'zh',
-    selStart:null, selEnd:null, selMode:false, anchor:null, dragSelecting:false, dragMoved:false,
+    selStart:null, selEnd:null, selMode:false, anchor:null, dragSelecting:false, dragMoved:false, keyHeld:false, loopSel:false,
     summaryOpen:false, sumStreaming:false, sumChars:0, summaryDraft:SUMMARY_TEXT, sumEditing:false, copiedSummary:false, copiedSel:false,
     fullSummary:null, streaming:false, streamIdx:0, streamChars:0, chOpen:{},
     gen:38, chunkTotal:32, chunkDone:15, chunkSec:42, chunkFailed:[7,13], genPaused:false, chunkPanelOpen:false, moreOpen:false, toast:null, markers:[], hoverMarker:null,
@@ -1391,7 +1426,17 @@ class Component extends DCLogic {
   componentDidMount(){
     this.tick = setInterval(()=>{
       const s = this.state;
-      if(s.playing) this.setState({t:(s.t + s.speed/2) % 168});
+      if(s.playing){
+        let nt = s.t + s.speed/2;
+        if(s.loopSel && s.selStart!==null){
+          const a = Math.min(s.selStart, s.selEnd===null?s.selStart:s.selEnd);
+          const b = Math.max(s.selStart, s.selEnd===null?s.selStart:s.selEnd);
+          const t0 = LINES[a][0];
+          const t1 = b+1 < LINES.length ? LINES[b+1][0] : 168;
+          if(nt >= t1 || nt < t0) nt = t0;
+        } else nt = nt % 168;
+        this.setState({t:nt});
+      }
       if(s.scenario==='generating'){
         this.setState({gen:(s.gen+3)%100});
         if(!s.genPaused && s.chunkDone<s.chunkTotal) this.setState({chunkDone:s.chunkDone+1, transDone:s.chunkDone+1, transTotal:s.chunkTotal});
@@ -1405,6 +1450,14 @@ class Component extends DCLogic {
     },500);
     this._onMouseUp = ()=>{ if(this.state.dragSelecting) this.setState({dragSelecting:false}); };
     window.addEventListener('mouseup', this._onMouseUp);
+    const matchKey = e => { const k=this.state.selKey;
+      return (k==='Shift'&&e.shiftKey)||(k==='Alt'&&e.altKey)||(k==='Ctrl'&&e.ctrlKey)||(k==='Meta'&&e.metaKey); };
+    this._onKeyDown = e=>{ if(this.state.recordingKey) return; if(matchKey(e) && !this.state.keyHeld) this.setState({keyHeld:true}); };
+    this._onKeyUp = e=>{ if(this.state.keyHeld && !matchKey(e)) this.setState({keyHeld:false}); };
+    this._onBlurWin = ()=>{ if(this.state.keyHeld) this.setState({keyHeld:false}); };
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
+    window.addEventListener('blur', this._onBlurWin);
     this._onResize = ()=>this.recalcScale();
     window.addEventListener('resize', this._onResize);
     this.recalcScale();
@@ -1460,7 +1513,7 @@ class Component extends DCLogic {
       else { const a=Math.min(s.selStart,i), b=Math.max(s.selStart,i); this.setState({selStart:a, selEnd:b, selMode:false}); }
       return;
     }
-    this.setState({t:LINES[i][0], anchor:i, selStart:null, selEnd:null, summaryOpen:false});
+    this.setState({t:LINES[i][0], anchor:i, selStart:null, selEnd:null, summaryOpen:false, loopSel:false});
   }
   rowMouseDown(i, e){
     if(this.state.selMode) return;
@@ -1473,7 +1526,7 @@ class Component extends DCLogic {
   rowMouseEnter(i){
     const s = this.state;
     if(s.dragSelecting && s.anchor!==null && i!==s.anchor)
-      this.setState({selStart:Math.min(s.anchor,i), selEnd:Math.max(s.anchor,i), dragMoved:true, summaryOpen:false, playing:false});
+      this.setState({selStart:Math.min(s.anchor,i), selEnd:Math.max(s.anchor,i), dragMoved:true, summaryOpen:false, playing: s.loopSel ? s.playing : false});
   }
 
   genOutline(){ this.startOutlineStream(); }
@@ -1581,6 +1634,35 @@ class Component extends DCLogic {
       .map(m=>m.id===id?{...m, text:m.draft.trim(), editing:false}:m)
       .filter(m=>m.id!==id || m.draft.trim().length>0);
     this.setState({markers});
+  }
+  polishMarker(id){
+    const m = this.state.markers.find(x=>x.id===id);
+    if(!m) return;
+    if(m.polishing) return;
+    if(!m.text.trim()){ this.flash('这条还没有内容，先写点什么再润色'); return; }
+    this.setMarker(id, {polishing:true, editing:false});
+    setTimeout(()=>{
+      const cur = this.state.markers.find(x=>x.id===id);
+      if(!cur) return;
+      const out = this.condense(cur.text);
+      this.setMarker(id, {polishing:false, text:out, draft:out});
+      this.flash('已润色 · '+fmt(cur.time));
+    }, 1500);
+  }
+  setMarker(id, patch){ this.setState({markers:this.state.markers.map(m=>m.id===id?{...m, ...patch}:m)}); }
+  condense(src){
+    let t = src.replace(/[ \t\u3000\n\r]+/g,' ').replace(/(其实|就是说|然后呢|我觉得吧|那个|这个吧|反正|嗯+|啊+)/g,'');
+    t = t.replace(/([\u4e00-\u9fa5，。！？；、])\s+([\u4e00-\u9fa5，。！？；、])/g,'$1$2').trim();
+    const parts = t.split(/(?<=[。！？；.!?])/).filter(x=>x.trim());
+    let out = parts.slice(0,2).join('');
+    if(!out) out = t;
+    if(out.length>52){
+      let cut = out.slice(0,52);
+      if(/[A-Za-z0-9]/.test(out[52]||'')){ const sp = cut.lastIndexOf(' '); if(sp>30) cut = cut.slice(0,sp); }
+      out = cut.replace(/[，、,\s]+$/,'')+'。';
+    }
+    if(!/[。！？.!?]$/.test(out)) out += '。';
+    return out;
   }
   deleteMarker(id){ this.setState({markers:this.state.markers.filter(m=>m.id!==id)}); }
   jumpMarker(time){ this.setState({t:time}); }
@@ -1754,6 +1836,8 @@ class Component extends DCLogic {
       ['清理缓存', ()=>{ this.flash('已清理本视频的字幕和翻译缓存'); this.setState({scenario:'empty', moreOpen:false}); }]
     ].map(([label,fn])=>({ label, onClick:fn, style:'border:none;background:transparent;color:'+(label==='清理缓存'?'#E2637E':'#C7CBD1')+';font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap' }));
 
+    const keyArmed = hasList && s.keyHeld && s.view==='captions' && !s.selMode;
+    const keyArmedHint = keyArmed && !s.dragSelecting;
     const selCount = selActive ? Math.abs(selB-selA)+1 : 0;
     const activeChIdx = s.fullSummary ? CHAPTERS.findIndex(c=>s.t>=c.start && s.t<c.end) : -1;
     const streamSrc = s.streaming ? CHAPTERS.slice(0, s.streamIdx+1) : (s.fullSummary||[]);
@@ -1997,7 +2081,10 @@ class Component extends DCLogic {
       summaryTextareaStyle:'width:100%;box-sizing:border-box;overflow:hidden;resize:none;background:#121417;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 9px;color:#C7CBD1;font-size:11.5px;line-height:1.8;outline:none;font-family:inherit',
 
       listRef: el=>{ this._listEl = el; },
-      listBoxStyle:'flex:1 1 0;overflow:auto;padding:8px 8px 6px;min-height:0;'+(s.selMode?'cursor:crosshair;':''),
+      listBoxStyle:'position:relative;flex:1 1 0;overflow:auto;padding:8px 8px 6px;min-height:0;transition:box-shadow .14s,background .14s;'+((s.selMode||keyArmed)?'cursor:crosshair;':'')+(keyArmed?'box-shadow:inset 0 0 0 1px rgba(77,142,240,.42);background:rgba(77,142,240,.045);':''),
+      keyArmed,
+      keyArmedHint,
+      keyArmedLabel: '划动选择字幕',
       rows,
       selActive,
       selStatusLabel: selActive ? '已选 '+selCount+' 句 · '+fmt(LINES[Math.min(selA,selB)][0])+'–'+fmt(LINES[Math.max(selA,selB)][0]) : '',
@@ -2005,7 +2092,17 @@ class Component extends DCLogic {
       copySelLabel: s.copiedSel?'已复制':'复制',
       copySelBtnStyle:'border:1px solid '+(s.copiedSel?'rgba(62,207,142,.5)':'rgba(255,255,255,.16)')+';background:transparent;color:'+(s.copiedSel?'#3ECF8E':'#C7CBD1')+';font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer',
       summarize:()=>this.startSummaryStream(),
-      clearSel:()=>this.setState({selStart:null, selEnd:null, anchor:null, summaryOpen:false}),
+      clearSel:()=>this.setState({selStart:null, selEnd:null, anchor:null, summaryOpen:false, loopSel:false}),
+      loopSel: s.loopSel,
+      loopSelStyle:'border:1px solid '+(s.loopSel?'rgba(77,142,240,.55)':'rgba(255,255,255,.16)')+';background:'+(s.loopSel?'rgba(77,142,240,.16)':'transparent')+';color:'+(s.loopSel?'#79ACF5':'#C7CBD1')+';font-size:11px;line-height:20px;padding:0 10px;border-radius:6px;cursor:pointer;flex:none',
+      loopSelLabel: s.loopSel?'循环中':'循环',
+      toggleLoopSel:()=>{
+        const on = !s.loopSel;
+        if(on){
+          const a = Math.min(s.selStart, s.selEnd===null?s.selStart:s.selEnd);
+          this.setState({loopSel:true, t:LINES[a][0], playing:true});
+        } else this.setState({loopSel:false});
+      },
 
       showActionBar: !selActive,
       actions, moreOpen: s.moreOpen, toggleMore:()=>this.setState({moreOpen:!s.moreOpen}),
@@ -2024,10 +2121,11 @@ class Component extends DCLogic {
         textStyle:'display:block;font-size:11.5px;line-height:19px;color:'+(m.text?'#C7CBD1':'#8A9099')+';text-wrap:pretty',
         editing:m.editing, notEditing:!m.editing, draft:m.draft,
         inputStyle:'width:100%;box-sizing:border-box;overflow:hidden;resize:none;background:#1A1D22;border:1px solid rgba(77,142,240,.45);border-radius:7px;padding:7px 9px;color:#E7E9ED;font-size:11.5px;line-height:19px;outline:none;font-family:inherit',
-        editStyle:'border:none;background:transparent;color:#8A9099;font-size:11px;line-height:19px;padding:0 6px;border-radius:6px;cursor:pointer',
+        polishing: !!m.polishing,
+        polishStyle:'border:none;background:transparent;color:#8A9099;font-size:11px;line-height:19px;padding:0 6px;border-radius:6px;cursor:pointer',
         delStyle:'border:none;background:transparent;color:#8A9099;font-size:12px;line-height:19px;padding:0 6px;border-radius:6px;cursor:pointer',
-        onJump:()=>{ if(!m.editing) this.jumpMarker(m.time); },
-        onEdit:e=>{ e.stopPropagation(); this.editMarker(m.id); },
+        onJump:()=>{ if(!m.editing && !m.polishing) this.jumpMarker(m.time); },
+        onPolish:e=>{ e.stopPropagation(); this.polishMarker(m.id); },
         onDelete:e=>{ e.stopPropagation(); this.deleteMarker(m.id); },
         onChange:e=>this.changeMarker(m.id, e.target.value), onCommit:()=>this.commitMarker(m.id)
       })),
