@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "BiliCaption",
-  "version": "1.4.2",
-  "description": "B 站侧边栏字幕：AI/CC、多服务商生成、倍速、导出、划选总结",
+  "version": "1.5.0",
+  "description": "B 站、YouTube 和 X 视频侧边栏字幕：翻译、总结、大纲和标记",
   "action": {
     "default_title": "打开 BiliCaption 侧边栏",
     "default_icon": {
@@ -26,7 +26,16 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["sidePanel", "storage", "tabs", "scripting", "clipboardWrite", "declarativeNetRequest", "alarms"],
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "tabs",
+    "scripting",
+    "clipboardWrite",
+    "declarativeNetRequest",
+    "alarms",
+    "webRequest"
+  ],
   "minimum_chrome_version": "116",
   "host_permissions": [
     "*://*.bilibili.com/*",
@@ -43,7 +52,16 @@
     "https://api.deepseek.com/*",
     "https://open.bigmodel.cn/*",
     "https://api.moonshot.cn/*",
-    "https://openrouter.ai/*"
+    "https://openrouter.ai/*",
+    "*://www.youtube.com/*",
+    "*://youtube.com/*",
+    "*://m.youtube.com/*",
+    "*://x.com/*",
+    "*://www.x.com/*",
+    "*://twitter.com/*",
+    "*://www.twitter.com/*",
+    "https://video.twimg.com/*",
+    "https://pbs.twimg.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*"
@@ -51,9 +69,19 @@
   "content_scripts": [
     {
       "matches": [
-        "*://www.bilibili.com/*"
+        "*://www.bilibili.com/*",
+        "*://www.youtube.com/*",
+        "*://youtube.com/*",
+        "*://m.youtube.com/*",
+        "*://x.com/*",
+        "*://www.x.com/*",
+        "*://twitter.com/*",
+        "*://www.twitter.com/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "lib/视频平台.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -63,7 +91,14 @@
         "sidepanel.html"
       ],
       "matches": [
-        "*://www.bilibili.com/*"
+        "*://www.bilibili.com/*",
+        "*://www.youtube.com/*",
+        "*://youtube.com/*",
+        "*://m.youtube.com/*",
+        "*://x.com/*",
+        "*://www.x.com/*",
+        "*://twitter.com/*",
+        "*://www.twitter.com/*"
       ]
     }
   ]

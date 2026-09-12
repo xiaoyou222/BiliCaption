@@ -1,4 +1,4 @@
-importScripts("lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js", "lib/markers.js", "lib/webdav.js");
+importScripts("lib/视频平台.js", "lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js", "lib/markers.js", "lib/webdav.js");
 
 const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
@@ -49,7 +49,7 @@ function isBiliContent(sender) {
   const url = String(sender?.url || sender?.tab?.url || "");
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return host === "www.bilibili.com" || host.endsWith(".bilibili.com");
+    return host === "www.bilibili.com" || host.endsWith(".bilibili.com") || ["www.youtube.com", "youtube.com", "m.youtube.com", "x.com", "www.x.com", "twitter.com", "www.twitter.com"].includes(host);
   } catch {
     return false;
   }
@@ -198,7 +198,7 @@ function enableSidePanel(tabId) {
 
 function enableAllBiliPanels() {
   enableSidePanel();
-  chrome.tabs.query({ url: "*://*.bilibili.com/*" }, (tabs) => {
+  chrome.tabs.query({ url: ["*://*.bilibili.com/*", "*://*.youtube.com/*", "*://youtube.com/*", "*://x.com/*", "*://www.x.com/*", "*://twitter.com/*", "*://www.twitter.com/*"] }, (tabs) => {
     for (const tab of tabs) enableSidePanel(tab.id);
   });
 }
@@ -248,12 +248,12 @@ async function resumePendingTranslateJobs() {
 }
 
 function injectBiliContentScripts() {
-  chrome.tabs.query({ url: "*://*.bilibili.com/*" }, (tabs) => {
+  chrome.tabs.query({ url: ["*://*.bilibili.com/*", "*://*.youtube.com/*", "*://youtube.com/*", "*://x.com/*", "*://www.x.com/*", "*://twitter.com/*", "*://www.twitter.com/*"] }, (tabs) => {
     for (const tab of tabs) {
       if (!tab.id) continue;
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["content.js"]
+        files: ["lib/视频平台.js", "content.js"]
       }).catch(() => {});
     }
   });
@@ -1808,7 +1808,146 @@ function chunkLimitLabel(chunk) {
   return `${mb}MB / ${sec}`;
 }
 
-async function loadSubtitles(page) {
+// 页面脚本只读取当前标签页；视频身份来自真实标签页 URL。
+const youtubeCueUrls = new Map();
+chrome.webRequest?.onCompleted?.addListener((details) => {
+  if (details.tabId < 0) return;
+  const url = new URL(details.url);
+  if (!url.searchParams.get("v") || !url.searchParams.get("lang") || url.searchParams.has("tlang")) return;
+  const key = `ytCue:${details.tabId}:${url.searchParams.get("v")}:${url.searchParams.get("lang")}:${url.searchParams.get("kind") || ""}`;
+  youtubeCueUrls.set(key, details.url);
+  if (youtubeCueUrls.size > 100) youtubeCueUrls.delete(youtubeCueUrls.keys().next().value);
+  chrome.storage.session?.set({ [key]: details.url }).catch(() => {});
+}, { urls: ["https://www.youtube.com/api/timedtext*", "https://youtube.com/api/timedtext*", "https://m.youtube.com/api/timedtext*"] });
+
+const xManifestUrls = new Map();
+chrome.webRequest?.onCompleted?.addListener((details) => {
+  const match = details.url.match(/^https:\/\/video\.twimg\.com\/(?:amplify_video|ext_tw_video)\/(\d+)\/pl\/[^/]+\.m3u8(?:\?|$)/);
+  if (details.tabId < 0 || !match) return;
+  const key = `xManifest:${details.tabId}:${match[1]}`;
+  xManifestUrls.set(key, details.url);
+  if (xManifestUrls.size > 100) xManifestUrls.delete(xManifestUrls.keys().next().value);
+  chrome.storage.session?.set({ [key]: details.url }).catch(() => {});
+}, { urls: ["https://video.twimg.com/*"] });
+chrome.tabs.onRemoved?.addListener((tabId) => {
+  for (const key of youtubeCueUrls.keys()) if (key.startsWith(`ytCue:${tabId}:`)) youtubeCueUrls.delete(key);
+  for (const key of xManifestUrls.keys()) if (key.startsWith(`xManifest:${tabId}:`)) xManifestUrls.delete(key);
+  if (chrome.storage.session) chrome.storage.session.get(null).then((all) => chrome.storage.session.remove(Object.keys(all).filter((key) => (key.startsWith(`xManifest:${tabId}:`) || key.startsWith(`ytCue:${tabId}:`))))).catch(() => {});
+});
+
+async function fetchXText(url) {
+  if (!BiliCaptionPlatforms.cueUrl(url) || new URL(url).hostname !== "video.twimg.com") throw new Error("字幕地址不在允许的域名内");
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000), redirect: "error" });
+  if (!res.ok) throw new Error(`字幕请求失败（${res.status}）`);
+  const text = await res.text();
+  if (text.length > 8 * 1024 * 1024) throw new Error("字幕文件过大");
+  return text;
+}
+
+function xManifestTracks(text, url) {
+  return text.split(/\r?\n/).filter((line) => line.startsWith("#EXT-X-MEDIA:")).flatMap((line) => {
+    const attrs = Object.fromEntries([...line.matchAll(/([A-Z-]+)=(?:"([^"]*)"|([^,]*))/g)].map((m) => [m[1], m[2] ?? m[3]]));
+    if (attrs.TYPE !== "SUBTITLES" || !attrs.URI) return [];
+    const trackUrl = new URL(attrs.URI, url).href;
+    if (!BiliCaptionPlatforms.cueUrl(trackUrl)) return [];
+    return [{ lan: attrs.LANGUAGE || "und", lanDoc: attrs.NAME || attrs.LANGUAGE || "字幕", url: trackUrl, hls: true }];
+  });
+}
+
+async function readXTracks(data, tabId) {
+  if (!/^\d+$/.test(data.mediaId || "")) return data;
+  const key = `xManifest:${tabId}:${data.mediaId}`;
+  const stored = await chrome.storage.session?.get(key);
+  const url = xManifestUrls.get(key) || stored?.[key];
+  if (!url) { data.subtitleError = "尚未捕获视频字幕信息，请刷新 X 网页并播放视频后重试"; return data; }
+  const tracks = xManifestTracks(await fetchXText(url), url);
+  // HLS 全量字幕优先于 textTracks 内仅有的已播放片段。
+  if (tracks.length) data.tracks = tracks;
+  return data;
+}
+
+async function fetchXTrackCues(track) {
+  const text = await fetchXText(track.url);
+  if (!track.hls) return BiliCaptionPlatforms.parseCues(text);
+  if (!text.includes("#EXT-X-ENDLIST")) throw new Error("暂不支持直播字幕");
+  const segments = text.split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#"));
+  if (!segments.length || segments.length > 120) throw new Error("字幕分片数量异常");
+  const cues = [], seen = new Set();
+  for (const segment of segments) {
+    const raw = await fetchXText(new URL(segment, track.url).href);
+    for (const cue of BiliCaptionPlatforms.parseCues(raw)) {
+      const key = `${cue.from}:${cue.to}:${cue.content}`;
+      if (!seen.has(key)) { seen.add(key); cues.push(cue); }
+    }
+  }
+  return cues.sort((a, b) => a.from - b.from).map((cue, i) => ({ ...cue, sid: i + 1 }));
+}
+
+async function readPlatformPage(page, tabId, trackUrl = "") {
+  if (!Number.isInteger(tabId) || tabId <= 0) throw new Error("找不到视频标签页");
+  const tab = await chrome.tabs.get(tabId);
+  const actual = BiliCaptionPlatforms.parse(tab.url);
+  if (!actual || actual.kind !== page.kind || actual.videoId !== page.videoId) throw new Error("视频页面已切换");
+  if (page.kind === "x" && (!/^[1-4]$/.test(String(page.mediaIndex)) || page.bvid !== `x_${actual.videoId}_${page.mediaIndex}`)) throw new Error("视频编号无效");
+  if (page.kind === "youtube" && page.bvid !== actual.bvid) throw new Error("视频编号无效");
+  let loadedUrl = "";
+  if (page.kind === "youtube" && trackUrl) {
+    if (!BiliCaptionPlatforms.cueUrl(trackUrl)) throw new Error("字幕地址不在允许的域名内");
+    const url = new URL(trackUrl);
+    const key = `ytCue:${tabId}:${page.videoId}:${url.searchParams.get("lang")}:${url.searchParams.get("kind") || ""}`;
+    const stored = await chrome.storage.session?.get(key);
+    loadedUrl = youtubeCueUrls.get(key) || stored?.[key] || "";
+  }
+  const results = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: BiliCaptionPlatforms.readPage, args: [page, trackUrl, loadedUrl] });
+  const data = results?.[0]?.result;
+  if (!data) throw new Error("视频信息尚未就绪，请稍后刷新字幕");
+  if (page.kind === "x") {
+    try { return await readXTracks(data, tabId); }
+    catch (error) { return { ...data, subtitleError: error.message || String(error) }; }
+  }
+  return data;
+}
+
+async function fetchPlatformTrack(message, tabId) {
+  const page = message.page;
+  if (page?.kind === "youtube") {
+    const data = await readPlatformPage(page, tabId, message.url);
+    const cues = BiliCaptionPlatforms.parseCues(data.raw);
+    if (!cues.length) throw new Error("字幕轨未返回有效内容，请开启播放器字幕后重试");
+    return cues;
+  }
+  if (page?.kind === "x") {
+    const data = await readPlatformPage(page, tabId);
+    const track = data.tracks?.find((t) => t.lan === message.lan && t.url === (message.url || ""));
+    if (!track) throw new Error("字幕轨已失效，请刷新后重试");
+    if (!BiliCaptionPlatforms.cueUrl(track.url)) throw new Error("字幕尚未加载，请刷新视频页面后重试");
+    const cues = await fetchXTrackCues(track);
+    if (!cues.length) throw new Error("字幕尚未加载，请开启播放器字幕后刷新");
+    return cues;
+  }
+  return fetchCues(message.url);
+}
+
+async function loadPlatformSubtitles(page, tabId) {
+  const data = await readPlatformPage(page, tabId);
+  const tracks = (data.tracks || []).filter((t) => t.embedded || BiliCaptionPlatforms.cueUrl(t.url));
+  const cached = await loadCachedAsr(page.bvid, 1);
+  const preferred = pickDefaultTrack(tracks);
+  let cues = cached?.cues || [], error = cached?.cues?.length ? "" : data.subtitleError || "";
+  if (!cues.length && preferred) {
+    try { cues = await fetchPlatformTrack({ page, url: preferred.url, lan: preferred.lan }, tabId); }
+    catch (e) { error = e.message || String(e); }
+  }
+  return { page: "video", platform: page.kind, bvid: page.bvid, cid: 1, aid: 0,
+    title: data.title || "", up: data.up || "", pic: data.pic || "", durationMeta: data.duration || 0,
+    tracks, cues, activeLan: cached?.activeLan || preferred?.lan || "", source: cached?.source || page.kind,
+    canGenerate: false, partial: false, login: { platform: page.kind },
+    subtitleStatus: error ? "fetch_failed" : cues.length ? "" : "none", error,
+    notice: cues.length ? "" : "未发现可读取的字幕，请先开启播放器字幕后刷新；该平台暂不支持无字幕转写" };
+}
+
+async function loadSubtitles(page, tabId) {
+  if (["youtube", "x"].includes(page?.kind)) return loadPlatformSubtitles(page, tabId);
   const login = await fetchLoginStatus();
 
   if (!page || page.kind === "other") {
@@ -3642,6 +3781,7 @@ function cuesFromWords(words) {
 }
 
 async function resolveVideoMeta(input = {}) {
+  if (/^(yt_|x_)/.test(input.bvid || "")) throw new Error("该平台暂不支持无字幕音频转写");
   let aid = Number(input.aid) || 0;
   let cid = Number(input.cid) || 0;
   let bvid = input.bvid || "";
@@ -3973,7 +4113,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "LOAD_SUBTITLES") {
-    return reply(loadSubtitles(message.page));
+    return reply(loadSubtitles(message.page, tabId));
   }
   if (message?.type === "GET_LOGIN") {
     return reply(fetchLoginStatus());
@@ -4054,7 +4194,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "FETCH_CUES") {
     return reply(
-      fetchCues(message.url)
+      fetchPlatformTrack(message, tabId)
         .then((cues) => ({ cues }))
         .catch((error) => ({
           error: error.message || String(error),

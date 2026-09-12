@@ -589,6 +589,16 @@ function isVip(login) {
 }
 
 function renderLogin(login) {
+  if (["youtube", "x"].includes(login?.platform)) {
+    lastLogin = login;
+    ui.loginLabel.textContent = login.platform === "youtube" ? "YouTube" : "X";
+    ui.loginDot.className = "login-dot";
+    ui.header.classList.remove("warn");
+    show(ui.userName, false);
+    show(ui.vipChip, false);
+    show(ui.loginLabel, true);
+    return;
+  }
   lastLogin = login || lastLogin;
   const data = lastLogin;
   const loggedIn = Boolean(data?.isLogin);
@@ -1050,7 +1060,7 @@ function exportMarkers(kind) {
   if (kind === "md") {
     const name = `${fileBase()}-marks.md`;
     downloadText(name, M.toMarkdown(entry, markers));
-    flash(`已保存 ${name} · 时间戳带 ?t= 可跳回 B 站`);
+    flash(`已保存 ${name} · 时间戳链接可打开原视频`);
   } else {
     const name = `${fileBase()}-marks.csv`;
     downloadText(name, M.toCsv(entry, markers));
@@ -2995,8 +3005,10 @@ function renderState(next) {
     ui.emptyTitle.textContent = fetchFailed ? "没拿到字幕列表" : "这个视频没有字幕";
   }
   show(ui.emptyView, isEmpty);
-  if (ui.emptyFetchHint) show(ui.emptyFetchHint, fetchFailed);
-  if (isEmpty) show(ui.emptyKeyHint, !hasSttKey);
+  if (ui.emptyFetchHint) show(ui.emptyFetchHint, fetchFailed || (isEmpty && next.canGenerate === false));
+  show(ui.btnGenerateEmpty, next.canGenerate !== false);
+  if (isEmpty && next.canGenerate === false && ui.emptyTitle) ui.emptyTitle.textContent = next.error || next.notice || "未发现可读取的字幕，请开启播放器字幕后刷新";
+  if (isEmpty) show(ui.emptyKeyHint, !hasSttKey && next.canGenerate !== false);
   else show(ui.emptyKeyHint, false);
 
   show(ui.generatingView, false);
@@ -3007,13 +3019,13 @@ function renderState(next) {
   if (noScript) {
     errorMode = "refresh";
     show(ui.errorView, true);
-    ui.errorTitle.textContent = "请刷新这个 B 站标签页";
+    ui.errorTitle.textContent = "请刷新这个视频标签页";
     ui.errorPrimary.textContent = "刷新";
     show(ui.emptyView, false);
   } else if (showNetLogin) {
     errorMode = "retryState";
     show(ui.errorView, true);
-    ui.errorTitle.textContent = "无法确认登录状态，请检查网络后重试";
+    ui.errorTitle.textContent = ["youtube", "x"].includes(next.platform) ? (next.error || "字幕请求失败，请刷新后重试") : "无法确认登录状态，请检查网络后重试";
     ui.errorPrimary.textContent = "重试";
   } else if (showLoginEmpty) {
     errorMode = "login";
@@ -3083,7 +3095,7 @@ function renderState(next) {
 
   if (onCaptions) {
     const generated = next.source === "groq" || next.activeLan === "groq-asr";
-    show(ui.btnGenerate, !next.partial);
+    show(ui.btnGenerate, !next.partial && next.canGenerate !== false);
     ui.btnGenerate.textContent = generating ? "转写中" : generated ? "重新生成" : "生成字幕";
     ui.btnGenerate.disabled = generating;
     if (typeof next.overlayOn === "boolean") overlayOn = next.overlayOn;
@@ -3104,6 +3116,11 @@ async function refreshLoginOnly() {
 }
 
 function tabVideoChanged(tabUrl) {
+  const site = BiliCaptionPlatforms.platform(tabUrl || "");
+  if (state?.page === "video" && site !== (state.platform || "bilibili")) return true;
+  const external = BiliCaptionPlatforms.parse(tabUrl || "");
+  if (external?.kind === "other" && state?.page === "video") return true;
+  if (external?.kind === "x" && !external.explicitMedia && state?.bvid?.startsWith(`x_${external.videoId}_`)) return false;
   const bvid = extractBvidFromUrl(tabUrl || "");
   const epId = extractEpIdFromUrl(tabUrl || "");
   if (bvid && state?.bvid && bvid !== state.bvid) return true;
@@ -3131,7 +3148,7 @@ async function refresh(force = false) {
     const switched = tabVideoChanged(tab?.url || "");
     if ((outlineLoading || generating || translating) && !force && !switched) return;
     if (switched) stopJobsForVideoSwitch();
-    if (!tab?.url?.includes("bilibili.com")) {
+    if (!BiliCaptionPlatforms.platform(tab?.url || "")) {
       renderState({ page: "other" });
       await refreshLoginOnly();
       return;
@@ -3141,7 +3158,7 @@ async function refresh(force = false) {
     const asrOn = await attachRunningAsr(next);
     const trOn = await attachRunningTranslate(next);
     if (asrOn || trOn) renderState(state || next);
-    if (!next?.login) await refreshLoginOnly();
+    if (!next?.login && BiliCaptionPlatforms.platform(tab.url) === "bilibili") await refreshLoginOnly();
   } catch (error) {
     renderState({ page: "no-script", error: error.message });
     await refreshLoginOnly();
@@ -3149,6 +3166,8 @@ async function refresh(force = false) {
 }
 
 function extractBvidFromUrl(url = "") {
+  const external = globalThis.BiliCaptionPlatforms?.parse(url);
+  if (external) return external.bvid || "";
   const fromPath = url.match(/\/video\/(BV[\w]+)/i)?.[1];
   if (fromPath) return fromPath;
   try {
@@ -3167,6 +3186,7 @@ function extractSeasonIdFromUrl(url = "") {
 }
 
 async function generateSubtitles() {
+  if (state?.canGenerate === false) { flash("该平台暂不支持无字幕音频转写"); return; }
   if (generating) return;
 
   const sttSettings = await BiliCaptionPrefs.loadSettings({
@@ -4254,7 +4274,7 @@ $("btnClearCache")?.addEventListener("click", async () => {
   outline = null;
   lastRenderKey = "";
   await refresh(true).catch(() => renderState({ page: "video" }));
-  if (state?.cues?.length && state.source === "bilibili") {
+  if (state?.cues?.length && ["bilibili", "youtube", "x"].includes(state.source)) {
     flash("已清理转写、翻译和大纲缓存，已重新加载官方字幕");
   } else {
     flash("已清理本视频的转写、翻译和大纲缓存");

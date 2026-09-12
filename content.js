@@ -16,6 +16,7 @@
   let lastHref = location.href;
   let lastStateKey = "";
   let loadToken = 0;
+  let loadingPageKey = "";
   let myTabId = 0;
   let cachedState = emptyState("loading");
   let hookedVideo = null;
@@ -164,6 +165,21 @@
   }
 
   function parsePage() {
+    const external = globalThis.BiliCaptionPlatforms?.parse(location.href);
+    if (external) {
+      if (external.kind === "x") {
+        const selected = BiliCaptionPlatforms.xSelection(document, external);
+        external.mediaIndex = selected.mediaIndex;
+        external.bvid = `x_${external.videoId}_${selected.mediaIndex}`;
+        if (selected.video) {
+          for (const video of document.querySelectorAll('video[data-bilicaption-video-key]')) {
+            if (video !== selected.video) delete video.dataset.bilicaptionVideoKey;
+          }
+          selected.video.dataset.bilicaptionVideoKey = external.bvid;
+        }
+      }
+      return external;
+    }
     const path = location.pathname;
     const search = new URLSearchParams(location.search);
     const hint = readPageIdentity();
@@ -195,6 +211,7 @@
   }
 
   function pageKey(page = parsePage()) {
+    if (["youtube", "x"].includes(page.kind)) return page.bvid;
     if (page.kind === "video") return `video:${page.bvid}:${page.p || 1}`;
     if (page.kind === "bangumi") {
       if (page.epId) return `ep:${page.epId}`;
@@ -276,6 +293,10 @@
   }
 
   function getVideo() {
+    const external = globalThis.BiliCaptionPlatforms?.parse(location.href);
+    if (external?.kind === "x") return BiliCaptionPlatforms.xSelection(document, external).video;
+    if (external?.platform === "youtube") return document.querySelector("#movie_player video");
+    if (external) return null;
     const videos = [...document.querySelectorAll("video")].filter((el) => el.offsetWidth > 80);
     if (!videos.length) return document.querySelector("video");
     return videos.sort((a, b) => b.offsetWidth * b.offsetHeight - a.offsetWidth * a.offsetHeight)[0];
@@ -320,6 +341,9 @@
   }
 
   function getPlayerHost() {
+    const external = globalThis.BiliCaptionPlatforms?.platform(location.href);
+    if (external === "youtube") return document.querySelector("#movie_player") || document.body;
+    if (external === "x") return getVideo()?.closest('[data-testid="videoPlayer"]') || getVideo()?.parentElement || document.body;
     return (
       document.querySelector(".bpx-player-video-area") ||
       document.querySelector(".bpx-player-container") ||
@@ -1338,11 +1362,21 @@
     hookedVideo = null;
   }
 
+  let initialXSeekKey = "";
+  function applyXLinkTime(video) {
+    const page = parsePage();
+    if (page.kind !== "x" || initialXSeekKey === page.bvid || !video || !Number.isFinite(video.duration)) return;
+    const raw = new URLSearchParams(location.search).get("t");
+    const time = Number(raw);
+    if (raw && Number.isFinite(time) && time >= 0) video.currentTime = Math.min(time, video.duration);
+    initialXSeekKey = page.bvid;
+  }
   function hookVideo(video) {
     if (!video) {
       unhookVideo();
       return;
     }
+    applyXLinkTime(video);
     if (hookedVideo === video) return;
     unhookVideo();
     hookedVideo = video;
@@ -1365,6 +1399,7 @@
     const onMeta = () => {
       if (!isCurrentScript()) return;
       applyRate(targetRate, { notify: false });
+      applyXLinkTime(video);
       renderProgressMarks();
     };
     let lastSent = 0;
@@ -1482,6 +1517,8 @@
   }
 
   function getProgressHost() {
+    if (BiliCaptionPlatforms.platform(location.href) === "youtube") return document.querySelector("#movie_player .ytp-progress-bar");
+    if (BiliCaptionPlatforms.platform(location.href) === "x") return getVideo()?.closest('[data-testid="videoPlayer"]')?.querySelector('[role="slider"][aria-label*="Seek"], [role="slider"][aria-label*="进度"], [data-testid="progressBar"]') || null;
     return (
       document.querySelector(".bpx-player-progress") ||
       document.querySelector(".bpx-player-progress-wrap") ||
@@ -1651,7 +1688,14 @@
     const token = ++loadToken;
     const page = parsePage();
     const key = pageKey(page);
-    if (key !== lastStateKey) clearCueLoop();
+    if (key !== lastStateKey) {
+      clearCueLoop();
+      if (["youtube", "x"].includes(page.kind)) {
+        setOverlayCues([]);
+        setProgressMarks([]);
+        cachedState = emptyState("loading", { bvid: page.bvid, cid: 1, platform: page.kind, canGenerate: false });
+      }
+    }
     if (page.kind === "other") {
       clearCueLoop();
       cachedState = emptyState("other");
@@ -1661,6 +1705,7 @@
       return cachedState;
     }
 
+    loadingPageKey = key;
     try {
       const data = await askBackground({ type: "LOAD_SUBTITLES", page });
       if (token !== loadToken || pageKey() !== key) return cachedState;
@@ -1669,6 +1714,8 @@
 
       cachedState = {
         page: data.page || "video",
+        platform: data.platform || "bilibili",
+        notice: data.notice || "",
         bvid: data.bvid || page.bvid || "",
         aid: Number(data.aid) || 0,
         cid: Number(data.cid || page.cid) || 0,
@@ -1703,22 +1750,28 @@
         aid: Number(pageInfo.aid) || 0,
         cid: Number(pageInfo.cid) || 0,
         error: error.message || String(error),
-        canGenerate: true
+        platform: pageInfo.platform || "bilibili",
+        canGenerate: !["youtube", "x"].includes(pageInfo.kind)
       });
       lastStateKey = key;
       pullProgressMarks();
       return cachedState;
+    } finally {
+      if (token === loadToken) loadingPageKey = "";
     }
   }
 
   async function switchTrack(lan) {
     const track = cachedState.tracks.find((item) => item.lan === lan);
     if (!track) return cachedState;
-    const data = await askBackground({ type: "FETCH_CUES", url: track.url });
+    const key = pageKey();
+    const data = await askBackground({ type: "FETCH_CUES", url: track.url, lan: track.lan, page: parsePage() });
+    if (pageKey() !== key) return cachedState;
+    if (data.error) { cachedState.error = data.error; return cachedState; }
     cachedState.cues = data.cues || [];
     cachedState.activeLan = track.lan;
-    cachedState.source = "bilibili";
-    cachedState.error = data.error || "";
+    cachedState.source = cachedState.platform || "bilibili";
+    cachedState.error = "";
     setOverlayCues(cachedState.cues);
     return cachedState;
   }
@@ -1860,7 +1913,7 @@
         : (message.cues || []);
       cachedState.activeLan = keepTranslation ? "translated" : (message.activeLan || "groq-asr");
       cachedState.source = keepTranslation ? "translated" : (message.source || "groq");
-      cachedState.canGenerate = true;
+      cachedState.canGenerate = !["youtube", "x"].includes(parsePage().kind);
       cachedState.partial = Boolean(message.partial);
       cachedState.error = "";
       setOverlayCues(cachedState.cues);
@@ -1908,7 +1961,7 @@
             : (data.cues || []);
           cachedState.activeLan = keepTranslation ? "translated" : (data.activeLan || "groq-asr");
           cachedState.source = keepTranslation ? "translated" : (data.source || "groq");
-          cachedState.canGenerate = true;
+          cachedState.canGenerate = !["youtube", "x"].includes(parsePage().kind);
           cachedState.partial = false;
           cachedState.error = "";
           setOverlayCues(cachedState.cues);
@@ -1980,7 +2033,7 @@
       return;
     }
     const key = pageKey();
-    if (location.href !== lastHref || (key !== lastStateKey && parsePage().kind !== "other")) {
+    if (key !== loadingPageKey && (location.href !== lastHref || (key !== lastStateKey && parsePage().kind !== "other"))) {
       notifyNav();
     }
     if (parsePage().kind !== "other") hookVideo(getVideo());

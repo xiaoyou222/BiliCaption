@@ -521,7 +521,7 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.match(content, /CLOSE_FLOAT/);
   assert.match(panel, /type: "CLOSE_FLOAT"/);
   assert.match(background, /function injectBiliContentScripts/);
-  assert.match(background, /files:\s*\["content\.js"\]/);
+  assert.match(background, /files:\s*\["lib\/视频平台\.js",\s*"content\.js"\]/);
   assert.match(content, /data-bilicaption-owner/);
   assert.match(content, /OWNER_ATTR/);
   assert.doesNotMatch(content, /window\.__BILI_CAPTION_GEN__/);

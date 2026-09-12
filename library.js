@@ -97,7 +97,7 @@ async function refresh() {
 }
 
 async function fillMissingCovers(videos) {
-  const need = (videos || []).filter((v) => v.bvid && !String(v.pic || "").trim());
+  const need = (videos || []).filter((v) => /^BV/.test(v.bvid || "") && !String(v.pic || "").trim());
   if (!need.length) return false;
   let changed = false;
   await Promise.all(need.slice(0, 24).map(async (v) => {
