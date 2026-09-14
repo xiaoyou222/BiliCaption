@@ -1813,8 +1813,8 @@ const youtubeCueUrls = new Map();
 chrome.webRequest?.onCompleted?.addListener((details) => {
   if (details.tabId < 0) return;
   const url = new URL(details.url);
-  if (!url.searchParams.get("v") || !url.searchParams.get("lang") || url.searchParams.has("tlang")) return;
-  const key = `ytCue:${details.tabId}:${url.searchParams.get("v")}:${url.searchParams.get("lang")}:${url.searchParams.get("kind") || ""}`;
+  if (!url.searchParams.get("v") || !url.searchParams.get("lang")) return;
+  const key = `ytCue:${details.tabId}:${url.searchParams.get("v")}:${url.searchParams.get("lang")}:${url.searchParams.get("kind") || ""}:${url.searchParams.get("tlang") || ""}`;
   youtubeCueUrls.set(key, details.url);
   if (youtubeCueUrls.size > 100) youtubeCueUrls.delete(youtubeCueUrls.keys().next().value);
   chrome.storage.session?.set({ [key]: details.url }).catch(() => {});
@@ -1894,9 +1894,10 @@ async function readPlatformPage(page, tabId, trackUrl = "") {
   if (page.kind === "youtube" && trackUrl) {
     if (!BiliCaptionPlatforms.cueUrl(trackUrl)) throw new Error("字幕地址不在允许的域名内");
     const url = new URL(trackUrl);
-    const key = `ytCue:${tabId}:${page.videoId}:${url.searchParams.get("lang")}:${url.searchParams.get("kind") || ""}`;
-    const stored = await chrome.storage.session?.get(key);
-    loadedUrl = youtubeCueUrls.get(key) || stored?.[key] || "";
+    const key = `ytCue:${tabId}:${page.videoId}:${url.searchParams.get("lang")}:${url.searchParams.get("kind") || ""}:${url.searchParams.get("tlang") || ""}`;
+    const originalKey = key.slice(0, key.lastIndexOf(":")) + ":";
+    const stored = await chrome.storage.session?.get([key, originalKey]);
+    loadedUrl = youtubeCueUrls.get(key) || stored?.[key] || youtubeCueUrls.get(originalKey) || stored?.[originalKey] || "";
   }
   const results = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: BiliCaptionPlatforms.readPage, args: [page, trackUrl, loadedUrl] });
   const data = results?.[0]?.result;

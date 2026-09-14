@@ -123,3 +123,47 @@ test('切换视频时清掉旧字幕，旧异步响应不能覆盖新视频', as
   assert.equal(c.cachedState.cues[0].content,'新结果');
   assert.equal(c.loadingPageKey,'');
 });
+
+function youtubeTranslationFixture({ translatable = true, chinese = false, languages = ['zh-Hans'] } = {}) {
+  const base = 'https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=en&kind=asr&signature=test';
+  const tracks = [{baseUrl:base,languageCode:'en',kind:'asr',isTranslatable:translatable}];
+  if (chinese) tracks.push({baseUrl:base.replace('lang=en','lang=zh-Hans'),languageCode:'zh-Hans'});
+  const player = {classList:{contains:()=>false},getPlayerResponse:()=>({videoDetails:{videoId:'aircAruvnKk'},captions:{playerCaptionsTracklistRenderer:{captionTracks:tracks,translationLanguages:languages.map(languageCode=>({languageCode}))}}})};
+  const requests=[];
+  const c=vm.createContext({URL,AbortSignal,location:{hostname:'www.youtube.com',href:'https://www.youtube.com/watch?v=aircAruvnKk'},window:{},document:{querySelector:()=>null,getElementById:()=>player},fetch:async(url)=>{requests.push(new URL(url));return {ok:true,text:async()=>JSON.stringify({events:[{tStartMs:0,dDurationMs:1000,segs:[{utf8:new URL(url).searchParams.has('tlang')?'你好':'Hello'}]}]})};}});
+  vm.runInContext(fs.readFileSync(path.join(root,'lib/视频平台.js'),'utf8'),c);
+  return {read:c.BiliCaptionPlatforms.readPage,page:P.parse('https://www.youtube.com/watch?v=aircAruvnKk'),requests,base};
+}
+
+test('YouTube 可翻译英文轨生成中文选项，并真实携带目标语言请求', async () => {
+  const f=youtubeTranslationFixture();
+  const data=await f.read(f.page);
+  assert.equal(data.tracks.length,2);
+  const zh=data.tracks.find(t=>t.lan==='zh-Hans');
+  assert.equal(zh.autoTranslated,true);
+  const result=await f.read(f.page,zh.url,f.base+'&pot=original-token');
+  assert.equal(P.parseCues(result.raw)[0].content,'你好');
+  assert.equal(f.requests[0].searchParams.get('tlang'),'zh-Hans');
+  assert.equal(f.requests[0].searchParams.get('pot'),'original-token');
+});
+
+test('中文原生轨优先，不可翻译或未声明中文时不虚构中文轨', async () => {
+  for (const options of [{chinese:true},{translatable:false},{languages:['fr']}]) {
+    const f=youtubeTranslationFixture(options);
+    const data=await f.read(f.page);
+    assert.equal(data.tracks.filter(t=>t.autoTranslated).length,0);
+  }
+});
+
+test('中文请求复用同语言播放器令牌，英文切换不能被中文污染', async () => {
+  const f=youtubeTranslationFixture();
+  const data=await f.read(f.page);
+  const zh=data.tracks.find(t=>t.autoTranslated);
+  await f.read(f.page,zh.url,zh.url+'&pot=chinese-token');
+  assert.equal(f.requests[0].searchParams.get('pot'),'chinese-token');
+  const en=await f.read(f.page,f.base,zh.url+'&pot=chinese-token');
+  assert.equal(P.parseCues(en.raw)[0].content,'Hello');
+  assert.equal(f.requests[1].searchParams.has('tlang'),false);
+  assert.equal(f.requests[1].searchParams.has('pot'),false);
+  await assert.rejects(f.read(f.page,zh.url.replace('tlang=zh-Hans','tlang=fr')),/失效/);
+});

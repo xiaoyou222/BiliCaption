@@ -366,3 +366,21 @@ if (process.env.BILICAPTION_LIVE_X === '1') test('实网：Cursor 示例的 X �
   assert.ok(data.cues.every(c=>!c.content.includes('<X-word-ms')));
   console.log(`X 实网字幕：${data.cues.length} 条，${data.cues[0].from}–${data.cues.at(-1).to} 秒`);
 });
+
+test('YouTube 默认选自动翻译中文，按目标语言隔离捕获地址', async () => {
+  const base='https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=en&kind=asr';
+  const calls=[];
+  const bg=loadBackground(()=>{throw Error('不应调用模型或B站');},{url:'https://www.youtube.com/watch?v=aircAruvnKk',readPage:async(_page,url,loaded)=>{
+    if (!url) return {tracks:[{lan:'en-auto',url:base},{lan:'zh-Hans',lanDoc:'中文（YouTube 自动翻译）',url:base+'&tlang=zh-Hans'}]};
+    calls.push({url,loaded});
+    return {raw:JSON.stringify({events:[{tStartMs:0,dDurationMs:1000,segs:[{utf8:url.includes('tlang=')?'中文':'English'}]}]})};
+  }});
+  vm.runInContext(`youtubeCueUrls.set('ytCue:1:aircAruvnKk:en:asr:zh-Hans', ${JSON.stringify(base+'&tlang=zh-Hans&pot=zh')}); youtubeCueUrls.set('ytCue:1:aircAruvnKk:en:asr:', ${JSON.stringify(base+'&pot=en')})`,bg);
+  const page=bg.BiliCaptionPlatforms.parse('https://www.youtube.com/watch?v=aircAruvnKk');
+  const data=await bg.loadSubtitles(page,1);
+  assert.equal(data.activeLan,'zh-Hans');
+  assert.equal(data.cues[0].content,'中文');
+  assert.ok(calls[0].loaded.endsWith('pot=zh'));
+  await bg.fetchPlatformTrack({page,url:base},1);
+  assert.ok(calls[1].loaded.endsWith('pot=en'));
+});

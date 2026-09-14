@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BiliCaption",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "B 站、YouTube 和 X 视频侧边栏字幕：翻译、总结、大纲和标记",
   "action": {
     "default_title": "打开 BiliCaption 侧边栏",
