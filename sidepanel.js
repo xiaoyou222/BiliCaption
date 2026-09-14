@@ -593,6 +593,7 @@ function renderLogin(login) {
     lastLogin = login;
     ui.loginLabel.textContent = login.platform === "youtube" ? "YouTube" : "X";
     ui.loginDot.className = "login-dot";
+    show(ui.loginDot, false);
     ui.header.classList.remove("warn");
     show(ui.userName, false);
     show(ui.vipChip, false);
@@ -603,6 +604,7 @@ function renderLogin(login) {
   const data = lastLogin;
   const loggedIn = Boolean(data?.isLogin);
   ui.loginDot.className = `login-dot ${loggedIn ? "ok" : "warn"}`;
+  show(ui.loginDot, true);
   ui.header.classList.toggle("warn", !loggedIn);
 
   const unknown = !data;
