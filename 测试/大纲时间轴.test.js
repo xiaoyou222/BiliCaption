@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { contentSource, panelSource, runFile } = require("./源码加载.js");
 
 const root = path.resolve(__dirname, "..");
 
@@ -11,7 +12,7 @@ function loadOutline() {
   context.self = context;
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root, "lib/outline.js"), "utf8"), context);
+  for (const file of ["lib/字幕工具.js", "lib/outline.js"]) runFile(context, file);
   return context.BiliCaptionOutline;
 }
 
@@ -137,7 +138,10 @@ test("大纲提示词要求输出序号而不是秒数", () => {
   const O = loadOutline();
   const prompt = O.buildOutlinePrompt(cues(2, 10));
   assert.match(prompt, /from \/ to 必须是字幕行的序号/);
-  assert.match(prompt, /1\t0\.0\t10\.0\tcue 1/);
+  // 行格式只留序号、开始秒和文本：结束秒对模型没用，省 token
+  assert.match(prompt, /^1\t0\.0\tcue 1$/m);
+  assert.match(prompt, /每行格式：序号<TAB>开始秒<TAB>文本/);
+  assert.doesNotMatch(prompt, /结束秒/);
   assert.match(prompt, /字段顺序必须是 summary、chapters/);
   assert.match(prompt, /80-150/);
 });
@@ -322,8 +326,8 @@ test("流式解析能收嵌套小节，半截对象也能出章", () => {
 test("侧栏有简略详情切换和章节小节结构", () => {
   const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
-  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+  const panel = panelSource();
+  const content = contentSource();
   assert.match(html, /id="outlineMeta"/);
   assert.match(html, /data-density="brief"/);
   assert.match(html, /data-density="detail"/);

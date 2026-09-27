@@ -438,7 +438,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 
   <sc-if value="{{ isSidebarCarrier }}" hint-placeholder-val="{{ true }}">
     <div style="display:flex;flex-direction:column;gap:8px;align-self:center">
-      <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8A9099">{{ frameLabel }}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8A9099">{{ frameLabel }}</span>
+        <div style="flex:1;min-width:8px"></div>
+        <span style="font-size:10px;color:#5C6472;flex:none">来源</span>
+        <sc-for list="{{ siteTabs }}" as="st" hint-placeholder-count="3"><button style="{{ st.style }}" style-hover="filter:brightness(1.2)" onClick="{{ st.onClick }}">{{ st.label }}</button></sc-for>
+      </div>
       <div style="{{ sidebarWrapStyle }}">
       <div style="{{ sidebarInnerStyle }}">
         <div style="flex:1;min-width:0;position:relative;background:#0B0C0E;padding:28px;overflow:hidden">
@@ -460,12 +465,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
         <div style="{{ sidebarPanelStyle }}">
           <div style="display:flex;align-items:center;gap:6px;padding:2px 12px 0;height:36px;flex:none;border-bottom:1px solid rgba(255,255,255,.08)">
             <sc-if value="{{ loggedIn }}" hint-placeholder-val="{{ true }}">
-              <span style="width:6px;height:6px;border-radius:50%;background:#3ECF8E;flex:none"></span>
-              <sc-if value="{{ upVisible }}" hint-placeholder-val="{{ true }}">
-                <span style="font-size:10.5px;line-height:18px;color:#8A9099;flex:none;max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ userName }}</span>
+              <sc-if value="{{ siteIsB }}" hint-placeholder-val="{{ true }}">
+                <svg viewBox="0 0 1024 1024" width="18" height="18" style="flex:none;display:block"><rect x="178" y="352" width="668" height="452" rx="78" fill="#FFFFFF"></rect><path d="M278.8864 148.1728c14.336-8.192 32.6144-9.3696 47.8208-2.6624 11.3664 4.6592 19.968 13.824 29.184 21.6064 38.144 32.9216 75.9808 66.304 114.2784 99.0208h80.4352c38.2976-32.768 76.0832-66.048 114.2272-98.9696 9.2672-7.7824 17.8688-16.896 29.2864-21.6576 14.7456-6.5024 32.4608-5.632 46.592 2.048 16.5888 8.5504 28.1088 26.2656 28.8256 44.9536 1.024 13.568-3.84 27.2896-12.3392 37.7856-7.5264 8.3456-16.5376 15.2064-24.8832 22.6816-5.3248 4.4032-10.1376 9.5232-16.0256 13.2096 23.6544 0 47.2576-0.256 70.912 0.1536 31.1296 0.8192 61.44 14.592 82.8928 37.1712 22.6304 22.2208 35.5328 53.5552 35.4816 85.1968 0.1024 108.4416 0 216.9344 0.0512 325.376-0.1024 16.384 0.8192 33.024-2.816 49.152-6.656 32.9728-28.8256 61.5936-56.9856 79.36a121.344 121.344 0 0 1-64.7168 17.7664H263.2704c-16.9984-0.1024-34.2528 0.8704-50.9952-2.8672-32.1024-6.4512-60.0064-27.648-77.824-54.6304a121.088 121.088 0 0 1-19.2512-66.9696v-321.536c0.1024-16.5376-0.9216-33.1776 2.4576-49.408 10.24-52.9408 58.9312-96.1024 112.9984-98.4576 24.6272-0.768 49.3056-0.2048 73.9328-0.3072-11.6224-8.3968-21.8112-18.5344-32.768-27.7504a55.04 55.04 0 0 1-20.5312-45.9264c0.7168-18.2272 11.6736-35.584 27.648-44.3392m-13.056 221.7984c-20.992 3.7376-38.912 20.3264-44.7488 40.7552a76.4928 76.4928 0 0 0-2.3552 21.7088c0.1024 89.0368-0.0512 178.0736 0.0512 267.1616-0.4096 24.2176 16.3328 47.1552 39.1168 54.8864 8.1408 2.9696 16.896 3.0208 25.3952 3.072 153.1904-0.1024 306.432 0.0512 459.6224-0.0512 22.4768 0.8704 44.0832-13.1072 53.5552-33.28 5.7856-11.5712 5.6832-24.7296 5.4784-37.376v-248.832c0-9.1136 0.3072-18.4832-2.304-27.2896a58.7776 58.7776 0 0 0-36.864-38.656c-9.7792-3.584-20.4288-3.0208-30.6688-3.072H292.5056c-8.8576 0-17.8176-0.3072-26.624 0.9728z" fill="#1296DB"></path><path d="M358.7072 455.5264c14.6432-1.4848 29.8496 3.2768 41.0112 12.8 12.4416 10.24 19.5584 26.112 19.7632 42.1376 0.3584 19.4048 0.1024 38.8608 0.1024 58.2656 0 12.8-3.3792 25.8048-11.3152 35.9424a54.9888 54.9888 0 0 1-48.4864 21.76 54.9376 54.9376 0 0 1-44.032-28.2624c-6.8096-11.6736-7.3728-25.4976-7.168-38.6048 0.4096-18.8416-1.024-37.7856 0.8704-56.576a55.296 55.296 0 0 1 49.2544-47.4624z m292.4544 0a55.2448 55.2448 0 0 1 60.7232 53.0432c0.8192 18.2272 0.1024 36.4544 0.4096 54.6816 0.1024 12.8-1.4336 26.112-8.4992 37.12-10.24 17.0496-30.3104 27.5456-50.176 26.112a55.04 55.04 0 0 1-43.3664-24.9856c-7.936-11.776-9.472-26.2656-9.1136-40.0896 0.3584-18.7392-0.6656-37.4784 0.6144-56.1664 1.8432-25.6 23.9104-47.5136 49.408-49.664z" fill="#1296DB"></path></svg>
               </sc-if>
-              <sc-if value="{{ vipVisible }}" hint-placeholder-val="{{ true }}">
-                <span style="font-size:9px;line-height:14px;font-weight:700;color:#F0B84D;background:rgba(240,184,77,.14);border:1px solid rgba(240,184,77,.35);border-radius:4px;padding:0 4px;flex:none">VIP</span>
+              <sc-if value="{{ siteIsY }}" hint-placeholder-val="{{ false }}">
+                <svg viewBox="0 0 1024 1024" width="16" height="16" style="flex:none;display:block"><rect x="70" y="185" width="884" height="654" rx="150" fill="#FFFFFF"></rect><path d="M426.667 682.667V384l256 149.845-256 148.822z m587.093-355.542s-10.027-71.04-40.704-102.357c-38.955-41.088-82.603-41.259-102.613-43.648-143.275-10.453-358.23-10.453-358.23-10.453h-0.426s-214.955 0-358.23 10.453c-20.053 2.39-63.658 2.56-102.656 43.648-30.677 31.317-40.661 102.4-40.661 102.4S0 410.538 0 493.952v78.293c0 83.456 10.24 166.912 10.24 166.912s9.984 71.04 40.661 102.358c38.998 41.088 90.155 39.765 112.939 44.074C245.76 893.568 512 896 512 896s215.168-0.341 358.443-10.752c20.053-2.432 63.658-2.603 102.613-43.69 30.72-31.318 40.704-102.4 40.704-102.4s10.24-83.414 10.24-166.87v-78.25c0-83.457-10.24-166.913-10.24-166.913z" fill="#FF0000"></path></svg>
+              </sc-if>
+              <sc-if value="{{ siteIsX }}" hint-placeholder-val="{{ false }}">
+                <svg viewBox="0 0 1024 1024" width="16" height="16" style="flex:none;display:block"><rect x="40" y="40" width="944" height="944" rx="215" fill="#E7E9ED"></rect><g transform="translate(512 512) scale(0.46) translate(-512 -512)"><path d="M761.759375 122h132.320625L605 452.4003125 945.08 902H678.8L470.24 629.3196875 231.599375 902H99.2l309.1996875-353.4L82.16 122h273.0403125l188.52 249.24z m-46.4390625 700.8h73.32L315.359375 197.0403125h-78.680625z" fill="#15181D"></path></g></svg>
               </sc-if>
             </sc-if>
             <sc-if value="{{ notLoggedIn }}" hint-placeholder-val="{{ false }}">
@@ -631,9 +638,23 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 
               <div ref="{{ listRef }}" style="{{ listBoxStyle }}">
                 <sc-for list="{{ rows }}" as="r" hint-placeholder-count="9">
-                  <div style="{{ r.wrap }}" onClick="{{ r.onClick }}" onMouseDown="{{ r.onMouseDown }}" onMouseEnter="{{ r.onMouseEnter }}" ref="{{ r.ref }}">
+                  <div style="{{ r.wrap }}" onClick="{{ r.onClick }}" onDoubleClick="{{ r.onDbl }}" onMouseDown="{{ r.onMouseDown }}" onMouseEnter="{{ r.onMouseEnter }}" ref="{{ r.ref }}">
                     <span style="{{ r.time }}">{{ r.timeLabel }}</span>
-                    <span style="{{ r.text }}">{{ r.textLabel }}</span>
+                    <sc-if value="{{ r.notEditing }}" hint-placeholder-val="{{ true }}">
+                      <span style="{{ r.text }}">{{ r.textLabel }}</span>
+                    </sc-if>
+                    <sc-if value="{{ r.editing }}" hint-placeholder-val="{{ false }}">
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px" onBlur="{{ rowEditBlur }}" onClick="{{ stopProp }}" onMouseDown="{{ stopProp }}" onDoubleClick="{{ stopProp }}">
+                        <textarea value="{{ rowDraft }}" onChange="{{ onRowDraft }}" onSelect="{{ onRowSelect }}" onKeyDown="{{ onRowKey }}" ref="{{ autoGrowFocus }}" rows="1" style="width:100%;box-sizing:border-box;resize:none;border:1px solid rgba(77,142,240,.5);border-radius:6px;background:#0F1114;color:#E7E9ED;font-size:12.5px;line-height:18px;padding:4px 7px;font-family:inherit;outline:none;overflow:hidden"></textarea>
+                        <sc-if value="{{ repOpen }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                            <span style="font-size:10.5px;color:#8A9099;white-space:nowrap">{{ repLabel }}</span>
+                            <input value="{{ repTo }}" onChange="{{ onRepTo }}" onKeyDown="{{ onRepKey }}" placeholder="替换为" style="flex:1;min-width:70px;border:1px solid rgba(255,255,255,.16);border-radius:6px;background:#0F1114;color:#E7E9ED;font-size:11px;line-height:18px;padding:1px 7px;font-family:inherit;outline:none"/>
+                            <button style="{{ repBtnStyle }}" style-hover="filter:brightness(1.15)" onClick="{{ doReplaceAll }}">全部替换</button>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-if>
                   </div>
                 </sc-for>
                 <sc-if value="{{ keyArmedHint }}" hint-placeholder-val="{{ false }}">
@@ -812,7 +833,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 
   <sc-if value="{{ isFloatCarrier }}" hint-placeholder-val="{{ false }}">
     <div style="display:flex;flex-direction:column;gap:8px;align-self:center">
-      <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8A9099">{{ frameLabel }}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8A9099">{{ frameLabel }}</span>
+        <div style="flex:1;min-width:8px"></div>
+        <span style="font-size:10px;color:#5C6472;flex:none">来源</span>
+        <sc-for list="{{ siteTabs }}" as="st" hint-placeholder-count="3"><button style="{{ st.style }}" style-hover="filter:brightness(1.2)" onClick="{{ st.onClick }}">{{ st.label }}</button></sc-for>
+      </div>
       <div style="{{ floatWrapStyle }}">
       <div style="{{ floatInnerStyle }}">
 
@@ -873,12 +899,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
             <div style="flex:1;display:flex;flex-direction:column;min-height:0;background:transparent;position:relative">
               <div style="display:flex;align-items:center;gap:6px;padding:2px 12px 0;height:36px;flex:none;border-bottom:1px solid rgba(255,255,255,.08)">
                 <sc-if value="{{ loggedIn }}" hint-placeholder-val="{{ true }}">
-                  <span style="width:6px;height:6px;border-radius:50%;background:#3ECF8E;flex:none"></span>
-                  <sc-if value="{{ upVisible }}" hint-placeholder-val="{{ true }}">
-                    <span style="font-size:10.5px;line-height:18px;color:#8A9099;flex:none;max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ userName }}</span>
+                  <sc-if value="{{ siteIsB }}" hint-placeholder-val="{{ true }}">
+                    <svg viewBox="0 0 1024 1024" width="18" height="18" style="flex:none;display:block"><rect x="178" y="352" width="668" height="452" rx="78" fill="#FFFFFF"></rect><path d="M278.8864 148.1728c14.336-8.192 32.6144-9.3696 47.8208-2.6624 11.3664 4.6592 19.968 13.824 29.184 21.6064 38.144 32.9216 75.9808 66.304 114.2784 99.0208h80.4352c38.2976-32.768 76.0832-66.048 114.2272-98.9696 9.2672-7.7824 17.8688-16.896 29.2864-21.6576 14.7456-6.5024 32.4608-5.632 46.592 2.048 16.5888 8.5504 28.1088 26.2656 28.8256 44.9536 1.024 13.568-3.84 27.2896-12.3392 37.7856-7.5264 8.3456-16.5376 15.2064-24.8832 22.6816-5.3248 4.4032-10.1376 9.5232-16.0256 13.2096 23.6544 0 47.2576-0.256 70.912 0.1536 31.1296 0.8192 61.44 14.592 82.8928 37.1712 22.6304 22.2208 35.5328 53.5552 35.4816 85.1968 0.1024 108.4416 0 216.9344 0.0512 325.376-0.1024 16.384 0.8192 33.024-2.816 49.152-6.656 32.9728-28.8256 61.5936-56.9856 79.36a121.344 121.344 0 0 1-64.7168 17.7664H263.2704c-16.9984-0.1024-34.2528 0.8704-50.9952-2.8672-32.1024-6.4512-60.0064-27.648-77.824-54.6304a121.088 121.088 0 0 1-19.2512-66.9696v-321.536c0.1024-16.5376-0.9216-33.1776 2.4576-49.408 10.24-52.9408 58.9312-96.1024 112.9984-98.4576 24.6272-0.768 49.3056-0.2048 73.9328-0.3072-11.6224-8.3968-21.8112-18.5344-32.768-27.7504a55.04 55.04 0 0 1-20.5312-45.9264c0.7168-18.2272 11.6736-35.584 27.648-44.3392m-13.056 221.7984c-20.992 3.7376-38.912 20.3264-44.7488 40.7552a76.4928 76.4928 0 0 0-2.3552 21.7088c0.1024 89.0368-0.0512 178.0736 0.0512 267.1616-0.4096 24.2176 16.3328 47.1552 39.1168 54.8864 8.1408 2.9696 16.896 3.0208 25.3952 3.072 153.1904-0.1024 306.432 0.0512 459.6224-0.0512 22.4768 0.8704 44.0832-13.1072 53.5552-33.28 5.7856-11.5712 5.6832-24.7296 5.4784-37.376v-248.832c0-9.1136 0.3072-18.4832-2.304-27.2896a58.7776 58.7776 0 0 0-36.864-38.656c-9.7792-3.584-20.4288-3.0208-30.6688-3.072H292.5056c-8.8576 0-17.8176-0.3072-26.624 0.9728z" fill="#1296DB"></path><path d="M358.7072 455.5264c14.6432-1.4848 29.8496 3.2768 41.0112 12.8 12.4416 10.24 19.5584 26.112 19.7632 42.1376 0.3584 19.4048 0.1024 38.8608 0.1024 58.2656 0 12.8-3.3792 25.8048-11.3152 35.9424a54.9888 54.9888 0 0 1-48.4864 21.76 54.9376 54.9376 0 0 1-44.032-28.2624c-6.8096-11.6736-7.3728-25.4976-7.168-38.6048 0.4096-18.8416-1.024-37.7856 0.8704-56.576a55.296 55.296 0 0 1 49.2544-47.4624z m292.4544 0a55.2448 55.2448 0 0 1 60.7232 53.0432c0.8192 18.2272 0.1024 36.4544 0.4096 54.6816 0.1024 12.8-1.4336 26.112-8.4992 37.12-10.24 17.0496-30.3104 27.5456-50.176 26.112a55.04 55.04 0 0 1-43.3664-24.9856c-7.936-11.776-9.472-26.2656-9.1136-40.0896 0.3584-18.7392-0.6656-37.4784 0.6144-56.1664 1.8432-25.6 23.9104-47.5136 49.408-49.664z" fill="#1296DB"></path></svg>
                   </sc-if>
-                  <sc-if value="{{ vipVisible }}" hint-placeholder-val="{{ true }}">
-                    <span style="font-size:9px;line-height:14px;font-weight:700;color:#F0B84D;background:rgba(240,184,77,.14);border:1px solid rgba(240,184,77,.35);border-radius:4px;padding:0 4px;flex:none">VIP</span>
+                  <sc-if value="{{ siteIsY }}" hint-placeholder-val="{{ false }}">
+                    <svg viewBox="0 0 1024 1024" width="16" height="16" style="flex:none;display:block"><rect x="70" y="185" width="884" height="654" rx="150" fill="#FFFFFF"></rect><path d="M426.667 682.667V384l256 149.845-256 148.822z m587.093-355.542s-10.027-71.04-40.704-102.357c-38.955-41.088-82.603-41.259-102.613-43.648-143.275-10.453-358.23-10.453-358.23-10.453h-0.426s-214.955 0-358.23 10.453c-20.053 2.39-63.658 2.56-102.656 43.648-30.677 31.317-40.661 102.4-40.661 102.4S0 410.538 0 493.952v78.293c0 83.456 10.24 166.912 10.24 166.912s9.984 71.04 40.661 102.358c38.998 41.088 90.155 39.765 112.939 44.074C245.76 893.568 512 896 512 896s215.168-0.341 358.443-10.752c20.053-2.432 63.658-2.603 102.613-43.69 30.72-31.318 40.704-102.4 40.704-102.4s10.24-83.414 10.24-166.87v-78.25c0-83.457-10.24-166.913-10.24-166.913z" fill="#FF0000"></path></svg>
+                  </sc-if>
+                  <sc-if value="{{ siteIsX }}" hint-placeholder-val="{{ false }}">
+                    <svg viewBox="0 0 1024 1024" width="16" height="16" style="flex:none;display:block"><rect x="40" y="40" width="944" height="944" rx="215" fill="#E7E9ED"></rect><g transform="translate(512 512) scale(0.46) translate(-512 -512)"><path d="M761.759375 122h132.320625L605 452.4003125 945.08 902H678.8L470.24 629.3196875 231.599375 902H99.2l309.1996875-353.4L82.16 122h273.0403125l188.52 249.24z m-46.4390625 700.8h73.32L315.359375 197.0403125h-78.680625z" fill="#15181D"></path></g></svg>
                   </sc-if>
                 </sc-if>
                 <sc-if value="{{ notLoggedIn }}" hint-placeholder-val="{{ false }}">
@@ -1044,9 +1072,23 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 
               <div ref="{{ listRef }}" style="{{ listBoxStyle }}">
                     <sc-for list="{{ rows }}" as="r" hint-placeholder-count="9">
-                      <div style="{{ r.wrap }}" onClick="{{ r.onClick }}" onMouseDown="{{ r.onMouseDown }}" onMouseEnter="{{ r.onMouseEnter }}" ref="{{ r.ref }}">
+                      <div style="{{ r.wrap }}" onClick="{{ r.onClick }}" onDoubleClick="{{ r.onDbl }}" onMouseDown="{{ r.onMouseDown }}" onMouseEnter="{{ r.onMouseEnter }}" ref="{{ r.ref }}">
                         <span style="{{ r.time }}">{{ r.timeLabel }}</span>
-                        <span style="{{ r.text }}">{{ r.textLabel }}</span>
+                        <sc-if value="{{ r.notEditing }}" hint-placeholder-val="{{ true }}">
+                          <span style="{{ r.text }}">{{ r.textLabel }}</span>
+                        </sc-if>
+                        <sc-if value="{{ r.editing }}" hint-placeholder-val="{{ false }}">
+                          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px" onBlur="{{ rowEditBlur }}" onClick="{{ stopProp }}" onMouseDown="{{ stopProp }}" onDoubleClick="{{ stopProp }}">
+                            <textarea value="{{ rowDraft }}" onChange="{{ onRowDraft }}" onSelect="{{ onRowSelect }}" onKeyDown="{{ onRowKey }}" ref="{{ autoGrowFocus }}" rows="1" style="width:100%;box-sizing:border-box;resize:none;border:1px solid rgba(77,142,240,.5);border-radius:6px;background:#0F1114;color:#E7E9ED;font-size:12.5px;line-height:18px;padding:4px 7px;font-family:inherit;outline:none;overflow:hidden"></textarea>
+                            <sc-if value="{{ repOpen }}" hint-placeholder-val="{{ false }}">
+                              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                                <span style="font-size:10.5px;color:#8A9099;white-space:nowrap">{{ repLabel }}</span>
+                                <input value="{{ repTo }}" onChange="{{ onRepTo }}" onKeyDown="{{ onRepKey }}" placeholder="替换为" style="flex:1;min-width:70px;border:1px solid rgba(255,255,255,.16);border-radius:6px;background:#0F1114;color:#E7E9ED;font-size:11px;line-height:18px;padding:1px 7px;font-family:inherit;outline:none"/>
+                                <button style="{{ repBtnStyle }}" style-hover="filter:brightness(1.15)" onClick="{{ doReplaceAll }}">全部替换</button>
+                              </div>
+                            </sc-if>
+                          </div>
+                        </sc-if>
                       </div>
                     </sc-for>
                     <sc-if value="{{ keyArmedHint }}" hint-placeholder-val="{{ false }}">
@@ -1237,7 +1279,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 </div>
 
 </x-dc>
-<script type="text/x-dc" data-dc-script>
+<script type="text/x-dc" data-dc-script data-props="{&quot;site&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;bilibili&quot;,&quot;youtube&quot;,&quot;twitter&quot;],&quot;default&quot;:&quot;bilibili&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 const LINES = [
   [34,'先把默认的立方体删掉，我们从一个平面开始。'],
   [41,'在修改器面板里添加 Geometry Nodes，右边会出现节点编辑器。'],
@@ -1392,9 +1434,9 @@ const FRAME_LABELS = {
 class Component extends DCLogic {
   state = {
     scenario:'sidebar', playing:true, t:66, speed:1, speedMenuOpen:false,
-    loggedIn:true, userName:'夜航西飞的小猫罐头', isVip:true,
+    loggedIn:true, userName:'夜航西飞的小猫罐头', isVip:true, site:'bilibili', siteTouched:false,
     view:'captions', showOverlay:true, lang:'zh',
-    selStart:null, selEnd:null, selMode:false, anchor:null, dragSelecting:false, dragMoved:false, keyHeld:false, loopSel:false,
+    selStart:null, selEnd:null, selMode:false, anchor:null, dragSelecting:false, dragMoved:false, keyHeld:false, loopSel:false, edits:{}, editIdx:null, editDraft:'', rep:null, repTo:'',
     summaryOpen:false, sumStreaming:false, sumChars:0, summaryDraft:SUMMARY_TEXT, sumEditing:false, copiedSummary:false, copiedSel:false,
     fullSummary:null, streaming:false, streamIdx:0, streamChars:0, chOpen:{},
     gen:38, chunkTotal:32, chunkDone:15, chunkSec:42, chunkFailed:[7,13], genPaused:false, chunkPanelOpen:false, moreOpen:false, toast:null, markers:[], hoverMarker:null,
@@ -1503,9 +1545,40 @@ class Component extends DCLogic {
     this.setState(p);
   }
 
+  txt(i){ const s=this.state; const k=s.lang+':'+i; return s.edits[k]!==undefined ? s.edits[k] : (s.lang==='en'?LINES_EN[i]:LINES[i][1]); }
+  startRowEdit(i){ this.setState({editIdx:i, editDraft:this.txt(i), rep:null, repTo:'', selMode:false, dragSelecting:false}); }
+  commitRowEdit(){
+    const s=this.state; if(s.editIdx===null) return;
+    const v=s.editDraft.trim(); const k=s.lang+':'+s.editIdx; const edits={...s.edits};
+    const orig = s.lang==='en'?LINES_EN[s.editIdx]:LINES[s.editIdx][1];
+    if(v && v!==orig) edits[k]=v; else delete edits[k];
+    this.setState({edits, editIdx:null, rep:null, repTo:''});
+  }
+  cancelRowEdit(){ this.setState({editIdx:null, rep:null, repTo:''}); }
+  countTerm(term){
+    const s=this.state; let n=0;
+    for(let i=0;i<LINES.length;i++){ const t = i===s.editIdx ? s.editDraft : this.txt(i); n += t.split(term).length-1; }
+    return n;
+  }
+  replaceAll(){
+    const s=this.state; if(!s.rep) return;
+    const term=s.rep.term, to=s.repTo;
+    if(!to.trim()){ this.flash('先输入要替换成什么'); return; }
+    const edits={...s.edits}; let n=0;
+    for(let i=0;i<LINES.length;i++){
+      const src = i===s.editIdx ? s.editDraft : this.txt(i);
+      const c = src.split(term).length-1; if(!c) continue;
+      n+=c; const out=src.split(term).join(to); const k=s.lang+':'+i;
+      const orig = s.lang==='en'?LINES_EN[i]:LINES[i][1];
+      if(out!==orig) edits[k]=out; else delete edits[k];
+    }
+    this.setState({edits, editIdx:null, rep:null, repTo:''});
+    this.flash('已替换 '+n+' 处「'+term+'」');
+  }
   curIdx(){ const t=this.state.t; let i=0; for(let k=0;k<LINES.length;k++) if(LINES[k][0]<=t) i=k; return i; }
 
   rowClick(i){
+    if(this.state.editIdx!==null) return;
     const s = this.state;
     if(s.dragMoved){ this.setState({dragMoved:false}); return; }
     if(s.selMode){
@@ -1516,6 +1589,7 @@ class Component extends DCLogic {
     this.setState({t:LINES[i][0], anchor:i, selStart:null, selEnd:null, summaryOpen:false, loopSel:false});
   }
   rowMouseDown(i, e){
+    if(this.state.editIdx!==null) return;
     if(this.state.selMode) return;
     const k = this.state.selKey;
     const held = e && ((k==='Shift'&&e.shiftKey)||(k==='Alt'&&e.altKey)||(k==='Ctrl'&&e.ctrlKey)||(k==='Meta'&&e.metaKey));
@@ -1777,6 +1851,18 @@ class Component extends DCLogic {
       return {label, style: on?DEMO_ON:DEMO, onClick:()=>this.go(k)};
     });
 
+    const SITES = {
+      bilibili:{ title:'【教程】Blender 几何节点入门 · 从零做程序化建模' },
+      youtube:{ title:'Geometry Nodes for Absolute Beginners — Procedural Modeling' },
+      twitter:{ title:'一条 4 分钟的几何节点演示视频' }
+    };
+    const siteKey = s.siteTouched ? s.site : (this.props.site ?? s.site);
+    const site = SITES[siteKey] || SITES.bilibili;
+    const siteTabs = [['bilibili','B 站'],['youtube','YouTube'],['twitter','X']].map(([k,label])=>({
+      label,
+      style:'border:1px solid '+(siteKey===k?'rgba(77,142,240,.55)':'rgba(255,255,255,.12)')+';background:'+(siteKey===k?'rgba(77,142,240,.16)':'transparent')+';color:'+(siteKey===k?'#79ACF5':'#8A9099')+';font-size:10px;line-height:18px;padding:0 8px;border-radius:5px;cursor:pointer;flex:none',
+      onClick:()=>this.setState({site:k, siteTouched:true})
+    }));
     const upVisible = s.loggedIn;
     const speedLabel = (Math.abs(s.speed-1)<0.01 ? '1' : (s.speed+'')) + '×';
     const speedOptions = SPEEDS.map(v=>({
@@ -1788,11 +1874,13 @@ class Component extends DCLogic {
     const rows = LINES.map((l,i)=>{
       const cur = hasList && s.view==='captions' && i===idx;
       const inSel = selActive && i>=Math.min(selA,selB) && i<=Math.max(selA,selB);
+      const editing = s.editIdx===i;
       let wrap = 'display:flex;gap:8px;padding-top:5px;padding-right:8px;padding-bottom:5px;padding-left:8px;border-radius:6px;cursor:pointer;';
       if(inSel) wrap += 'background:rgba(77,142,240,.16);';
+      if(editing) wrap += 'background:rgba(255,255,255,.05);cursor:default;';
       if(cur) wrap += 'background-image:linear-gradient(#E7E9ED,#E7E9ED);background-size:2px calc(100% - 12px);background-position:left 6px;background-repeat:no-repeat;';
       return {
-        timeLabel: fmt(l[0]), textLabel: s.lang==='en' ? LINES_EN[i] : l[1],
+        timeLabel: fmt(l[0]), textLabel: this.txt(i), editing, notEditing:!editing, onDbl:()=>{ if(!editing) this.startRowEdit(i); },
         time:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10px;line-height:18px;width:31px;flex:none;'+(cur?'color:#C7CBD1;font-weight:500':'color:#8A9099'),
         text:'font-size:12.5px;line-height:18px;text-wrap:pretty;'+(cur?'color:#E7E9ED':'color:#8A9099'),
         showSummary: hasList && s.summaryOpen && s.view==='captions' && selA!==null && i===Math.max(selA,selB),
@@ -1920,13 +2008,14 @@ class Component extends DCLogic {
       settingsWrapStyle:'width:'+Math.round(720*scaleV)+'px;height:'+Math.ceil(s.settingsH*scaleV)+'px;overflow:hidden',
       settingsInnerStyle:'width:720px;box-sizing:border-box;background:#121417;border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;transform:scale('+scaleV+');transform-origin:top left',
       frameLabel: FRAME_LABELS[sc] || '',
+      siteTabs,
       isSettingsCarrier, isLogsCarrier, isLibraryCarrier, isSidebarCarrier, isFloatCarrier, stageFullscreen, stageNotFullscreen: !stageFullscreen,
       stageOuterStyle: (isSettingsCarrier||isLibraryCarrier)
         ? 'flex:1;min-height:0;overflow:hidden;display:flex;background:#0B0C0E'
         : 'flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:8px 12px;background:#0B0C0E',
       playerStyle:'position:relative;width:100%;aspect-ratio:16/9;background:linear-gradient(120deg,#3F5567 0%,#25323F 38%,#5A6674 68%,#2C3542 100%);border-radius:8px;overflow:hidden',
       showOverlayText: hasList && s.showOverlay,
-      currentText: s.lang==='en' ? LINES_EN[idx] : LINES[idx][1],
+      currentText: this.txt(idx),
       togglePlay:()=>this.setState({playing:!s.playing}), playGlyph: s.playing?'❙❙':'▶',
       progressStyle:'position:absolute;left:0;top:0;bottom:0;width:'+(s.t/168*100).toFixed(1)+'%;background:#79ACF5;border-radius:2px',
       timeLabel: fmt(s.t)+' / '+fmt(168),
@@ -1945,8 +2034,8 @@ class Component extends DCLogic {
       resizeSE:this.startResize('se'), resizeSW:this.startResize('sw'), resizeNE:this.startResize('ne'), resizeNW:this.startResize('nw'),
 
       loggedIn: s.loggedIn, notLoggedIn: !s.loggedIn,
-      upVisible, userName: s.userName, vipVisible: s.loggedIn && s.isVip,
-      titleLabel:'【教程】Blender 几何节点入门 · 从零做程序化建模',
+      siteIsB: siteKey==='bilibili', siteIsY: siteKey==='youtube', siteIsX: siteKey==='twitter',
+      titleLabel: site.title,
       speedBtnStyle:'border:none;background:transparent;color:'+(Math.abs(s.speed-1)<0.01?'#8A9099':'#4D8EF0')+';font-size:11px;line-height:18px;padding:0 6px;border-radius:6px;cursor:pointer;font-family:\'JetBrains Mono\',ui-monospace,monospace',
       toggleSpeedMenu:()=>this.setState({speedMenuOpen:!s.speedMenuOpen}),
       speedLabel, speedMenuOpen: s.speedMenuOpen, speedOptions,
@@ -2161,6 +2250,24 @@ class Component extends DCLogic {
       genOutline:()=>this.genOutline(),
 
       toastMsg: s.toast,
+      rowDraft: s.editDraft,
+      onRowDraft:e=>this.setState({editDraft:e.target.value}),
+      onRowSelect:e=>{
+        const el=e.target; const term=el.value.slice(el.selectionStart, el.selectionEnd).trim();
+        if(!term || /\n/.test(term)){ if(s.rep) this.setState({rep:null}); return; }
+        const n=this.countTerm(term);
+        this.setState({rep: n>=2 ? {term, n} : null});
+      },
+      onRowKey:e=>{ if(e.key==='Escape'){ e.preventDefault(); this.cancelRowEdit(); } else if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); this.commitRowEdit(); } },
+      rowEditBlur:e=>{ if(e.currentTarget.contains(e.relatedTarget)) return; setTimeout(()=>{ if(this.state.editIdx!==null) this.commitRowEdit(); },0); },
+      stopProp:e=>e.stopPropagation(),
+      repOpen: !!s.rep,
+      repLabel: s.rep ? '「'+s.rep.term+'」· 共 '+s.rep.n+' 处' : '',
+      repTo: s.repTo,
+      onRepTo:e=>this.setState({repTo:e.target.value}),
+      onRepKey:e=>{ if(e.key==='Enter'){ e.preventDefault(); this.replaceAll(); } else if(e.key==='Escape'){ e.preventDefault(); this.setState({rep:null}); } },
+      doReplaceAll:()=>this.replaceAll(),
+      repBtnStyle: BTN_PRIMARY+(s.repTo.trim()?'':'opacity:.45;cursor:not-allowed;'),
 
       tipStt: this.tip('stt','没有字幕时，把视频音频转成字幕'),
       tipSum: this.tip('sum','用于生成选区总结和大纲'),

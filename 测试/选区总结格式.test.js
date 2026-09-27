@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { panelSource } = require("./源码加载.js");
 
 const root = path.resolve(__dirname, "..");
 
 test("选区总结按内容结构选段落或列表，不强制要点条数", () => {
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const panel = panelSource();
   const promptFn = panel.match(/function buildSummaryPrompt[\s\S]*?\n}\n/);
   assert.ok(promptFn, "找不到 buildSummaryPrompt");
   const body = promptFn[0];

@@ -247,7 +247,7 @@ function renderMarkRows(list, rows, { dim, onClick, onDelete, onRestore }) {
     const row = document.createElement("div");
     row.className = `m-row${dim ? " dim" : ""}`;
     row.innerHTML = `<span class="m-time"></span><span class="m-text"></span>`;
-    row.querySelector(".m-time").textContent = M.fmt(m.time);
+    row.querySelector(".m-time").textContent = BiliCaptionCueTools.formatClock(m.time);
     row.querySelector(".m-text").textContent = m.text || "（空）";
     if (onDelete) {
       const btn = document.createElement("button");

@@ -137,8 +137,9 @@
             <div class="chips">
               <button type="button" id="syncMarks" class="chip on">✓ 标记</button>
               <button type="button" id="syncConfig" class="chip on">✓ 设置（服务商 / 模型 / 快捷键）</button>
-              <button type="button" id="syncKeys" class="chip">API Key</button>
+              <button type="button" id="syncKeys" class="chip" title="开启后 API Key 会以明文上传到 WebDAV">API Key</button>
             </div>
+            <p id="syncKeysNote" class="note">勾选「API Key」后，总结和转写通道的 Key 会以明文写进 WebDAV 上的 config.json；不勾选则只同步不含 Key 的设置。</p>
             <p id="syncKeysWarn" class="warn hidden">API Key 会以明文写入你的网盘文件，确认这个网盘只有你能访问</p>
             <p class="note">开启后自动同步：改标记或设置后数秒上传，打开扩展时先拉后推。字幕和大纲仍只存在本机。</p>
             <div class="dav-paths">
@@ -211,12 +212,13 @@
     </div>
   </div>
 
-  <script src="lib/md5.js"></script>
   <script src="lib/模型路由.js"></script>
+  <script src="lib/模型调用.js"></script>
   <script src="lib/providers.js"></script>
   <script src="lib/stt.js"></script>
   <script src="lib/webdav.js"></script>
   <script src="lib/prefs.js"></script>
+  <script src="lib/字幕工具.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

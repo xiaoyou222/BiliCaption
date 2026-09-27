@@ -2,6 +2,7 @@ const P = window.BiliCaptionProviders;
 const Stt = window.BiliCaptionStt;
 const Dav = window.BiliCaptionDav;
 const Prefs = window.BiliCaptionPrefs;
+const { keyLabel } = window.BiliCaptionCueTools;
 
 const $ = (id) => document.getElementById(id);
 const SCOPE = { groq: "转写", asr: "转写", bili: "B站", net: "网络", set: "设置", app: "应用", sum: "总结", dav: "同步" };
@@ -25,10 +26,6 @@ let sumModels = [];
 
 function show(el, on) {
   if (el) el.classList.toggle("hidden", !on);
-}
-
-function keyLabel(key) {
-  return key.length === 1 ? key.toUpperCase() : key;
 }
 
 function clampCtx(v) {
@@ -573,18 +570,19 @@ async function testKind(kind) {
     if (!cfg.key) throw new Error("请先填写 API Key");
     if (!cfg.base) throw new Error("请先填写接口地址");
     await Stt.ensureOrigin(cfg.base);
-    const res = await fetch(`${cfg.base}/chat/completions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: cfg.model,
-        temperature: 0,
-        max_tokens: 8,
-        ...(globalThis.BiliCaptionModelRoute?.requestFields(cfg.model, "none") || {}),
-        messages: [{ role: "user", content: "只回复 ok" }]
-      })
+    // 走统一调用层：同样的 URL 检查、鉴权头和错误信息；按翻译档降思考，测试又快又省。
+    // 只验证连通，允许空正文（思考模型在 8 个 token 内可能还没写正文）。
+    await globalThis.BiliCaptionModelCall.chat({
+      base: cfg.base,
+      key: cfg.key,
+      model: cfg.model,
+      provider: cfg.provider,
+      task: "translate",
+      temperature: 0,
+      maxTokens: 8,
+      allowEmpty: true,
+      messages: [{ role: "user", content: "只回复 ok" }]
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     setTestBtn(id, "ok");
     noteLog("info", "set", "测试总结连接成功");
   } catch (error) {

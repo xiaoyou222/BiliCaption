@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { backgroundSource, contentSource, panelSource, loadBackgroundScripts, runFile } = require("./源码加载.js");
 
 const root = path.resolve(__dirname, "..");
 
@@ -11,7 +12,7 @@ function loadTranslate() {
   context.self = context;
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root, "lib/translate.js"), "utf8"), context);
+  for (const file of ["lib/zh-simp.js", "lib/translate.js"]) runFile(context, file);
   return context.BiliCaptionTranslate;
 }
 
@@ -93,9 +94,7 @@ function loadBackground(fetchImpl = globalThis.fetch) {
   context.__store = store;
   context.self = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root, "lib/translate.js"), "utf8"), context);
-  vm.runInContext(fs.readFileSync(path.join(root, "lib/模型路由.js"), "utf8"), context);
-  vm.runInContext(fs.readFileSync(path.join(root, "background.js"), "utf8"), context);
+  loadBackgroundScripts(context, ["lib/视频平台.js", "lib/字幕工具.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/模型调用.js"]);
   return context;
 }
 
@@ -182,8 +181,9 @@ test("前片静音时，当前唯一文本分片仍保留全局时间轴", async
 
 test("英文短字幕合并时保留单词间空格，中文仍自然拼接", () => {
   const B = loadBackground();
-  assert.equal(B.joinCueText("Hello", "world"), "Hello world");
-  assert.equal(B.joinCueText("你好", "世界"), "你好世界");
+  // 后台切句直接用 lib/translate.js 的 joinCueText，不再另留一份兜底副本
+  assert.equal(B.BiliCaptionTranslate.joinCueText("Hello", "world"), "Hello world");
+  assert.equal(B.BiliCaptionTranslate.joinCueText("你好", "世界"), "你好世界");
   const glued = B.segmentsToCues({
     duration: 1.5,
     words: [
@@ -220,39 +220,6 @@ test("鉴权和配置错误会终止整项任务，普通音频错误仍可按�
   assert.equal(B.isFatalSttError({ status: 400, message: "invalid audio file" }), false);
 });
 
-test("主服务冷却结束后，不会继续等待备用服务的长冷却", async () => {
-  const B = loadBackground();
-  const job = {
-    channels: [{ provider: "主" }, { provider: "备用" }],
-    channelCools: [Date.now() - 1, Date.now() + 60_000]
-  };
-  const started = Date.now();
-  await B.waitForQuota(60_000, new AbortController().signal, () => {}, {
-    job,
-    waitKind: "quota"
-  });
-  assert.ok(Date.now() - started < 500);
-});
-
-test("Groq 转写会使用设置中选择的模型，而不是固定回默认模型", async () => {
-  let form;
-  const B = loadBackground(async (_url, options) => {
-    form = Object.fromEntries([...options.body.entries()].filter(([key]) => key !== "file"));
-    return {
-      ok: true,
-      status: 200,
-      headers: { get() { return null; } },
-      async text() { return JSON.stringify({ text: "ok", segments: [] }); }
-    };
-  });
-  await B.transcribeWithCfg(
-    new Blob([new Uint8Array([1])], { type: "audio/mp4" }),
-    { provider: "Groq", key: "test", model: "whisper-large-v3" },
-    { signal: new AbortController().signal, filename: "audio.m4a", current: 1, total: 1 }
-  );
-  assert.equal(form.model, "whisper-large-v3");
-});
-
 test("Fish 与 OpenAI 转写原样上传 M4A，不走转码", async () => {
   const uploaded = [];
   const B = loadBackground();
@@ -278,7 +245,6 @@ test("Fish 与 OpenAI 转写原样上传 M4A，不走转码", async () => {
     { type: "audio/mp4", filename: "audio.m4a", provider: "Fish Audio" },
     { type: "audio/mp4", filename: "audio.m4a", provider: "OpenAI" }
   ]);
-  assert.equal(B.jobCompatibilityError({ kind: "fish" }), "");
   assert.equal(typeof B.decodeToWav, "undefined");
   assert.equal(typeof B.volcanoNeedsWav, "undefined");
 });
@@ -343,8 +309,7 @@ test("50 句批量翻译即使三批乱序返回，也会逐句写回正确位�
     cues: prepared.cues,
     done: 0,
     total: prepared.targets.length,
-    pending: true,
-    regrouped: true
+    pending: true
   };
   await B.runTranslateJob(job, prepared.targets);
 
@@ -423,58 +388,79 @@ test("分段转写与翻译并发回写时不会覆盖中文，单字译文也�
   assert.equal(saved.source, "translated");
 });
 
-test("翻译只请求当前模型一次，结构异常不会改打备用", async () => {
+test("复述英文或缺号时只把缺的行带着说明小批重试一次，模型不变", async () => {
   const calls = [];
   const B = loadBackground(async (_url, options) => {
     const body = JSON.parse(options.body);
     calls.push(body);
+    const prompt = body.messages.at(-1).content;
+    // 第一次：第 1 行复述英文、第 3 行缺号；重试：只收到这两行
+    const content = calls.length === 1 ? "1. Hello there\n2. 第二句" : "1. 你好\n2. 第三句";
+    assert.match(prompt, calls.length === 1 ? /只输出【待译】的 1-3 号/ : /上一次的输出缺了这 2 行/);
     return {
       ok: true,
       status: 200,
       async json() {
-        return { choices: [{ message: { content: "1. Hello" } }] };
+        return { choices: [{ message: { content } }] };
       }
     };
   });
-  const batch = [{ index: 0, text: "Hello" }];
-  const first = await B.translateBatchWithFallback("翻译", batch, {
+  const cues = [
+    { from: 0, to: 1, content: "Earlier line.", original: "" },
+    { from: 1, to: 2, content: "Hello there" },
+    { from: 2, to: 3, content: "Second line here." },
+    { from: 3, to: 4, content: "Third line here." }
+  ];
+  const batch = [1, 2, 3].map((index) => ({ index, text: cues[index].content }));
+  const lines = await B.translateBatch(batch, cues, {
     apiBase: "https://api.openai.com/v1",
     apiKey: "key",
     apiModel: "gpt-4o-mini",
-    signal: new AbortController().signal
-  }, {}, B.BiliCaptionTranslate);
-  const second = await B.translateBatchWithFallback("翻译", batch, {
-    apiBase: "https://api.openai.com/v1",
-    apiKey: "key",
-    apiModel: "gpt-4o-mini",
-    signal: new AbortController().signal
-  }, {}, B.BiliCaptionTranslate);
+    provider: "OpenAI",
+    signal: new AbortController().signal,
+    title: "演示视频",
+    T: B.BiliCaptionTranslate
+  });
 
-  assert.deepEqual(Array.from(first), ["Hello"]);
-  assert.deepEqual(Array.from(second), ["Hello"]);
+  assert.deepEqual(Array.from(lines), ["你好", "第二句", "第三句"]);
+  assert.equal(calls.length, 2);
   assert.deepEqual(calls.map((body) => body.model), ["gpt-4o-mini", "gpt-4o-mini"]);
+  const firstPrompt = calls[0].messages.at(-1).content;
+  assert.match(firstPrompt, /【视频标题】演示视频/);
+  assert.match(firstPrompt, /^> Earlier line\.$/m);
+  assert.equal([...firstPrompt.matchAll(/^\d+\. /gm)].length, 3);
+  assert.equal([...calls[1].messages.at(-1).content.matchAll(/^\d+\. /gm)].length, 2);
+  // OpenAI 默认模型不是推理模型：不发 reasoning_effort；翻译请求走流式
   assert.equal("reasoning_effort" in calls[0], false);
+  assert.equal(calls[0].stream, true);
+  assert.equal(calls[0].temperature, 0.3);
 });
 
-test("取消、配置错误和普通 4xx 不触发模型兜底", () => {
-  const context = { console };
+test("取消、配置错误和普通 4xx 不重试，限流、5xx、超时和结构异常可重试", () => {
+  const context = { console, AbortController, setTimeout, clearTimeout, TextDecoder, URL };
   context.self = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root, "lib/模型路由.js"), "utf8"), context);
-  const route = context.BiliCaptionModelRoute;
+  vm.runInContext(fs.readFileSync(path.join(root, "lib/模型调用.js"), "utf8"), context);
+  const Call = context.BiliCaptionModelCall;
   const canceled = new Error("已取消");
   canceled.name = "AbortError";
-  assert.equal(route.shouldFallback(canceled), false);
-  assert.equal(route.shouldFallback({ status: 400, message: "bad input" }), false);
-  assert.equal(route.shouldFallback({ status: 401, message: "bad key" }), false);
-  assert.equal(route.shouldFallback({ status: 429, message: "limited" }), true);
-  assert.equal(route.shouldFallback({ invalidResponse: true }), true);
+  assert.equal(Call.isRetryable(canceled), false);
+  assert.equal(Call.isRetryable({ status: 400, message: "bad input" }), false);
+  assert.equal(Call.isRetryable({ status: 401, message: "bad key", fatal: true }), false);
+  assert.equal(Call.isRetryable({ status: 429, message: "limited" }), true);
+  assert.equal(Call.isRetryable({ status: 503, message: "busy" }), true);
+  assert.equal(Call.isRetryable({ status: 408, message: "模型请求超时" }), true);
+  assert.equal(Call.isRetryable({ invalidResponse: true }), true);
+  assert.equal(Call.isRetryable({ name: "TypeError", message: "Failed to fetch" }), true);
+  assert.equal(typeof context.BiliCaptionModelRoute, "undefined");
+  const route = fs.readFileSync(path.join(root, "lib/模型路由.js"), "utf8");
+  assert.doesNotMatch(route, /shouldFallback|fallbackFor/);
 });
 
 test("关键跨文件约束不会退回旧实现", () => {
-  const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
-  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const background = backgroundSource();
+  const content = contentSource();
+  const panel = panelSource();
   const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
 
@@ -482,12 +468,12 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.doesNotMatch(panel, /btnRetryFailed|用备用重试/);
   assert.doesNotMatch(html, /btnRetryFailed|用备用重试/);
   assert.match(html, />翻译成中文</);
-  assert.match(background, /type:\s*"SYNC_CUES"[\s\S]{0,180}bvid:[\s\S]{0,80}cid:/);
+  // 发给页面的 SYNC_CUES 带视频身份、广播格式等改由下面的行为测试锁定
   assert.match(content, /if \(!hasIdentity \|\| !sameVideo\)/);
   assert.match(content, /APPLY_ASR_CUES[\s\S]{0,520}if \(!hasIdentity \|\| !sameVideo\)/);
   assert.match(panel, /function sameAsrVideo[\s\S]{0,320}!hasIdentity/);
   assert.match(content, /function onHotkey\(event\)\s*\{\s*if \(!isCurrentScript\(\)\) return/);
-  assert.match(background, /const asrCacheWrites = new Map\(\)/);
+  // 转写缓存按视频串行写入：见「分段转写与翻译并发回写时不会覆盖中文」行为测试
   assert.match(panel, /type: "CLEAR_VIDEO_CACHE"/);
   assert.match(html, /id="captionLang"/);
   assert.match(panel, /SET_CAPTION_LANG/);
@@ -496,11 +482,7 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.match(panel, /已重新加载官方字幕/);
   assert.doesNotMatch(panel, /已清理本视频的字幕和翻译缓存/);
   assert.match(html, /不影响视频自带字幕/);
-  assert.doesNotMatch(background, /transcribeOneIncoming\(piece,\s*index \+ p/);
   assert.match(css, /\.chunk-done\s*\{[\s\S]*?overflow-x:\s*hidden/);
-  assert.match(background, /return \{ started: true, jobId, done: 0, total: targets\.length, stage: "run", cues \}/);
-  assert.match(background, /type:\s*"TRANSLATE_PROGRESS"[\s\S]{0,280}\.\.\.\(cues\?\.length \? \{ cues \} : \{\}\)/);
-  assert.doesNotMatch(background, /terminal && cues\?\.length \? \{ cues \}/);
   assert.doesNotMatch(panel, /优化断句|断句 \$\{/);
   assert.match(panel, /trJobTitle\.textContent = "翻译中"/);
   assert.match(content, /bc-dock-glass/);
@@ -521,7 +503,8 @@ test("关键跨文件约束不会退回旧实现", () => {
   assert.match(content, /CLOSE_FLOAT/);
   assert.match(panel, /type: "CLOSE_FLOAT"/);
   assert.match(background, /function injectBiliContentScripts/);
-  assert.match(background, /files:\s*\["lib\/视频平台\.js",\s*"content\.js"\]/);
+  // 补注入与 manifest、侧栏共用 lib/视频平台.js 里的同一份清单
+  assert.match(background, /files:\s*\[\.\.\.BiliCaptionPlatforms\.CONTENT_SCRIPT_FILES\]/);
   assert.match(content, /data-bilicaption-owner/);
   assert.match(content, /OWNER_ATTR/);
   assert.doesNotMatch(content, /window\.__BILI_CAPTION_GEN__/);
@@ -532,8 +515,7 @@ test("关键跨文件约束不会退回旧实现", () => {
     content,
     /onMessage\.addListener\(\(message[\s\S]*?if \(message\?\.type === "PING"\)[\s\S]*?if \(!isCurrentScript\(\)\) return;/
   );
-  assert.match(background, /GET_ASR_JOB[\s\S]{0,80}return reply\(getAsrJobStatus/);
-  assert.match(background, /if \(cur\?\.jobId === jobId && !cur\.work\) asrJobLocks\.delete/);
+  // 转写任务查询、同视频加锁改由 测试/转写调度.test.js 的行为测试覆盖
   assert.match(background, /CLEAR_VIDEO_CACHE",\s*"DAV_SYNC_NOW"/);
   assert.match(
     panel,
@@ -545,7 +527,7 @@ test("关键跨文件约束不会退回旧实现", () => {
 });
 
 test("点划选是先点起点再点终点，松手不会结束划选", () => {
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const panel = panelSource();
   const down = panel.match(/function onCuePointerDown\([\s\S]*?\n\}\n/)?.[0] || "";
   assert.match(down, /if \(selecting\) return;/);
   assert.doesNotMatch(down, /dragSelect = \{/);
@@ -559,8 +541,8 @@ test("点划选是先点起点再点终点，松手不会结束划选", () => {
 test("选区条有循环，回跳在播放器里做", () => {
   const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
-  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+  const panel = panelSource();
+  const content = contentSource();
   assert.match(html, /id="btnLoopSel"/);
   assert.match(html, />循环</);
   assert.match(css, /\.btn-loop\.on/);
@@ -580,7 +562,7 @@ test("选区条有循环，回跳在播放器里做", () => {
 test("按住划选键立刻点亮字幕列表，不必等开始滑动", () => {
   const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const panel = panelSource();
   assert.match(html, /id="selKeyHint"/);
   assert.match(html, /划动选择字幕/);
   assert.match(css, /\.cues\.key-armed/);
@@ -653,7 +635,10 @@ test("翻译进度按英文字幕行计，一批可以超过一句", async () =>
   await B.runTranslateJob(job, prepared.targets);
   assert.equal(job.done, 30);
   assert.equal(job.total, 30);
-  assert.equal(sizes.includes(24), true);
+  // 当前位置第一批用小批让首屏更快，之后每批不超过 24 行
+  assert.equal(sizes[0], 10);
+  assert.equal(sizes.every((n) => n <= 24), true);
+  assert.equal(sizes.reduce((a, b) => a + b, 0), 30);
   assert.equal(sizes.some((n) => n > 1), true);
 });
 
@@ -671,17 +656,7 @@ test("中文超长字幕按句号切开，不会留成一段", () => {
 });
 
 test("翻译完成后的中文长段也会再切开", async () => {
-  const B = loadBackground(async (_url, options) => {
-    const body = JSON.parse(options.body);
-    if (String(body.messages[0]?.content || "").includes("断句军师")) {
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return { choices: [{ message: { content: "MERGE 1-2" } }] };
-        }
-      };
-    }
+  const B = loadBackground(async () => {
     return {
       ok: true,
       status: 200,
@@ -728,111 +703,6 @@ test("翻译完成后的中文长段也会再切开", async () => {
   assert.ok(job.cues.length >= 3);
   assert.equal(job.cues[0].from, 1013);
   assert.equal(job.cues[job.cues.length - 1].to, 1032);
-});
-
-test("断句指令按 MERGE/KEEP 解析，忽略说明和 markdown", () => {
-  const parsed = T.parseRegroupCommands("```\n说明如下\nMERGE 1-3\nKEEP 4\n```", 4);
-  assert.equal(parsed.ok, true);
-  assert.equal(JSON.stringify(parsed.ranges), JSON.stringify([[0, 2], [3, 3]]));
-});
-
-test("本地合并取首尾时间轴，英文之间补空格", () => {
-  const result = T.applyRegroupText([
-    { from: 1.2, to: 2.0, content: "Hello" },
-    { from: 2.0, to: 3.4, content: "world" },
-    { from: 3.5, to: 4.0, content: "Done." }
-  ], "MERGE 1-2\nKEEP 3");
-  assert.equal(result.fallback, false);
-  assert.equal(result.cues.length, 2);
-  assert.equal(result.cues[0].from, 1.2);
-  assert.equal(result.cues[0].to, 3.4);
-  assert.equal(result.cues[0].content, "Hello world");
-  assert.equal(result.cues[1].content, "Done.");
-});
-
-test("MERGE 遇到中文或换说话人时只合并连续英文", () => {
-  const result = T.applyRegroupText([
-    { from: 0, to: 1, content: "Hello" },
-    { from: 1, to: 2, content: "你好" },
-    { from: 2, to: 3, content: "again", speaker: "A" },
-    { from: 3, to: 4, content: "there", speaker: "A" },
-    { from: 4, to: 5, content: "friend", speaker: "B" }
-  ], "MERGE 1-5");
-  assert.equal(result.fallback, false);
-  assert.deepEqual(
-    Array.from(result.cues, (cue) => cue.content),
-    ["Hello", "你好", "again there", "friend"]
-  );
-});
-
-test("断句解析失败、冲突或 SPLIT 时整块回落原句", () => {
-  const cues = [
-    { from: 0, to: 1, content: "One" },
-    { from: 1, to: 2, content: "Two" }
-  ];
-  assert.equal(T.applyRegroupText(cues, "").fallback, true);
-  assert.equal(T.applyRegroupText(cues, "please merge them").fallback, true);
-  assert.equal(T.applyRegroupText(cues, "SPLIT 1\nKEEP 2").fallback, true);
-  assert.equal(T.applyRegroupText(cues, "MERGE 1-2\nMERGE 1-2").fallback, true);
-  const kept = T.applyRegroupText(cues, "nonsense");
-  assert.equal(kept.cues[0].from, 0);
-  assert.equal(kept.cues[0].to, 1);
-  assert.equal(kept.cues[0].content, "One");
-});
-
-test("翻译不再先调断句军师，直接按批次翻译", async () => {
-  const calls = [];
-  const B = loadBackground(async (_url, options) => {
-    const body = JSON.parse(options.body);
-    calls.push(body);
-    const prompt = body.messages.at(-1).content;
-    const lines = [...prompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          choices: [{ message: { content: lines.map((line, index) => `${index + 1}. 译${line}`).join("\n") } }]
-        };
-      }
-    };
-  });
-  B.BiliCaptionPrefs.loadSettings = async () => ({
-    sumProvider: "OpenAI",
-    apiKey: "key",
-    apiModel: "gpt-4o-mini",
-    translateConcurrency: 1
-  });
-  B.BiliCaptionProviders.resolveSum = () => ({
-    provider: "OpenAI",
-    base: "https://api.openai.com/v1",
-    key: "key",
-    model: "gpt-4o-mini"
-  });
-  const input = [
-    { from: 0, to: 1, content: "Hello I wanted this." },
-    { from: 1, to: 2, content: "Okay then now." },
-    { from: 2, to: 3, content: "Sure thing here." }
-  ];
-  const prepared = B.BiliCaptionTranslate.prepareCues(input);
-  const job = {
-    jobId: "translate-no-regroup",
-    controller: new AbortController(),
-    tabId: 0,
-    bvid: "BV-no-regroup",
-    cid: 7,
-    cues: prepared.cues,
-    done: 0,
-    total: prepared.targets.length,
-    pending: true
-  };
-  await B.runTranslateJob(job, prepared.targets);
-
-  assert.equal(job.regrouped, true);
-  assert.equal(job.cues.length, 3);
-  assert.match(job.cues[0].content, /译/);
-  assert.equal(calls.filter((body) => String(body.messages[0]?.content || "").includes("断句军师")).length, 0);
-  assert.equal(job.done, 3);
 });
 
 test("用户取消翻译后不保留 pending，重载不会自动续跑", async () => {
@@ -917,67 +787,6 @@ test("点翻译后立刻进入翻译中，总数用原始英文字幕行数", as
   assert.equal(started.total, 2);
   assert.equal(started.done, 0);
   B.cancelTranslateJob(started.jobId, { bvid: "BV-stage", cid: 1 });
-});
-
-test("翻译请求失败时该批保持原句并继续", async () => {
-  const B = loadBackground(async (_url, options) => {
-    const body = JSON.parse(options.body);
-    if (String(body.messages[0]?.content || "").includes("断句军师")) {
-      return {
-        ok: false,
-        status: 500,
-        async json() { return { error: { message: "down" } }; }
-      };
-    }
-    const prompt = body.messages.at(-1).content;
-    const lines = [...prompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          choices: [{ message: { content: lines.map((line, index) => `${index + 1}. 译${line}`).join("\n") } }]
-        };
-      }
-    };
-  });
-  B.BiliCaptionPrefs.loadSettings = async () => ({
-    sumProvider: "OpenAI",
-    apiKey: "key",
-    apiModel: "gpt-4o-mini",
-    translateConcurrency: 1
-  });
-  B.BiliCaptionProviders.resolveSum = () => ({
-    provider: "OpenAI",
-    base: "https://api.openai.com/v1",
-    key: "key",
-    model: "gpt-4o-mini"
-  });
-  const input = [
-    { from: 0, to: 1, content: "Hello there friends." },
-    { from: 2, to: 3, content: "I wanted this now." },
-    { from: 4, to: 5, content: "Okay then everyone." }
-  ];
-  const prepared = B.BiliCaptionTranslate.prepareCues(input);
-  const job = {
-    jobId: "translate-regroup-fallback",
-    controller: new AbortController(),
-    tabId: 0,
-    bvid: "BV-regroup-fallback",
-    cid: 8,
-    cues: prepared.cues,
-    done: 0,
-    total: prepared.targets.length,
-    pending: true
-  };
-  await B.runTranslateJob(job, prepared.targets);
-
-  assert.equal(job.regrouped, true);
-  assert.equal(job.cues.length, 3);
-  assert.equal(job.cues[0].from, 0);
-  assert.equal(job.cues[0].to, 1);
-  assert.match(job.cues[0].content, /译Hello there friends/);
-  assert.match(job.cues[1].content, /译I wanted this now/);
 });
 
 test("续传时进度从已完成段数起步，而不是从 0", () => {

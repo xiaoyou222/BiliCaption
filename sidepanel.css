@@ -1,6 +1,7 @@
 :root {
   /* 设计稿：底 #0B0C0E · 面板 #121417 · 卡片 #1A1D22 · 抬起 #24272D
      文字 E7E9ED / C7CBD1 / 8A9099 / 767C86 · 主色 #4D8EF0 */
+  --bc-ui-font: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --bg: #121417;
   --surface: #1A1D22;
   --lift: #24272D;
@@ -34,7 +35,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   color-scheme: dark;
-  font: 13px/1.5 "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  font: 13px/1.5 var(--bc-ui-font);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -70,6 +71,7 @@ html.float-embed body {
   min-height: 0;
   background: transparent !important;
   color-scheme: none;
+  font-family: var(--bc-ui-font) !important;
 }
 
 html.float-embed .panel,
@@ -101,8 +103,8 @@ html.float-embed #btnFloat { display: none !important; }
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 36px;
-  padding: 2px 12px 0;
+  min-height: 44px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--line);
   flex: none;
   min-width: 0;
@@ -112,9 +114,15 @@ html.float-embed #btnFloat { display: none !important; }
 
 .header.warn .login-label { color: var(--pink-ink); }
 
+.site-icon {
+  flex: none;
+  display: block;
+}
+
 .header-title {
   min-width: 0;
   flex: 1 1 auto;
+  margin-left: 4px;
   font-size: 12px;
   font-weight: 400;
   color: var(--text-2);
@@ -131,28 +139,6 @@ html.float-embed #btnFloat { display: none !important; }
   white-space: nowrap;
 }
 
-.header-user {
-  flex: none;
-  max-width: 88px;
-  font-size: 10.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.vip-chip {
-  flex: none;
-  font-size: 9px;
-  font-weight: 700;
-  color: #F0B84D;
-  border: 1px solid rgba(240,184,77,.35);
-  background: rgba(240,184,77,.14);
-  border-radius: 4px;
-  padding: 0 4px;
-  line-height: 14px;
-}
-
 .login-dot {
   width: 6px;
   height: 6px;
@@ -161,7 +147,6 @@ html.float-embed #btnFloat { display: none !important; }
   background: var(--faint);
 }
 
-.login-dot.ok { background: var(--green); }
 .login-dot.warn { background: var(--pink); }
 
 .header-actions {
@@ -755,16 +740,6 @@ html.float-embed .lang-switch button.active {
   gap: 6px;
 }
 
-.job-seg-orb {
-  width: 13px;
-  height: 13px;
-  flex: none;
-  padding: 0;
-  display: none;
-}
-
-.job-seg-orb:not(:empty) { display: block; }
-
 .asr-job-title {
   font-size: 10px;
   font-weight: 400;
@@ -831,11 +806,6 @@ html.float-embed .lang-switch button.active {
   background: rgba(255,255,255,.06);
   border-color: rgba(255,255,255,.26);
   color: var(--text);
-}
-
-.job-btn.gold {
-  border-color: rgba(240,184,77,.4);
-  color: #F0B84D;
 }
 
 .chunk-live, .chunk-done {
@@ -1387,7 +1357,9 @@ html.float-embed .lang-switch button.active {
   color: var(--faint);
 }
 
-.cue div {
+.cue-text {
+  flex: 1;
+  min-width: 0;
   font-size: 12.5px;
   line-height: 18px;
   color: var(--muted);
@@ -1410,7 +1382,7 @@ html.float-embed .lang-switch button.active {
 }
 
 .cue.active time { color: var(--text-2); font-weight: 500; }
-.cue.active div { color: var(--text); }
+.cue.active .cue-text { color: var(--text); }
 
 .cues.selecting .cue.active:not(.picked)::before {
   display: none;
@@ -1421,7 +1393,7 @@ html.float-embed .lang-switch button.active {
   font-weight: 400;
 }
 
-.cues.selecting .cue.active:not(.picked) div {
+.cues.selecting .cue.active:not(.picked) .cue-text {
   color: var(--text-2);
 }
 
@@ -1431,7 +1403,75 @@ html.float-embed .lang-switch button.active {
 
 .cue.picked { background: rgba(77,142,240,.16); }
 .cue.picked time { color: var(--blue-ink); }
-.cue.picked div { color: var(--text); }
+.cue.picked .cue-text { color: var(--text); }
+
+.cue.editing,
+.cue.editing:hover,
+.cue.editing.picked,
+.cue.active.editing:not(.picked) {
+  background: rgba(255,255,255,.05);
+  cursor: default;
+  content-visibility: visible;
+  contain: none;
+}
+
+.cue-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cue-edit-text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  overflow: hidden;
+  border: 1px solid rgba(77,142,240,.5);
+  border-radius: 6px;
+  background: #0F1114;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 18px;
+  padding: 4px 7px;
+  font-family: inherit;
+  outline: none;
+}
+
+.cue-replace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cue-replace-label {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cue-replace-input {
+  flex: 1;
+  min-width: 70px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 6px;
+  background: #0F1114;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 18px;
+  padding: 1px 7px;
+  font-family: inherit;
+  outline: none;
+}
+
+.cue-replace-btn:disabled,
+.cue-replace-btn:disabled:hover {
+  opacity: .45;
+  cursor: not-allowed;
+  background: var(--blue);
+}
 
 .select-bar {
   padding: 9px 12px;
@@ -1615,6 +1655,12 @@ html.float-embed .lang-switch button.active {
   color: var(--blue);
   font-size: inherit;
   padding: 0;
+}
+
+.link-btn:disabled {
+  opacity: .55;
+  cursor: default;
+  pointer-events: none;
 }
 
 .link-btn.copied,

@@ -1,4 +1,8 @@
 (() => {
+  // 平台模块、共用工具和页面样式必须先注入（见 BiliCaptionPlatforms.CONTENT_SCRIPT_FILES）。单独注入本文件时
+  // 不接管页面，免得半截脚本抢走所有权又在后面报错；侧栏发现收不到回应会整份清单一起补注入。
+  if (!globalThis.BiliCaptionPlatforms || !globalThis.BiliCaptionCueTools || !globalThis.BiliCaptionContentStyles) return;
+  const { preserveTranslatedCues, formatClock, isTypingTarget, matchesKey } = globalThis.BiliCaptionCueTools;
   // 扩展重载后旧 isolated world 还活着，但 chrome.runtime 已死。
   // window 上的代计数跨不了 world，所有权必须写在 DOM 上，否则旧脚本
   // 会按秒拆掉新脚本刚挂上的浮窗，看起来就是不停闪。
@@ -16,7 +20,11 @@
   let lastHref = location.href;
   let lastStateKey = "";
   let loadToken = 0;
+  let pendingReload = 0;
   let loadingPageKey = "";
+  let inflightLoad = null;
+  let pendingSince = 0;
+  let pendingGiveUpMs = 12000;
   let myTabId = 0;
   let cachedState = emptyState("loading");
   let hookedVideo = null;
@@ -50,6 +58,7 @@
   let cueLoop = null;
   let cueLoopSeekAt = 0;
   let cueLoopTimer = 0;
+  let xManifestRetryKey = "";
 
   function requestChromePanelHidden() {
     postRuntime({ type: "CLOSE_SIDE_PANEL" });
@@ -67,20 +76,31 @@
   }
 
   function persistDockPrefs() {
-    if (!myTabId) return;
-    chrome.storage.sync.set({
-      [`dockOpen:${myTabId}`]: dockOpen,
-      [`preferSidebar:${myTabId}`]: preferSidebar
-    }).catch(() => {});
+    chrome.storage.sync.set({ dockOpen, preferSidebar }).catch(() => {});
+  }
+
+  function applyDockUiPrefs(data = {}) {
+    preferSidebar = data.preferSidebar !== false;
+    dockOpen = data.dockOpen === true && !preferSidebar;
+    if (dockOpen || !preferSidebar) {
+      placeDock();
+      requestChromePanelHidden();
+    } else {
+      document.getElementById("bilicaption-dock")?.remove();
+    }
   }
 
   function returnToSidebar() {
-    // 先发 restore，让 service worker 还在这次点击的用户手势里调用 sidePanel.open()
-    requestChromePanelRestore();
     preferSidebar = true;
     dockOpen = false;
     persistDockPrefs();
+    // 先写全局偏好再 restore，让其它标签先读到侧栏；open() 仍在这次点击的用户手势里
+    requestChromePanelRestore();
     document.getElementById("bilicaption-dock")?.remove();
+  }
+
+  function allowsAsr(kind) {
+    return kind !== "youtube";
   }
 
   function emptyState(page, extra = {}) {
@@ -105,73 +125,35 @@
     };
   }
 
-  function cueHasCjk(text) {
-    return (String(text || "").match(/[\u4e00-\u9fff]/g) || []).length >= 1;
+  // X 当前视频要扫全页帖子和链接才认得出来。结果按地址缓存一小会儿，
+  // 有视频开始播放（可能换了一个）或地址变了才重扫；视频节点被拆掉也重扫。
+  let xPick = null;
+  function pickXVideo(external) {
+    const now = Date.now();
+    const hit = xPick
+      && xPick.href === location.href
+      && now - xPick.at < (xPick.result.video ? 1500 : 400)
+      && (!xPick.result.video || xPick.result.video.isConnected);
+    if (hit) return xPick.result;
+    const result = BiliCaptionPlatforms.xSelection(document, external);
+    xPick = { href: location.href, at: now, result };
+    return result;
   }
+  // 媒体事件不冒泡，但捕获阶段在 document 上收得到
+  document.addEventListener("play", () => {
+    xPick = null;
+  }, true);
 
-  function cueOverlap(a, b) {
-    return Math.min(Number(a?.to) || 0, Number(b?.to) || 0)
-      - Math.max(Number(a?.from) || 0, Number(b?.from) || 0);
-  }
-
-  function preserveCueText(incoming, existing) {
-    const prev = (Array.isArray(existing) ? existing : []).filter((cue) => cueHasCjk(cue.content));
-    if (!prev.length) return incoming || [];
-    return (Array.isArray(incoming) ? incoming : []).map((cue) => {
-      if (cueHasCjk(cue.content)) return { ...cue };
-      let best = null;
-      let bestOverlap = 0;
-      for (const item of prev) {
-        const overlap = cueOverlap(cue, item);
-        if (overlap > bestOverlap) {
-          bestOverlap = overlap;
-          best = item;
-        }
-      }
-      const dur = Math.max(
-        0.2,
-        Math.min(
-          (Number(cue.to) || 0) - (Number(cue.from) || 0),
-          best ? (Number(best.to) || 0) - (Number(best.from) || 0) : 0
-        )
-      );
-      if (best && bestOverlap >= dur * 0.45) {
-        const original = String(cue.original || cue.content || best.original || "").trim();
-        return original
-          ? { ...cue, content: best.content, original }
-          : { ...cue, content: best.content };
-      }
-      return { ...cue };
-    });
-  }
-
-  function readPageIdentity() {
-    try {
-      const init = window.__INITIAL_STATE__ || {};
-      const ep = init.epInfo || {};
-      const video = init.videoData || {};
-      const p = Math.max(1, Number(new URLSearchParams(location.search).get("p") || init.p || 1));
-      const page = video.pages?.[p - 1];
-      return {
-        epId: String(ep.id || ep.ep_id || init.epId || ""),
-        seasonId: String(init.mediaInfo?.season_id || init.ssId || ""),
-        cid: Number(ep.cid || page?.cid || video.cid || 0),
-        aid: Number(ep.aid || video.aid || 0),
-        bvid: ep.bvid || video.bvid || ""
-      };
-    } catch {
-      return { epId: "", seasonId: "", cid: 0, aid: 0, bvid: "" };
-    }
-  }
-
+  // 番剧 ss 链接不带集数；页面变量 __INITIAL_STATE__ 在内容脚本的隔离环境里读不到（新版番剧页也没有），
+  // 所以这里只按地址解析，当前集由后台注入页面 MAIN world 读播放器（readBangumiPage）。
   function parsePage() {
     const external = globalThis.BiliCaptionPlatforms?.parse(location.href);
     if (external) {
       if (external.kind === "x") {
-        const selected = BiliCaptionPlatforms.xSelection(document, external);
+        const selected = pickXVideo(external);
         external.mediaIndex = selected.mediaIndex;
         external.bvid = `x_${external.videoId}_${selected.mediaIndex}`;
-        if (selected.video) {
+        if (selected.video && selected.video.dataset.bilicaptionVideoKey !== external.bvid) {
           for (const video of document.querySelectorAll('video[data-bilicaption-video-key]')) {
             if (video !== selected.video) delete video.dataset.bilicaptionVideoKey;
           }
@@ -182,29 +164,28 @@
     }
     const path = location.pathname;
     const search = new URLSearchParams(location.search);
-    const hint = readPageIdentity();
     const bvFromPath = path.match(/\/video\/(BV[\w]+)/)?.[1];
     const bvFromQuery = search.get("bvid");
-    const bvid = bvFromPath || bvFromQuery || hint.bvid;
+    const bvid = bvFromPath || bvFromQuery;
     if (bvid && /\/video\/|\/list\//.test(path)) {
       return {
         kind: "video",
         bvid,
         p: Math.max(1, Number(search.get("p") || 1)),
-        cid: hint.cid || 0,
-        aid: hint.aid || 0
+        cid: 0,
+        aid: 0
       };
     }
-    const epId = path.match(/\/bangumi\/play\/ep(\d+)/)?.[1] || hint.epId;
-    const seasonId = path.match(/\/bangumi\/play\/ss(\d+)/)?.[1] || hint.seasonId;
+    const epId = path.match(/\/bangumi\/play\/ep(\d+)/)?.[1] || "";
+    const seasonId = path.match(/\/bangumi\/play\/ss(\d+)/)?.[1] || "";
     if (/\/bangumi\/play\//.test(path) && (epId || seasonId)) {
       return {
         kind: "bangumi",
-        epId: epId || "",
-        seasonId: seasonId || "",
-        cid: hint.cid || 0,
-        aid: hint.aid || 0,
-        bvid: hint.bvid || ""
+        epId,
+        seasonId,
+        cid: 0,
+        aid: 0,
+        bvid: ""
       };
     }
     return { kind: "other" };
@@ -294,7 +275,7 @@
 
   function getVideo() {
     const external = globalThis.BiliCaptionPlatforms?.parse(location.href);
-    if (external?.kind === "x") return BiliCaptionPlatforms.xSelection(document, external).video;
+    if (external?.kind === "x") return pickXVideo(external).video;
     if (external?.platform === "youtube") return document.querySelector("#movie_player video");
     if (external) return null;
     const videos = [...document.querySelectorAll("video")].filter((el) => el.offsetWidth > 80);
@@ -353,10 +334,27 @@
     );
   }
 
+  function isXMediaOverlay() {
+    if (BiliCaptionPlatforms.platform(location.href) !== "x") return false;
+    const dialog = document.querySelector('[role="dialog"]');
+    if (!dialog) return false;
+    const video = getVideo();
+    return Boolean((video && dialog.contains(video)) || dialog.querySelector("video"));
+  }
+
+  function getXDockHost() {
+    if (BiliCaptionPlatforms.platform(location.href) !== "x") return null;
+    const dialog = document.querySelector('[role="dialog"]');
+    const video = getVideo();
+    if (dialog && ((video && dialog.contains(video)) || dialog.querySelector("video"))) return dialog;
+    return null;
+  }
+
   function getDockHost() {
     return (
       document.fullscreenElement ||
       document.webkitFullscreenElement ||
+      getXDockHost() ||
       document.querySelector(".bpx-player-container") ||
       document.querySelector("#bilibili-player") ||
       getPlayerHost()
@@ -372,217 +370,7 @@
     }
     if (style.dataset.bcOwner === ownerToken) return;
     style.dataset.bcOwner = ownerToken;
-    style.textContent = `
-      #bilicaption-dock {
-        --bc-dock-alpha: .82;
-        position: fixed;
-        z-index: 2147483646;
-        pointer-events: auto;
-        font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
-      }
-      #bilicaption-dock,
-      #bilicaption-dock .bc-dock-win,
-      #bilicaption-dock .bc-dock-head,
-      #bilicaption-dock .bc-dock-title,
-      #bilicaption-dock .bc-dock-frame,
-      #bilicaption-dock iframe {
-        opacity: 1 !important;
-      }
-      #bilicaption-dock.bc-inside { position: absolute; }
-      #bilicaption-dock .bc-dock-tab {
-        appearance: none;
-        position: absolute;
-        inset: 0;
-        margin: 0;
-        padding: 0;
-        border: 1px solid rgba(255,255,255,.16);
-        border-radius: 10px 0 0 10px;
-        background: rgb(26 29 34 / var(--bc-dock-alpha));
-        color: #8A9099;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font: 13px/1 inherit;
-      }
-      #bilicaption-dock .bc-dock-tab:hover { background: rgb(36 39 45 / var(--bc-dock-alpha)); color: #C7CBD1; }
-      #bilicaption-dock.bc-edge-left .bc-dock-tab {
-        border-radius: 0 10px 10px 0;
-        border-left: none;
-      }
-      #bilicaption-dock.bc-edge-right .bc-dock-tab { border-right: none; }
-      #bilicaption-dock.open .bc-dock-tab { display: none; }
-      #bilicaption-dock.collapsed .bc-dock-win { display: none; }
-      #bilicaption-dock .bc-dock-win {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        border-radius: 12px;
-        border: 1px solid rgba(255,255,255,.18);
-        background: transparent;
-        box-shadow: 0 16px 46px rgb(0 0 0 / .55);
-        isolation: isolate;
-      }
-      #bilicaption-dock .bc-dock-glass {
-        position: absolute;
-        inset: 0;
-        border-radius: inherit;
-        background: rgb(18 20 23 / var(--bc-dock-alpha));
-        pointer-events: none;
-        z-index: 0;
-      }
-      #bilicaption-dock .bc-dock-head {
-        position: relative;
-        z-index: 1;
-        flex: 0 0 32px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 0 10px;
-        background: transparent;
-        border-bottom: 1px solid rgba(255,255,255,.08);
-        color: #C7CBD1;
-        font: 600 11.5px/1 inherit;
-        cursor: move;
-        user-select: none;
-        overflow: hidden;
-      }
-      #bilicaption-dock .bc-dock-title {
-        flex: none;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: #C7CBD1;
-        font-weight: 600;
-      }
-      #bilicaption-dock .bc-dock-actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-        min-width: 0;
-        flex: 1;
-      }
-      #bilicaption-dock .bc-dock-alpha-wrap {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 72px;
-        flex: 1 1 auto;
-        max-width: 140px;
-      }
-      #bilicaption-dock .bc-dock-alpha-value {
-        flex: none;
-        width: 32px;
-        color: #8A9099;
-        font: 400 10.5px/1 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-        text-align: right;
-      }
-      #bilicaption-dock .bc-dock-alpha {
-        -webkit-appearance: none;
-        appearance: none;
-        flex: 1 1 auto;
-        width: 64px;
-        height: 14px;
-        margin: 0;
-        background: transparent;
-        cursor: pointer;
-      }
-      #bilicaption-dock .bc-dock-alpha:focus { outline: none; }
-      #bilicaption-dock .bc-dock-alpha::-webkit-slider-runnable-track {
-        height: 2px;
-        border-radius: 99px;
-        background: rgba(255,255,255,.18);
-      }
-      #bilicaption-dock .bc-dock-alpha::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 11px;
-        height: 11px;
-        margin-top: -4.5px;
-        border-radius: 50%;
-        border: 0;
-        background: #4D8EF0;
-      }
-      #bilicaption-dock .bc-dock-alpha::-moz-range-track {
-        height: 2px;
-        border-radius: 2px;
-        background: rgba(255,255,255,.18);
-      }
-      #bilicaption-dock .bc-dock-alpha::-moz-range-thumb {
-        width: 11px;
-        height: 11px;
-        border: 0;
-        border-radius: 50%;
-        background: #4D8EF0;
-      }
-      #bilicaption-dock .bc-dock-btns {
-        display: flex;
-        align-items: center;
-        flex: none;
-        gap: 4px;
-        padding-left: 8px;
-        border-left: 1px solid rgba(255,255,255,.14);
-      }
-      #bilicaption-dock .bc-dock-sidebar,
-      #bilicaption-dock .bc-dock-collapse {
-        appearance: none;
-        border: 0;
-        flex: none;
-        height: 20px;
-        border-radius: 5px;
-        background: transparent;
-        color: #8A9099;
-        cursor: pointer;
-        font: 400 11px/20px inherit;
-        padding: 0 6px;
-        white-space: nowrap;
-      }
-      #bilicaption-dock .bc-dock-collapse {
-        width: 20px;
-        padding: 0;
-        font-size: 13px;
-      }
-      #bilicaption-dock .bc-dock-sidebar:hover,
-      #bilicaption-dock .bc-dock-collapse:hover {
-        background: rgba(255,255,255,.06);
-        color: #C7CBD1;
-      }
-      #bilicaption-dock .bc-dock-frame {
-        position: relative;
-        z-index: 1;
-        flex: 1;
-        min-height: 0;
-        background: transparent;
-      }
-      #bilicaption-dock iframe {
-        width: 100%;
-        height: 100%;
-        border: 0;
-        background: transparent;
-        color-scheme: none;
-      }
-      #bilicaption-dock.bc-dragging .bc-dock-frame { pointer-events: none; }
-      #bilicaption-dock .bc-dock-resize { position: absolute; z-index: 2; }
-      #bilicaption-dock.collapsed .bc-dock-resize { display: none; }
-      #bilicaption-dock .bc-dock-resize-w { left: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; }
-      #bilicaption-dock .bc-dock-resize-e { right: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; }
-      #bilicaption-dock .bc-dock-resize-s { left: 14px; right: 14px; bottom: 0; height: 7px; cursor: ns-resize; }
-      #bilicaption-dock .bc-dock-resize-n { left: 14px; right: 14px; top: 0; height: 7px; cursor: ns-resize; }
-      #bilicaption-dock .bc-dock-resize-sw { left: 0; bottom: 0; width: 16px; height: 16px; cursor: nesw-resize; }
-      #bilicaption-dock .bc-dock-resize-se { right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; }
-      #bilicaption-dock .bc-dock-resize-nw { left: 0; top: 0; width: 16px; height: 16px; cursor: nwse-resize; }
-      #bilicaption-dock .bc-dock-resize-ne { right: 0; top: 0; width: 16px; height: 16px; cursor: nesw-resize; }
-      #bilicaption-dock .bc-dock-snap { position: absolute; display: none; pointer-events: none; background: rgba(77,142,240,.5); z-index: 3; }
-      #bilicaption-dock .bc-dock-snap.is-left { display: block; left: 0; top: 0; width: 3px; height: 100%; }
-      #bilicaption-dock .bc-dock-snap.is-right { display: block; right: 0; top: 0; width: 3px; height: 100%; }
-      #bilicaption-dock .bc-dock-snap.is-top { display: block; top: 0; left: 0; height: 3px; width: 100%; }
-      #bilicaption-dock .bc-dock-snap.is-bottom { display: block; bottom: 0; left: 0; height: 3px; width: 100%; }
-    `;
+    style.textContent = BiliCaptionContentStyles.dock;
   }
 
   function dockMode() {
@@ -612,17 +400,32 @@
     };
   }
 
-  function defaultDockGeom(area) {
+  function defaultDockGeom(area, el) {
     const usableW = area.w - area.left - area.right;
     const usableH = area.h - area.top - area.bottom;
     const width = Math.max(DOCK_MIN_W, Math.min(360, Math.round(usableW * 0.9)));
     const height = Math.max(DOCK_MIN_H, Math.min(560, usableH));
-    return {
+    const fallback = {
       left: area.w - area.right - width,
       top: area.top,
       width,
       height
     };
+    if (BiliCaptionPlatforms.platform(location.href) !== "x") return fallback;
+    const video = getVideo();
+    const videoBox = video?.getBoundingClientRect?.();
+    if (!videoBox || videoBox.width < 40 || videoBox.height < 40) return fallback;
+    const host = el?.parentElement;
+    const hostBox = dockMode() === "full" && host ? host.getBoundingClientRect() : { left: 0, top: 0 };
+    const videoRight = videoBox.right - hostBox.left;
+    const videoLeft = videoBox.left - hostBox.left;
+    const videoTop = videoBox.top - hostBox.top;
+    let left = videoRight + 8;
+    if (left + width > area.w - area.right) left = videoLeft - width - 8;
+    if (left < area.left) left = fallback.left;
+    let top = Math.max(area.top, videoTop);
+    if (top + height > area.h - area.bottom) top = Math.max(area.top, area.h - area.bottom - height);
+    return { left: Math.round(left), top: Math.round(top), width, height };
   }
 
   function clampDockGeom(geom, area) {
@@ -654,7 +457,7 @@
   function currentDockGeom(el) {
     const area = dockArea(el);
     const saved = dockGeom[dockMode()];
-    return clampDockGeom(saved || defaultDockGeom(area), area);
+    return clampDockGeom(saved || defaultDockGeom(area, el), area);
   }
 
   function saveDockGeom(geom) {
@@ -762,10 +565,17 @@
     if (label) label.textContent = `${pct}%`;
   }
 
+  // 拖滑块每一格都会触发 input；立刻改外观，写 sync 等松手停一会儿再写一次，
+  // 否则容易撞上 storage.sync 的每分钟写入上限，也会每格触发一次存储变更广播。
+  let dockAlphaSaveTimer = 0;
   function setDockAlpha(value) {
     dockAlpha = clampDockAlpha(value);
     applyDockAlpha();
-    chrome.storage.sync.set({ dockAlpha }).catch(() => {});
+    clearTimeout(dockAlphaSaveTimer);
+    dockAlphaSaveTimer = setTimeout(() => {
+      dockAlphaSaveTimer = 0;
+      chrome.storage.sync.set({ dockAlpha }).catch(() => {});
+    }, 400);
   }
 
   function renderDock() {
@@ -822,6 +632,7 @@
 
   function isImmersivePlayer() {
     if (document.fullscreenElement || document.webkitFullscreenElement) return true;
+    if (isXMediaOverlay()) return true;
     const host =
       document.querySelector(".bpx-player-container") ||
       document.querySelector("#bilibili-player") ||
@@ -928,8 +739,10 @@
     const frame = document.createElement("div");
     frame.className = "bc-dock-frame";
     const iframe = document.createElement("iframe");
+    // manifest 对 sidepanel.html 开了 use_dynamic_url：getURL 返回每次会话随机的地址（Chrome 130+），
+    // 网页猜不到固定地址去嵌入。查询参数在 getURL 之后再拼，避开旧版 getURL 带参数时丢随机 ID 的问题。
     iframe.src = `${chrome.runtime.getURL("sidepanel.html")}?embed=1`;
-    iframe.setAttribute("title", "BiliCaption");
+    iframe.setAttribute("title", BiliCaptionPlatforms.chromeTitle(BiliCaptionPlatforms.platform(location.href)));
     iframe.setAttribute("allowtransparency", "true");
     iframe.style.background = "transparent";
     iframe.addEventListener("pointerenter", () => {
@@ -973,6 +786,8 @@
   }
 
   function placeDock() {
+    // 扩展已失效：建浮窗要用 chrome.runtime.getURL，会抛错
+    if (!runtimeAlive()) return;
     if (preferSidebar && !dockOpen) {
       document.getElementById("bilicaption-dock")?.remove();
       return;
@@ -1056,6 +871,7 @@
   }
 
   function ensureOverlay() {
+    ensureDockStyle();
     let el = document.getElementById("bilicaption-overlay");
     if (el && !el.querySelector(".bc-overlay-text")) {
       el.remove();
@@ -1090,7 +906,7 @@
       "border-radius:6px",
       "background:rgba(8,10,13,.62)",
       "color:#ffffff",
-      "font:500 15px/1.55 PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif",
+      'font:500 15px/1.55 "Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif',
       "text-shadow:0 1px 3px rgba(0,0,0,.5)",
       "white-space:pre-wrap",
       "word-break:break-word"
@@ -1261,14 +1077,6 @@
     }
   }
 
-  function isTypingTarget(el) {
-    if (!el) return false;
-    const tag = (el.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || tag === "select") return true;
-    if (el.isContentEditable) return true;
-    return Boolean(el.closest?.("[contenteditable='true'], input, textarea, select"));
-  }
-
   function hotkeyAction(event) {
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
     if (event.isComposing || event.key === "Process") return null;
@@ -1279,12 +1087,6 @@
     if (code === "KeyX" || event.key?.toLowerCase() === "x") return "down";
     if (code === "KeyC" || event.key?.toLowerCase() === "c") return "up";
     return null;
-  }
-
-  function matchesSelKey(event) {
-    const key = event?.key;
-    if (!key) return false;
-    return key.toLowerCase() === String(selKey || "Shift").toLowerCase();
   }
 
   function modifierHeldFromEvent(event) {
@@ -1319,7 +1121,7 @@
     const modifierHeld = modifierHeldFromEvent(event);
     if (modifierHeld !== null) {
       setSelKeyHeld(modifierHeld);
-    } else if (matchesSelKey(event) && (event.type === "keyup" || !typing)) {
+    } else if (matchesKey(event, selKey) && (event.type === "keyup" || !typing)) {
       setSelKeyHeld(event.type === "keydown");
     }
     if (typing) return;
@@ -1361,6 +1163,53 @@
     hookedCleanups = [];
     hookedVideo = null;
   }
+
+  // 播放进度走长连接：侧栏 / 浮窗用 chrome.tabs.connect(tabId, { name: "bc-time" }) 连进来，
+  // 有连接才推送 { type: "TIME", currentTime, duration, rate }；侧栏没开时一条都不发。
+  const TIME_PORT_NAME = "bc-time";
+  const timePorts = new Set();
+
+  function pushPlayback(video = hookedVideo, port = null) {
+    if (!timePorts.size || !isCurrentScript()) return;
+    const message = {
+      type: "TIME",
+      currentTime: video?.currentTime || 0,
+      duration: video?.duration || 0,
+      rate: targetRate
+    };
+    for (const target of port ? [port] : [...timePorts]) {
+      try {
+        target.postMessage(message);
+      } catch {
+        timePorts.delete(target);
+      }
+    }
+  }
+
+  function closeTimePorts() {
+    for (const port of timePorts) {
+      try {
+        port.disconnect();
+      } catch {
+        // ignore
+      }
+    }
+    timePorts.clear();
+  }
+
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port?.name !== TIME_PORT_NAME) return;
+    // 同一 isolated world 里新旧两份脚本会收到同一个 port；只由当前 owner 接手，旧脚本别动它
+    if (!isCurrentScript()) return;
+    timePorts.add(port);
+    port.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError;
+      timePorts.delete(port);
+    });
+    // 连上先给一次当前进度，侧栏不用等下一次 timeupdate；还没找到视频就等 timeupdate
+    const video = hookedVideo || getVideo();
+    if (video) pushPlayback(video, port);
+  });
 
   let initialXSeekKey = "";
   function applyXLinkTime(video) {
@@ -1410,13 +1259,9 @@
       if (!force && now - lastSent < 120) return;
       lastSent = now;
       const currentTime = video.currentTime || 0;
+      // 页面内字幕照常跟随；进度只推给已连上的侧栏 / 浮窗，不再广播唤醒后台。
       updateOverlay(currentTime);
-      postRuntime({
-        type: "TIME",
-        currentTime,
-        duration: video.duration || 0,
-        rate: targetRate
-      });
+      pushPlayback(video);
     };
     const onSeeked = () => {
       if (!isCurrentScript()) return;
@@ -1507,15 +1352,6 @@
     tickCueLoop(video);
   }
 
-  function formatMarkClock(seconds) {
-    const total = Math.max(0, Math.floor(Number(seconds) || 0));
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    if (h) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-
   function getProgressHost() {
     if (BiliCaptionPlatforms.platform(location.href) === "youtube") return document.querySelector("#movie_player .ytp-progress-bar");
     if (BiliCaptionPlatforms.platform(location.href) === "x") return getVideo()?.closest('[data-testid="videoPlayer"]')?.querySelector('[role="slider"][aria-label*="Seek"], [role="slider"][aria-label*="进度"], [data-testid="progressBar"]') || null;
@@ -1536,61 +1372,7 @@
     }
     if (style.dataset.bcOwner === ownerToken) return;
     style.dataset.bcOwner = ownerToken;
-    style.textContent = `
-      #bilicaption-progress-marks {
-        position: absolute;
-        inset: 0;
-        z-index: 8;
-        pointer-events: none;
-      }
-      #bilicaption-progress-marks .bc-progress-mark {
-        position: absolute;
-        top: 50%;
-        width: 8px;
-        height: 10px;
-        margin: -5px 0 0 -4px;
-        padding: 0;
-        border: 0;
-        border-radius: 0;
-        background: transparent;
-        box-shadow: none;
-        pointer-events: auto;
-        cursor: pointer;
-      }
-      #bilicaption-progress-marks .bc-progress-mark::after {
-        content: "";
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        width: 2px;
-        height: 7px;
-        margin: -3.5px 0 0 -1px;
-        border-radius: 1px;
-        background: #F0B84D;
-        box-shadow: 0 0 0 1px rgba(11, 12, 14, .35);
-      }
-      #bilicaption-progress-marks .bc-progress-mark:hover::after {
-        height: 9px;
-        margin-top: -4.5px;
-        background: #F5C86A;
-      }
-      #bilicaption-progress-marks .bc-progress-tip {
-        position: absolute;
-        bottom: 12px;
-        max-width: 220px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        background: #1A1D22;
-        color: #E7E9ED;
-        font: 11px/1.45 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        pointer-events: none;
-        transform: translateX(-50%);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
-      }
-    `;
+    style.textContent = BiliCaptionContentStyles.progressMarks;
   }
 
   function ensureProgressMarks() {
@@ -1646,7 +1428,7 @@
       btn.type = "button";
       btn.className = "bc-progress-mark";
       btn.style.left = `${pct}%`;
-      const label = String(mark.text || "").trim() || formatMarkClock(time);
+      const label = String(mark.text || "").trim() || formatClock(time);
       btn.setAttribute("aria-label", label);
       const jump = (event) => {
         event.preventDefault();
@@ -1684,81 +1466,138 @@
     }
   }
 
+  function schedulePendingReload() {
+    if (pendingReload) return;
+    pendingReload = setTimeout(() => {
+      pendingReload = 0;
+      if (!isCurrentScript() || !runtimeAlive()) return;
+      if (!["youtube", "x"].includes(parsePage().kind)) return;
+      if (cachedState.subtitleStatus !== "pending" && cachedState.page !== "loading") return;
+      loadState().then((state) => {
+        postRuntime({ type: "STATE", payload: state });
+      });
+    }, 1000);
+  }
+
   async function loadState() {
-    const token = ++loadToken;
+    const force = arguments[0] === true;
     const page = parsePage();
     const key = pageKey(page);
-    if (key !== lastStateKey) {
-      clearCueLoop();
-      if (["youtube", "x"].includes(page.kind)) {
+    if (inflightLoad && inflightLoad.key === key && (!force || inflightLoad.force)) {
+      return inflightLoad.promise;
+    }
+
+    const token = ++loadToken;
+    const run = (async () => {
+      if (key !== lastStateKey || cachedState.subtitleStatus === "fetch_failed") pendingSince = 0;
+      if (key !== lastStateKey) {
+        if (pendingReload) {
+          clearTimeout(pendingReload);
+          pendingReload = 0;
+        }
+        clearCueLoop();
+        if (["youtube", "x"].includes(page.kind)) {
+          setOverlayCues([]);
+          setProgressMarks([]);
+          cachedState = emptyState("loading", { bvid: page.bvid, cid: 1, platform: page.kind, canGenerate: allowsAsr(page.kind) });
+        }
+      }
+      if (page.kind === "other") {
+        clearCueLoop();
+        cachedState = emptyState("other", { platform: page.platform || "" });
+        lastStateKey = key;
+        pendingSince = 0;
         setOverlayCues([]);
         setProgressMarks([]);
-        cachedState = emptyState("loading", { bvid: page.bvid, cid: 1, platform: page.kind, canGenerate: false });
+        return cachedState;
       }
-    }
-    if (page.kind === "other") {
-      clearCueLoop();
-      cachedState = emptyState("other");
-      lastStateKey = key;
-      setOverlayCues([]);
-      setProgressMarks([]);
-      return cachedState;
-    }
 
-    loadingPageKey = key;
-    try {
-      const data = await askBackground({ type: "LOAD_SUBTITLES", page });
-      if (token !== loadToken || pageKey() !== key) return cachedState;
-      const video = getVideo();
-      hookVideo(video);
-
-      cachedState = {
-        page: data.page || "video",
-        platform: data.platform || "bilibili",
-        notice: data.notice || "",
-        bvid: data.bvid || page.bvid || "",
-        aid: Number(data.aid) || 0,
-        cid: Number(data.cid || page.cid) || 0,
-        title: data.title || "",
-        part: data.part || "",
-        pic: data.pic || "",
-        up: data.up || "",
-        rate: targetRate,
-        tracks: data.tracks || [],
-        activeLan: data.activeLan || "",
-        cues: data.cues || [],
-        login: data.login || null,
-        source: data.source || "",
-        canGenerate: data.canGenerate !== false,
-        partial: Boolean(data.partial),
-        asrDone: Number(data.asrDone) || 0,
-        asrTotal: Number(data.asrTotal) || 0,
-        currentTime: video?.currentTime || 0,
-        duration: video?.duration || 0,
-        subtitleStatus: data.subtitleStatus || "",
-        error: data.error || (data.partial || data.subtitleStatus ? "" : data.notice) || ""
+      const settlePending = () => {
+        if (cachedState.subtitleStatus === "pending") {
+          if (!pendingSince) pendingSince = Date.now();
+          if (Date.now() - pendingSince >= (pendingGiveUpMs || 60000)) {
+            const ad = /广告/.test(`${cachedState.notice || ""}${cachedState.error || ""}`);
+            cachedState.subtitleStatus = "fetch_failed";
+            cachedState.error = ad
+              ? "广告结束后仍未读到正片，请确认视频已开始播放后重试"
+              : "读取视频信息超时，请确认已开始播放正片后重试";
+            cachedState.notice = "";
+            return;
+          }
+          schedulePendingReload();
+          return;
+        }
+        pendingSince = 0;
       };
-      setOverlayCues(cachedState.cues);
-      lastStateKey = key;
-      pullProgressMarks();
-      return cachedState;
-    } catch (error) {
-      if (token !== loadToken || pageKey() !== key) return cachedState;
-      const pageInfo = parsePage();
-      cachedState = emptyState("video", {
-        bvid: pageInfo.bvid || "",
-        aid: Number(pageInfo.aid) || 0,
-        cid: Number(pageInfo.cid) || 0,
-        error: error.message || String(error),
-        platform: pageInfo.platform || "bilibili",
-        canGenerate: !["youtube", "x"].includes(pageInfo.kind)
-      });
-      lastStateKey = key;
-      pullProgressMarks();
-      return cachedState;
-    } finally {
-      if (token === loadToken) loadingPageKey = "";
-    }
+
+      loadingPageKey = key;
+      try {
+        const data = await askBackground({ type: "LOAD_SUBTITLES", page, force });
+        if (token !== loadToken || pageKey() !== key) return cachedState;
+        const video = getVideo();
+        hookVideo(video);
+
+        cachedState = {
+          page: data.page || "video",
+          platform: data.platform || "bilibili",
+          notice: data.notice || "",
+          bvid: data.bvid || page.bvid || "",
+          aid: Number(data.aid) || 0,
+          cid: Number(data.cid || page.cid) || 0,
+        title: data.title || "",
+        titleFull: data.titleFull || "",
+        part: data.part || "",
+          pic: data.pic || "",
+          up: data.up || "",
+          rate: targetRate,
+          tracks: data.tracks || [],
+          activeLan: data.activeLan || "",
+          cues: data.cues || [],
+          login: data.login || null,
+          source: data.source || "",
+          canGenerate: data.canGenerate !== false,
+          partial: Boolean(data.partial),
+          asrDone: Number(data.asrDone) || 0,
+          asrTotal: Number(data.asrTotal) || 0,
+          currentTime: video?.currentTime || 0,
+          duration: video?.duration || 0,
+          subtitleStatus: data.subtitleStatus || "",
+          error: data.error || (data.partial || data.subtitleStatus ? "" : data.notice) || ""
+        };
+        setOverlayCues(cachedState.cues);
+        lastStateKey = key;
+        pullProgressMarks();
+        settlePending();
+        return cachedState;
+      } catch (error) {
+        if (token !== loadToken || pageKey() !== key) return cachedState;
+        const pageInfo = parsePage();
+        const pending = ["youtube", "x"].includes(pageInfo.kind) && BiliCaptionPlatforms.isPending(error);
+        cachedState = emptyState("video", {
+          bvid: pageInfo.bvid || "",
+          aid: Number(pageInfo.aid) || 0,
+          cid: Number(pageInfo.cid) || 0,
+          error: pending ? "" : (error.message || String(error)),
+          notice: pending ? (error.message || String(error)) : "",
+          platform: pageInfo.platform || pageInfo.kind || "bilibili",
+          login: ["youtube", "x"].includes(pageInfo.kind) ? { platform: pageInfo.kind } : undefined,
+          subtitleStatus: pending ? "pending" : "",
+          canGenerate: allowsAsr(pageInfo.kind)
+        });
+        lastStateKey = key;
+        pullProgressMarks();
+        settlePending();
+        return cachedState;
+      } finally {
+        if (token === loadToken) loadingPageKey = "";
+      }
+    })();
+
+    inflightLoad = { key, promise: run, force };
+    run.finally(() => {
+      if (inflightLoad?.promise === run) inflightLoad = null;
+    });
+    return run;
   }
 
   async function switchTrack(lan) {
@@ -1834,7 +1673,7 @@
       );
     }
     if (message?.type === "GET_STATE") return reply(refreshIfNeeded(false).then(snapshot));
-    if (message?.type === "REFRESH") return reply(loadState());
+    if (message?.type === "REFRESH") return reply(loadState(Boolean(message.force)));
     if (message?.type === "SET_RATE") {
       applyRate(message.rate);
       return reply(Promise.resolve(snapshot()));
@@ -1852,11 +1691,6 @@
       seekTo(message.time);
       return reply(Promise.resolve(snapshot()));
     }
-    if (message?.type === "TOGGLE_DOCK") {
-      setDockOpen(!dockOpen);
-      placeDock();
-      return reply(Promise.resolve(snapshot()));
-    }
     if (message?.type === "OPEN_FLOAT") {
       setDockOpen(true);
       placeDock();
@@ -1867,10 +1701,6 @@
       dockOpen = false;
       persistDockPrefs();
       document.getElementById("bilicaption-dock")?.remove();
-      return reply(Promise.resolve(snapshot()));
-    }
-    if (message?.type === "RETURN_SIDEBAR") {
-      returnToSidebar();
       return reply(Promise.resolve(snapshot()));
     }
     if (message?.type === "SET_OVERLAY") {
@@ -1909,11 +1739,11 @@
       if (message.bvid) cachedState.bvid = message.bvid;
       if (message.title) cachedState.title = message.title;
       cachedState.cues = keepTranslation
-        ? preserveCueText(message.cues || [], cachedState.cues)
+        ? preserveTranslatedCues(message.cues || [], cachedState.cues)
         : (message.cues || []);
       cachedState.activeLan = keepTranslation ? "translated" : (message.activeLan || "groq-asr");
       cachedState.source = keepTranslation ? "translated" : (message.source || "groq");
-      cachedState.canGenerate = !["youtube", "x"].includes(parsePage().kind);
+      cachedState.canGenerate = allowsAsr(parsePage().kind);
       cachedState.partial = Boolean(message.partial);
       cachedState.error = "";
       setOverlayCues(cachedState.cues);
@@ -1928,11 +1758,31 @@
         (!message.cid || (cachedState.cid && Number(message.cid) === Number(cachedState.cid)));
       // 翻译可能在后台继续。标签页已经跳到别的视频时，旧任务不得覆盖并缓存到新视频。
       if (!hasIdentity || !sameVideo) return reply(Promise.resolve(snapshot()));
+      // 后台翻译运行中只发本批变化的行：[[行索引, 译文, 英文原文], …]。
+      // 行数对不上（页面刚刷新、后台刚切句）时回 needFull，让后台补发整份。
+      if (Array.isArray(message.patch)) {
+        const list = cachedState.cues || [];
+        if (list.length !== Number(message.cueCount)) return reply(Promise.resolve({ needFull: true }));
+        const next = list.slice();
+        for (const [index, content, original] of message.patch) {
+          const cue = next[index];
+          if (!cue || typeof content !== "string") continue;
+          next[index] = original && !String(cue.original || "").trim()
+            ? { ...cue, content, original }
+            : { ...cue, content };
+        }
+        cachedState.cues = next;
+        if (message.activeLan) cachedState.activeLan = message.activeLan;
+        if (message.source) cachedState.source = message.source;
+        setOverlayCues(cachedState.cues);
+        return reply(Promise.resolve({ ok: true }));
+      }
       cachedState.cues = message.cues || cachedState.cues;
       if (message.activeLan) cachedState.activeLan = message.activeLan;
       if (message.source) cachedState.source = message.source;
       setOverlayCues(cachedState.cues);
-      if (cachedState.bvid && cachedState.cid && cachedState.cues.length) {
+      // persisted：后台翻译已自己写缓存，不再回传整份字幕重写一遍；侧栏改字等来源仍由这里保存。
+      if (!message.persisted && cachedState.bvid && cachedState.cid && cachedState.cues.length) {
         askBackground({
           type: "SAVE_CUES_CACHE",
           bvid: cachedState.bvid,
@@ -1946,28 +1796,27 @@
       postRuntime({ type: "STATE", payload: snap });
       return reply(Promise.resolve(snap));
     }
-    if (message?.type === "GENERATE_ASR") {
-      return reply(
-        askBackground({
-          type: "GENERATE_ASR",
-          aid: cachedState.aid || message.aid,
-          cid: cachedState.cid || message.cid,
-          bvid: cachedState.bvid || message.bvid
-        }).then(async (data) => {
-          const keepTranslation =
-            cachedState.source === "translated" || cachedState.activeLan === "translated";
-          cachedState.cues = keepTranslation
-            ? preserveCueText(data.cues || [], cachedState.cues)
-            : (data.cues || []);
-          cachedState.activeLan = keepTranslation ? "translated" : (data.activeLan || "groq-asr");
-          cachedState.source = keepTranslation ? "translated" : (data.source || "groq");
-          cachedState.canGenerate = !["youtube", "x"].includes(parsePage().kind);
-          cachedState.partial = false;
-          cachedState.error = "";
-          setOverlayCues(cachedState.cues);
-          return snapshot();
-        })
-      );
+    if (message?.type === "X_MANIFEST_READY") {
+      // 后台刚捕获到本帖视频的 HLS 清单：之前因「尚未捕获」没拿到字幕的，自动重读一次
+      const page = parsePage();
+      const same = page.kind === "x" && (!message.bvid || message.bvid === page.bvid);
+      if (same && !cachedState.cues?.length && cachedState.bvid === page.bvid && xManifestRetryKey !== page.bvid) {
+        xManifestRetryKey = page.bvid;
+        const key = pageKey(page);
+        // 正在进行的同视频读取发起于清单到达之前，直接合并会拿到旧结果、之后也不再重读：
+        // 等它结束，仍没有字幕就再读一次
+        const running = inflightLoad?.key === key ? inflightLoad.promise : null;
+        Promise.resolve(running)
+          .catch(() => {})
+          .then(() => {
+            if (pageKey() !== key) return null;
+            return cachedState.cues?.length ? cachedState : loadState();
+          })
+          .then((state) => {
+            if (state) postRuntime({ type: "STATE", payload: state });
+          });
+      }
+      return reply(Promise.resolve({ ok: true }));
     }
     return false;
   });
@@ -2008,19 +1857,22 @@
   window.addEventListener("resize", onPlayerResize);
 
   const dockWatch = new MutationObserver(() => {
-    if (!isCurrentScript()) {
+    // 扩展重载后旧脚本已失效：浮窗节点被移除时别再重建（getURL 会抛 Extension context invalidated）
+    if (!isCurrentScript() || !runtimeAlive()) {
       dockWatch.disconnect();
       return;
     }
     if (dockOpen || !preferSidebar) placeDock();
   });
   dockWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
-  if (document.body) dockWatch.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
+  if (document.body) dockWatch.observe(document.body, { attributes: true, attributeFilter: ["class", "style"], childList: true });
 
   const dockTick = setInterval(() => {
     if (!isCurrentScript()) {
       clearInterval(dockTick);
       dockWatch.disconnect();
+      // 让出所有权后断开进度连接，侧栏会重连到接手的新脚本
+      closeTimePorts();
       return;
     }
     // 扩展重载后旧 content script 已死。只有自己仍是 owner 时才拆 DOM；
@@ -2057,36 +1909,27 @@
       updateOverlay(getVideo()?.currentTime || 0);
     }
   });
-  ensureTabId().then(() => {
+  chrome.storage.sync.get({
+    dockGeomPage: null,
+    dockGeomFull: null,
+    dockAlpha: 0.82,
+    dockOpen: false,
+    preferSidebar: true
+  }, (data) => {
     if (!isCurrentScript()) return;
-    const keys = {
-      dockGeomPage: null,
-      dockGeomFull: null,
-      dockAlpha: 0.82
-    };
-    if (myTabId) {
-      keys[`dockOpen:${myTabId}`] = false;
-      keys[`preferSidebar:${myTabId}`] = true;
-    }
-    chrome.storage.sync.get(keys, (data) => {
-      if (!isCurrentScript()) return;
-      dockGeom.page = data.dockGeomPage || null;
-      dockGeom.full = data.dockGeomFull || null;
-      dockAlpha = clampDockAlpha(data.dockAlpha);
-      preferSidebar = myTabId ? data[`preferSidebar:${myTabId}`] !== false : true;
-      dockOpen = myTabId ? data[`dockOpen:${myTabId}`] === true && !preferSidebar : false;
-      if (dockOpen || !preferSidebar) placeDock();
-    });
+    dockGeom.page = data.dockGeomPage || null;
+    dockGeom.full = data.dockGeomFull || null;
+    dockAlpha = clampDockAlpha(data.dockAlpha);
+    applyDockUiPrefs(data);
   });
+  ensureTabId().catch(() => {});
   chrome.storage.onChanged.addListener((changes, area) => {
     if (!isCurrentScript()) return;
-    const dockOpenKey = myTabId ? `dockOpen:${myTabId}` : "";
-    const preferKey = myTabId ? `preferSidebar:${myTabId}` : "";
-    if (area === "sync" && myTabId && (changes[dockOpenKey] || changes[preferKey])) {
-      if (changes[dockOpenKey]) dockOpen = changes[dockOpenKey].newValue === true;
-      if (changes[preferKey]) preferSidebar = changes[preferKey].newValue !== false;
-      if (dockOpen || !preferSidebar) placeDock();
-      else document.getElementById("bilicaption-dock")?.remove();
+    if (area === "sync" && (changes.dockOpen || changes.preferSidebar)) {
+      applyDockUiPrefs({
+        dockOpen: changes.dockOpen ? changes.dockOpen.newValue : dockOpen,
+        preferSidebar: changes.preferSidebar ? changes.preferSidebar.newValue : preferSidebar
+      });
     }
     if (area === "sync" && changes.dockAlpha) {
       dockAlpha = clampDockAlpha(changes.dockAlpha.newValue);

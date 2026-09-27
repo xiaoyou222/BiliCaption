@@ -60,3 +60,10 @@ Chrome 扩展：在 B 站、YouTube 普通视频和 X 视频帖子中，用侧�
 - 仅监听 YouTube 字幕和 X 媒体播放列表请求地址，用于读取当前视频字幕；临时地址存于浏览器会话，关闭标签页后清除，不同步到 WebDAV。
 - 生成、翻译、总结会把对应音频或字幕发给你配置的服务商，请用自己的账号、注意用量
 - 本仓库源码可自行查看；使用中的问题可以开 [Issues](https://github.com/xiaoyou222/BiliCaption/issues)
+
+## 开发
+
+- 没有构建步骤、没有 npm 依赖，改完直接在 `chrome://extensions` 里刷新扩展。
+- 跑测试：`npm test`，等同 `node --test 测试/*.test.js`。新版 Node 下必须带上 `*.test.js` 这个通配。
+- 打包：`scripts/打包.sh`（需要 python3），只收运行时文件，生成 `BiliCaption-<版本号>.zip`；`scripts/打包.sh --列出` 只看会打进哪些文件。
+- 代码按加载点分目录：后台是 `background.js` + `后台/`（由 `importScripts` 依次加载），侧栏是 `sidepanel.js` + `侧栏/`（`sidepanel.html` 里的 script 标签），内容脚本是 `内容/` + `content.js`（`manifest.json` 的 `content_scripts`，与 `lib/视频平台.js` 里的 `CONTENT_SCRIPT_FILES` 保持一致）。这些都是共享全局作用域的普通脚本，新增文件要加到对应的加载点。

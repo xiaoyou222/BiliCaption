@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("path");
 const vm = require("node:vm");
+const { runFile, loadBackgroundScripts, panelSource, contentSource } = require("./源码加载.js");
 
 const root = path.resolve(__dirname, "..");
 
@@ -11,7 +12,7 @@ function loadTranslate() {
   context.self = context;
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root, "lib/translate.js"), "utf8"), context);
+  for (const file of ["lib/zh-simp.js", "lib/translate.js"]) runFile(context, file);
   return context.BiliCaptionTranslate;
 }
 
@@ -100,8 +101,7 @@ function loadBackground(fetchImpl = globalThis.fetch) {
   context.__store = store;
   context.self = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root, "lib/translate.js"), "utf8"), context);
-  vm.runInContext(fs.readFileSync(path.join(root, "background.js"), "utf8"), context);
+  loadBackgroundScripts(context, ["lib/视频平台.js", "lib/字幕工具.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/模型调用.js"]);
   return context;
 }
 
@@ -163,8 +163,7 @@ test("翻译后 cue.original 仍是英文，content 是中文", async () => {
     cues: prepared.cues,
     done: 0,
     total: prepared.targets.length,
-    pending: true,
-    regrouped: true
+    pending: true
   };
   await B.runTranslateJob(job, prepared.targets);
   assert.equal(job.cues[0].content, "第1句");
@@ -187,7 +186,8 @@ test("断句切开后仍带上 original", () => {
 
 test("ASR 回写会把英文原文留在 original 上", () => {
   const B = loadBackground();
-  const merged = B.mergeTranslatedCues(
+  // 后台写缓存与内容脚本同步字幕共用 lib/字幕工具.js 的实现
+  const merged = B.BiliCaptionCueTools.preserveTranslatedCues(
     [{ from: 0, to: 1, content: "plug into Set Position" }],
     [{ from: 0, to: 1, content: "接到 Set Position", original: "plug into Set Position" }]
   );
@@ -201,7 +201,7 @@ test("自己转写/翻译算插件字幕，不能拿去切官方轨", () => {
   assert.equal(T.isPluginCaptionSource("translated", "translated"), true);
   assert.equal(T.isPluginCaptionSource("bilibili", "ai-zh"), false);
   assert.equal(T.isPluginCaptionSource("bilibili", "en"), false);
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const panel = panelSource();
   assert.match(panel, /function isPluginCaptions/);
   assert.match(panel, /if \(!isPluginCaptions\(\)\)/);
   assert.match(panel, /SWITCH_TRACK/);
@@ -241,8 +241,8 @@ test("官方轨：ai-zh 算中，en 算英，日文不算", () => {
 test("侧栏有中英切换，浮层会跟语言", () => {
   const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
-  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+  const panel = panelSource();
+  const content = contentSource();
   assert.match(html, /id="captionLang"/);
   assert.match(html, /job-pill-slot[\s\S]*id="captionLang"/);
   assert.doesNotMatch(html, /id="captionLang"[\s\S]*job-pill-slot/);

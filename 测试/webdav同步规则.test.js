@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { loadBackgroundScripts } = require("./源码加载.js");
 
 function loadDav() {
   const context = {
@@ -121,4 +122,61 @@ test("这边恢复后，另一边未改过的回收站条目不再加回来", ()
     100
   );
   assert.equal(merged.length, 0);
+});
+
+test("只有真正会上传的键才触发自动同步：透明度、浮窗位置、字幕语言不触发", () => {
+  const Dav = loadDav();
+  const change = (keys, extra = {}) => Object.fromEntries(keys.map((key) => [key, { newValue: extra[key] ?? 1 }]));
+  for (const key of ["dockAlpha", "dockGeomPage", "dockGeomFull", "dockOpen", "preferSidebar", "captionLang", "overlayOn", "davLast", "davAt"]) {
+    assert.equal(Dav.shouldSyncOnChange(change([key]), "sync"), false, key);
+  }
+  for (const key of ["davConfigAt", "syncMarks", "syncConfig", "syncKeys", "davUrl", "davUser"]) {
+    assert.equal(Dav.shouldSyncOnChange(change([key]), "sync"), true, key);
+  }
+  assert.equal(Dav.shouldSyncOnChange(change(["syncOn"], { syncOn: true }), "sync"), true);
+  assert.equal(Dav.shouldSyncOnChange(change(["syncOn", "davConfigAt"], { syncOn: false }), "sync"), false);
+  for (const key of ["markerIndex", "markerTrash", "marks:BV1:2", "davPass"]) {
+    assert.equal(Dav.shouldSyncOnChange(change([key]), "local"), true, key);
+  }
+  for (const key of ["asr:BV1:2", "outline:v2:BV1:2", "appLogs", "davSyncMeta", "lastVideo"]) {
+    assert.equal(Dav.shouldSyncOnChange(change([key]), "local"), false, key);
+  }
+  assert.equal(Dav.shouldSyncOnChange(change(["marks:BV1:2"]), "session"), false);
+});
+
+test("防抖定时器跑完就清掉兜底 alarm，一次改动只同步一次", () => {
+  const timers = [];
+  const alarms = { created: [], cleared: [], listener: null };
+  const noop = { addListener() {} };
+  const context = {
+    console, URL, TextEncoder, TextDecoder, AbortController, AbortSignal,
+    setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    clearTimeout() {},
+    setInterval() { return 0; },
+    clearInterval() {},
+    importScripts() {},
+    fetch: async () => { throw new Error("不应联网"); },
+    chrome: {
+      runtime: { id: "t", onInstalled: noop, onStartup: noop, onMessage: noop, async sendMessage() {} },
+      sidePanel: { async setPanelBehavior() {}, async setOptions() {} },
+      tabs: { query(_q, cb) { cb?.([]); return Promise.resolve([]); } },
+      declarativeNetRequest: { async updateDynamicRules() {} },
+      storage: { local: { async get() { return {}; }, async set() {}, async remove() {} } },
+      alarms: {
+        create: (name, info) => alarms.created.push({ name, info }),
+        clear: async (name) => { alarms.cleared.push(name); return true; },
+        onAlarm: { addListener: (fn) => { alarms.listener = fn; } }
+      }
+    },
+    BiliCaptionPrefs: { async loadSettings(defaults) { return { ...defaults }; }, async saveSettings() {} }
+  };
+  context.self = context;
+  vm.createContext(context);
+  loadBackgroundScripts(context, ["lib/视频平台.js", "lib/webdav.js"]);
+  const before = timers.length;
+  context.scheduleDavSync();
+  assert.equal(alarms.created.at(-1).name, "dav-sync-soon");
+  assert.ok(alarms.created.at(-1).info.when - Date.now() >= 29000);
+  timers[before]();
+  assert.deepEqual(alarms.cleared, ["dav-sync-soon"]);
 });

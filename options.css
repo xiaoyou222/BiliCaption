@@ -237,20 +237,6 @@ select {
   flex: none;
 }
 
-.creds {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-content: start;
-}
-
-.creds.two { grid-template-columns: 1fr 1fr; }
-
-.test-slot {
-  display: flex;
-  align-items: flex-end;
-}
-
 .btn-ghost {
   border: 1px solid rgba(255,255,255,.16);
   background: transparent;

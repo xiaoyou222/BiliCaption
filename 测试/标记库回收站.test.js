@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { backgroundSource, contentSource, panelSource, runFile } = require("./源码加载.js");
 
 function loadMarkers() {
   const store = {};
@@ -23,7 +24,7 @@ function loadMarkers() {
   };
   context.globalThis = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "lib/markers.js"), "utf8"), context);
+  for (const file of ["lib/字幕工具.js", "lib/markers.js"]) runFile(context, file);
   return { M: context.BiliCaptionMarkers, store };
 }
 
@@ -113,9 +114,9 @@ test("超过 30 天的回收站条目会在读取时清掉", async () => {
 
 test("播放器进度条会打标记点，点击跳转", () => {
   const root = path.join(__dirname, "..");
-  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
-  const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
+  const content = contentSource();
+  const panel = panelSource();
+  const background = backgroundSource();
   assert.match(content, /id = "bilicaption-progress-marks"/);
   assert.match(content, /bc-progress-mark::after[\s\S]{0,220}background: #F0B84D/);
   assert.match(content, /bc-progress-mark::after[\s\S]{0,180}width: 2px/);
@@ -136,7 +137,7 @@ test("播放器进度条会打标记点，点击跳转", () => {
 
 test("标记行用 AI 润色，双击编辑；边缘光只给润色，不给选区总结", () => {
   const root = path.join(__dirname, "..");
-  const panel = fs.readFileSync(path.join(root, "sidepanel.js"), "utf8");
+  const panel = panelSource();
   const css = fs.readFileSync(path.join(root, "sidepanel.css"), "utf8");
   const html = fs.readFileSync(path.join(root, "sidepanel.html"), "utf8");
   assert.match(panel, /function polishMarker/);
@@ -170,7 +171,7 @@ test("标记行用 AI 润色，双击编辑；边缘光只给润色，不给选�
 });
 
 test("选区总结的已标记跟这条总结的起点走，不沿用上一条", () => {
-  const panel = fs.readFileSync(path.join(__dirname, "..", "sidepanel.js"), "utf8");
+  const panel = panelSource();
   const summarize = panel.match(/async function summarizeSelection\([\s\S]*?\n\}\n/);
   assert.ok(summarize, "找不到 summarizeSelection");
   assert.match(summarize[0], /summaryMarkTime = Number\(state\.cues\[from\]\.from\)/);

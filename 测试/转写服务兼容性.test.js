@@ -242,18 +242,115 @@ test("OpenAI 新转写模型使用 json，Whisper 与 Groq 才请求时间戳", 
   assert.equal(secondKeys.filter((key) => key === "timestamp_granularities[]").length, 2);
 });
 
-test("三家转写都接受 M4A，切片上限仍是 8 分钟 / 20MB", () => {
+test("verbose_json 与时间戳按白名单发：只有 Groq 或 Whisper 模型才发，gpt-transcribe 等新模型一律 json", async () => {
+  const requests = [];
+  const C = loadStt(async (url, options) => {
+    requests.push(Object.fromEntries([...options.body.entries()].filter(([key]) => key !== "file" && key !== "timestamp_granularities[]")));
+    requests.at(-1).stamps = [...options.body.entries()].filter(([key]) => key === "timestamp_granularities[]").length;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get() { return null; } },
+      async text() { return JSON.stringify({ text: "hello" }); }
+    };
+  });
+  const blob = new Blob([new Uint8Array([1])], { type: "audio/mp4" });
+  const openai = (model) => ({ provider: "OpenAI", kind: "openai", base: "https://api.openai.com/v1", model, key: "test" });
+  const cases = [
+    [openai("gpt-transcribe"), "json", 0],
+    [openai("gpt-4o-transcribe-diarize"), "json", 0],
+    [openai("gpt-4o-mini-transcribe-2025-12-15"), "json", 0],
+    [openai("whisper-1"), "verbose_json", 2],
+    [{ provider: "Groq", kind: "openai", base: "https://api.groq.com/openai/v1", model: "whisper-large-v3", key: "test" }, "verbose_json", 2]
+  ];
+  for (const [cfg] of cases) await C.BiliCaptionStt.transcribe(blob, cfg);
+  cases.forEach(([cfg, format, stamps], i) => {
+    assert.equal(requests[i].response_format, format, cfg.model);
+    assert.equal(requests[i].stamps, stamps, cfg.model);
+  });
+});
+
+test("各家转写都接受 M4A，分片上限按服务商官方限制区分", () => {
   const C = loadStt(async () => { throw new Error("不应请求网络"); });
   const P = C.BiliCaptionProviders;
+  const MB = 1024 * 1024;
   for (const name of P.STT_PROVIDERS) {
     const cfg = P.resolveStt({ sttProvider: name, sttCreds: { [name]: { key: "test" } } });
     assert.equal(P.acceptsSttExtension(cfg, "m4a"), true);
     assert.equal(P.sttCompatibilityError(cfg, "m4a"), "");
     const limits = P.sttLimits(cfg);
-    assert.equal(limits.maxSeconds, 8 * 60);
-    assert.equal(limits.maxBytes, 20 * 1024 * 1024);
     assert.equal(limits.hardDuration, false);
+    assert.ok(limits.concurrency >= 1 && limits.concurrency <= 3);
+    assert.ok(limits.uploadBytes >= limits.maxBytes);
   }
+  // Groq / OpenAI 官方单文件 25MB：切片目标 20MB，单请求不超过 24MB
+  for (const name of ["Groq", "OpenAI"]) {
+    const limits = P.sttLimits({ provider: name });
+    assert.equal(limits.maxSeconds, 8 * 60);
+    assert.equal(limits.maxBytes, 20 * MB);
+    assert.ok(limits.uploadBytes < 25 * MB);
+  }
+  // Fish Audio 文档没写上限，保持保守值
+  assert.equal(P.sttLimits({ provider: "Fish Audio" }).maxBytes, 20 * MB);
+  assert.equal(P.sttLimits({ provider: "Fish Audio" }).maxSeconds, 8 * 60);
+  // ElevenLabs 官方支持 3GB / 10 小时并在服务端自动切段，允许大分片
+  const eleven = P.sttLimits({ provider: "ElevenLabs" });
+  assert.ok(eleven.maxSeconds >= 30 * 60);
+  assert.ok(eleven.maxBytes > 25 * MB);
+  // 未知服务商走保守默认值
+  assert.equal(P.sttLimits({ provider: "未知" }).maxBytes, 20 * MB);
+});
+
+test("Groq 走统一实现：带词级时间戳，限额头和 insufficient_quota 等错误信息完整带回", async () => {
+  const calls = [];
+  let reply = {
+    ok: true,
+    status: 200,
+    headers: new Map([
+      ["x-ratelimit-remaining-requests", "0"],
+      ["x-ratelimit-limit-requests", "2000"],
+      ["x-ratelimit-reset-requests", "2m59.56s"]
+    ]),
+    body: { text: "你好", segments: [{ start: 0, end: 1, text: "你好" }] }
+  };
+  const C = loadStt(async (url, options) => {
+    calls.push({ url, entries: [...options.body.entries()] });
+    return {
+      ok: reply.ok,
+      status: reply.status,
+      headers: { get: (name) => reply.headers.get(name) ?? null },
+      async text() { return typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body); }
+    };
+  });
+  const S = C.BiliCaptionStt;
+  const groq = { provider: "Groq", kind: "openai", base: "https://api.groq.com/openai/v1", model: "whisper-large-v3", key: "gsk" };
+  const blob = new Blob([new Uint8Array([1])], { type: "audio/mp4" });
+  const result = await S.transcribe(blob, groq, { filename: "audio.m4a" });
+  assert.equal(calls[0].url, "https://api.groq.com/openai/v1/audio/transcriptions");
+  const fields = calls[0].entries.filter(([key]) => key !== "file");
+  assert.deepEqual(fields.filter(([key]) => key === "timestamp_granularities[]").map(([, v]) => v), ["segment", "word"]);
+  assert.equal(Object.fromEntries(fields).model, "whisper-large-v3");
+  assert.equal(result.rateLimit.remainingRequests, 0);
+  assert.equal(result.rateLimit.resetRequestsMs, 179560);
+
+  // OpenAI 的额度用完同样是 429，但 code 是 insufficient_quota，必须带回去
+  reply = {
+    ok: false,
+    status: 429,
+    headers: new Map([["retry-after", "7"]]),
+    body: { error: { message: "You exceeded your current quota", type: "insufficient_quota", code: "insufficient_quota" } }
+  };
+  await assert.rejects(
+    S.transcribe(blob, { provider: "OpenAI", kind: "openai", base: "https://api.openai.com/v1", model: "whisper-1", key: "k" }),
+    (error) => error.status === 429 && error.code === "insufficient_quota" && error.retryAfter === 7000
+  );
+  // 网关返回 HTML 错误页时也要有 status，交给后台判为临时故障
+  reply = { ok: false, status: 502, headers: new Map(), body: "<html>Bad Gateway</html>" };
+  await assert.rejects(S.transcribe(blob, groq), (error) => error.status === 502 && /Bad Gateway/.test(error.message));
+  assert.equal(S.parseDurationMs("1h2m3.5s"), 3723500);
+  assert.equal(S.parseDurationMs("120ms"), 120);
+  assert.equal(S.guessExt("audio/aac"), "aac");
+  assert.equal(S.guessExt("audio/flac"), "flac");
 });
 
 test("总结服务商只剩 OpenAI / Gemini / DeepSeek / 自定义", () => {
@@ -291,7 +388,8 @@ test("旧总结服务商迁移到自定义或 OpenAI", () => {
   assert.equal(gatewayUrl.apiBase, "https://cpa.example/v1");
   assert.equal(gatewayUrl.apiKey, "k");
   assert.equal(gatewayUrl.apiModel, "xy-smart");
-  assert.equal(gatewayUrl.translateModel, "");
+  // 「自定义」网关下主模型和翻译模型同一规则：别名都保留
+  assert.equal(gatewayUrl.translateModel, "xy-fast");
 
   const gatewayEmpty = P.migrateSum({
     sumProvider: "统一网关",
