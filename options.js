@@ -602,18 +602,26 @@ function davCfg() {
   return { url: $("davUrl").value.trim(), user: $("davUser").value.trim(), pass: $("davPass").value };
 }
 
+// 同步内容的 4 个开关：[按钮 id / 设置键, 文字, 是否开启]。「转写与改字」即 syncSubs（默认开）
+const SYNC_CHIPS = [
+  ["syncMarks", "标记", (s) => s.syncMarks !== false],
+  ["syncConfig", "设置", (s) => Boolean(s.syncConfig)],
+  ["syncSubs", "转写与改字", (s) => s.syncSubs !== false],
+  ["syncKeys", "API Key", (s) => Boolean(s.syncKeys)]
+];
+
 function renderSync() {
-  $("syncToggle").classList.toggle("on", Boolean(settings.syncOn));
-  $("syncToggle").setAttribute("aria-pressed", String(Boolean(settings.syncOn)));
-  $("syncMarks").classList.toggle("on", settings.syncMarks !== false);
-  $("syncMarks").textContent = (settings.syncMarks !== false ? "✓ " : "") + "标记";
-  $("syncConfig").classList.toggle("on", Boolean(settings.syncConfig));
-  $("syncConfig").textContent = (settings.syncConfig ? "✓ " : "") + "设置（服务商 / 模型 / 快捷键）";
-  $("syncSubs").classList.toggle("on", settings.syncSubs !== false);
-  $("syncSubs").setAttribute("aria-pressed", String(settings.syncSubs !== false));
-  $("syncSubs").textContent = (settings.syncSubs !== false ? "✓ " : "") + "同步转写字幕与改字";
-  $("syncKeys").classList.toggle("on", Boolean(settings.syncKeys));
-  $("syncKeys").textContent = (settings.syncKeys ? "✓ " : "") + "API Key";
+  const syncOn = Boolean(settings.syncOn);
+  $("syncToggle").classList.toggle("on", syncOn);
+  $("syncToggle").setAttribute("aria-pressed", String(syncOn));
+  // 关掉同步时，同步内容、服务器与账号、测试 / 立即同步整块收起
+  show($("syncDetails"), syncOn);
+  for (const [id, label, isOn] of SYNC_CHIPS) {
+    const on = isOn(settings);
+    $(id).classList.toggle("on", on);
+    $(id).setAttribute("aria-pressed", String(on));
+    $(id).textContent = (on ? "✓ " : "") + label;
+  }
   show($("syncKeysWarn"), Boolean(settings.syncKeys));
   const ago = Dav.formatSyncAgo(settings.davAt) || settings.davLast;
   $("davStatus").textContent = settings.syncOn
@@ -1082,65 +1090,129 @@ $("syncNow").addEventListener("click", async () => {
   }
 });
 
-// ---- 本地字幕缓存：分层统计与手动清理（计算和删除都在后台，见 后台/缓存.js） ----
+// ---- 本地字幕缓存：两张卡片（统计、删除和上限都在后台，见 后台/缓存.js） ----
+
+const CACHE_MB = 1024 * 1024;
+const CACHE_CLEARED_TEXT = "已清理可重新获取的字幕";
+let cacheRenewableVideos = 0;
+let cacheClearing = false;
+// 切到本页时的统计和清理结果可能交错返回：只用最后发起的那次
+let cacheUsageSeq = 0;
 
 function formatCacheMB(bytes) {
-  const mb = (Number(bytes) || 0) / (1024 * 1024);
+  const mb = (Number(bytes) || 0) / CACHE_MB;
   if (!mb) return "0 MB";
   return `${mb < 10 ? mb.toFixed(2) : mb.toFixed(1)} MB`;
 }
 
+/** 进度条旁的容量只写数字，单位跟在分母后面（如「0.27 / 上限 MB」） */
+function cacheMBNumber(bytes) {
+  const mb = (Number(bytes) || 0) / CACHE_MB;
+  if (!mb) return "0";
+  if (mb < 0.01) return "<0.01";
+  return mb < 10 ? mb.toFixed(2) : mb.toFixed(1);
+}
+
+/** 上限写成 6、1.5 这样，不补多余的 0 */
+function cacheLimitMB(bytes) {
+  return String(Number(((Number(bytes) || 0) / CACHE_MB).toFixed(2)));
+}
+
+/** 数字 + 灰色分母；后台没给上限时只写数字 */
+function setCacheNum(id, value, den = "") {
+  const el = $(id);
+  el.textContent = value;
+  el.title = "";
+  if (!den) return;
+  const span = document.createElement("span");
+  span.className = "cache-den";
+  span.textContent = ` / ${den}`;
+  el.appendChild(span);
+}
+
+function setCacheBar(id, value, max) {
+  const pct = max > 0 ? Math.min(100, Math.max(0, (Number(value) || 0) / max * 100)) : 0;
+  $(id).style.width = `${pct}%`;
+}
+
+/** 清理进行中、或没有可清理的条目时，「清理」置灰 */
+function syncClearCacheBtn() {
+  $("clearCache").disabled = cacheClearing || !cacheRenewableVideos;
+}
+
 function renderCacheUsage(usage) {
-  const renewable = usage?.renewable || { videos: 0, bytes: 0 };
-  const kept = usage?.protected || { videos: 0, bytes: 0 };
-  $("cacheRenewable").textContent = `${renewable.videos} 个视频 / ${formatCacheMB(renewable.bytes)}`;
-  $("cacheProtected").textContent = `${kept.videos} 个视频 / ${formatCacheMB(kept.bytes)}`;
-  $("clearRenewable").disabled = !renewable.videos;
+  const regen = usage?.renewable || {};
+  const kept = usage?.protected || {};
+  const maxVideos = Number(regen.maxVideos) || 0;
+  const maxBytes = Number(regen.maxBytes) || 0;
+  cacheRenewableVideos = Number(regen.videos) || 0;
+  setCacheNum("cacheRegenCount", String(cacheRenewableVideos), maxVideos ? String(maxVideos) : "");
+  setCacheNum("cacheRegenSize", maxBytes ? cacheMBNumber(regen.bytes) : formatCacheMB(regen.bytes), maxBytes ? `${cacheLimitMB(maxBytes)} MB` : "");
+  setCacheBar("cacheRegenCountBar", cacheRenewableVideos, maxVideos);
+  setCacheBar("cacheRegenSizeBar", regen.bytes, maxBytes);
+  setCacheNum("cacheKeepCount", String(Number(kept.videos) || 0));
+  setCacheNum("cacheKeepSize", formatCacheMB(kept.bytes));
+  syncClearCacheBtn();
+}
+
+function renderCacheError(error) {
+  const text = error?.message || String(error);
+  for (const id of ["cacheRegenCount", "cacheRegenSize", "cacheKeepCount", "cacheKeepSize"]) {
+    setCacheNum(id, "读取失败");
+    $(id).title = text;
+  }
+  setCacheBar("cacheRegenCountBar", 0, 0);
+  setCacheBar("cacheRegenSizeBar", 0, 0);
+  cacheRenewableVideos = 0;
+  syncClearCacheBtn();
 }
 
 async function loadCacheUsage() {
+  const seq = ++cacheUsageSeq;
   try {
     const usage = await chrome.runtime.sendMessage({ type: "GET_CACHE_USAGE" });
     if (usage?.error) throw new Error(usage.error);
-    renderCacheUsage(usage);
+    if (seq === cacheUsageSeq) renderCacheUsage(usage);
   } catch (error) {
-    $("cacheRenewable").textContent = "读取失败";
-    $("cacheProtected").textContent = "读取失败";
-    $("cacheStatus").textContent = error.message || String(error);
+    if (seq === cacheUsageSeq) renderCacheError(error);
   }
 }
 
-// 点一次先变成「确认清理」，3 秒内再点才真的删：官方字幕的译文删掉后要重新花钱翻译
-let clearRenewableArmed = 0;
-$("clearRenewable").addEventListener("click", async () => {
-  const btn = $("clearRenewable");
-  if (!clearRenewableArmed) {
-    btn.textContent = "再点一次确认清理";
-    btn.classList.add("fail");
-    clearRenewableArmed = setTimeout(() => {
-      clearRenewableArmed = 0;
-      btn.textContent = "清理可重新生成的缓存";
-      btn.classList.remove("fail");
-    }, 3000);
-    return;
-  }
-  clearTimeout(clearRenewableArmed);
-  clearRenewableArmed = 0;
-  btn.textContent = "清理中…";
-  btn.classList.remove("fail");
-  btn.disabled = true;
+/** 页脚上方的轻提示，和设计稿的 flash 一样 1.5 秒后消失 */
+function showToast(text, ms = 1500) {
+  const el = $("toast");
+  el.textContent = text;
+  show(el, true);
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => show(el, false), ms);
+}
+
+/** 正在转写或翻译的视频后台会跳过，提示里带上 */
+function clearCacheMessage(result) {
+  const busy = Number(result?.skipped) || 0;
+  const busyText = busy ? `${busy} 个视频正在转写或翻译，稍后再清` : "";
+  if (result?.removed) return busyText ? `${CACHE_CLEARED_TEXT}；${busyText}` : CACHE_CLEARED_TEXT;
+  return busyText || "没有可清理的字幕";
+}
+
+// 单击直接清理：只删官方字幕与译文，这些都能重新获取；转写与改字一条不碰
+$("clearCache").addEventListener("click", async () => {
+  if (cacheClearing || !cacheRenewableVideos) return;
+  cacheClearing = true;
+  syncClearCacheBtn();
+  const seq = ++cacheUsageSeq;
   try {
     const result = await chrome.runtime.sendMessage({ type: "CLEAR_RENEWABLE_CACHE" });
     if (result?.error) throw new Error(result.error);
-    renderCacheUsage(result.usage);
-    $("cacheStatus").textContent = result.removed
-      ? `已清理 ${result.removed} 个视频，释放 ${formatCacheMB(result.bytes)}${result.skipped ? `；${result.skipped} 个正在转写或翻译，稍后再清` : ""}`
-      : (result.skipped ? `${result.skipped} 个视频正在转写或翻译，稍后再清` : "没有可清理的缓存");
+    if (seq === cacheUsageSeq && result?.usage) renderCacheUsage(result.usage);
+    const text = clearCacheMessage(result);
+    showToast(text, text === CACHE_CLEARED_TEXT ? 1500 : 3000);
+    if (!result?.usage) loadCacheUsage();
   } catch (error) {
-    $("cacheStatus").textContent = error.message || String(error);
-    btn.disabled = false;
+    showToast(`清理失败：${error.message || error}`, 3000);
   } finally {
-    btn.textContent = "清理可重新生成的缓存";
+    cacheClearing = false;
+    syncClearCacheBtn();
   }
 });
 

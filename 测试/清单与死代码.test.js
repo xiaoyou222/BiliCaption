@@ -67,7 +67,9 @@ test("死代码已删：无发送方的消息处理、未调用函数、未用�
   assert.doesNotMatch(read("sidepanel.css"), /\.job-seg-orb|\.job-btn\.gold/);
   assert.doesNotMatch(read("options.css"), /\.creds\.two|\.test-slot/);
   assert.doesNotMatch(read("options.html"), /lib\/md5\.js/);
-  assert.match(read("options.html"), /id="syncKeysNote"[^>]*>[^<]*明文/);
+  // API Key 明文上传：勾选前 chip 悬停说明，勾选后显示提醒
+  assert.match(read("options.html"), /id="syncKeys"[^>]*title="[^"]*明文/);
+  assert.match(read("options.html"), /id="syncKeysWarn"[^>]*>Key 将明文存入网盘，请确认只有你能访问</);
 });
 
 test("onInstalled / onStartup 各只注册一次", () => {

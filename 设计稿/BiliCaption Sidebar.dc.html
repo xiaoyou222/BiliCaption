@@ -335,19 +335,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
               <button style="{{ syncToggleStyle }}" style-hover="filter:brightness(1.2)" onClick="{{ toggleSync }}"><span style="{{ syncKnobStyle }}"></span></button>
               <span style="font-size:11.5px;color:#C7CBD1">同步到我的 WebDAV</span>
             </div>
+            <sc-if value="{{ syncOn }}" hint-placeholder-val="{{ true }}">
             <div style="display:flex;flex-direction:column;gap:7px">
-              <span style="font-size:11px;color:#8A9099">同步内容</span>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <sc-for list="{{ syncScope }}" as="c" hint-placeholder-count="3"><button style="{{ c.style }}" style-hover="filter:brightness(1.2)" onClick="{{ c.onClick }}">{{ c.label }}</button></sc-for>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <sc-for list="{{ syncScope }}" as="c" hint-placeholder-count="4"><button style="{{ c.style }}" style-hover="filter:brightness(1.2)" onClick="{{ c.onClick }}">{{ c.label }}</button></sc-for>
               </div>
               <sc-if value="{{ syncKeysOn }}" hint-placeholder-val="{{ false }}">
-                <span style="font-size:10.5px;color:#F0B84D">API Key 会以明文写入你的网盘文件，确认这个网盘只有你能访问</span>
+                <span style="font-size:10.5px;line-height:1.6;color:#F0B84D">Key 将明文存入网盘，请确认只有你能访问</span>
               </sc-if>
-              <span style="font-size:10.5px;line-height:1.7;color:#8A9099">生成字幕和大纲只存在本机，换设备需重新生成</span>
-              <div style="display:flex;flex-direction:column;gap:2px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;line-height:1.6;color:#8A9099">
-                <span>/bilicaption/config.json</span>
-                <span>/bilicaption/marks/{bvid}-P{n}.json</span>
-              </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px">
               <span style="font-size:11px;color:#8A9099">服务器地址</span>
@@ -368,6 +363,27 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
               <button style="{{ davSyncBtnStyle }}" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ syncNow }}">立即同步</button>
               <sc-if value="{{ davSyncing }}" hint-placeholder-val="{{ false }}">{{ orbXS }}</sc-if>
               <span style="{{ davStatusStyle }}">{{ davStatusLabel }}</span>
+            </div>
+            </sc-if>
+            <div style="height:1px;flex:none;background:rgba(255,255,255,.08);margin:4px 0"></div>
+            <span style="font-size:13px;font-weight:600;color:#E7E9ED">本地字幕缓存</span>
+            <div style="flex:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+              <div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:#1A1D22;border:1px solid rgba(255,255,255,.08);border-radius:10px;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;height:28px">
+                  <span style="font-size:11.5px;color:#C7CBD1;flex:1">官方字幕与译文</span>
+                  <button style="{{ clearCacheStyle }}" style-hover="background:rgba(255,255,255,.06);color:#E7E9ED" onClick="{{ clearCache }}">清理</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;height:16px"><span style="font-size:10.5px;color:#8A9099;width:28px;flex:none">视频</span><div style="flex:1;height:4px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden"><div style="{{ regenBarCount }}"></div></div><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#C7CBD1;text-align:right;flex:none;min-width:80px;white-space:nowrap">{{ cacheRegenCount }}<span style="color:#8A9099"> / 40</span></span></div>
+                <div style="display:flex;align-items:center;gap:10px;height:16px"><span style="font-size:10.5px;color:#8A9099;width:28px;flex:none">容量</span><div style="flex:1;height:4px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden"><div style="{{ regenBarSize }}"></div></div><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#C7CBD1;text-align:right;flex:none;min-width:80px;white-space:nowrap">{{ cacheRegenSize }}<span style="color:#8A9099"> / 6 MB</span></span></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:#1A1D22;border:1px solid rgba(255,255,255,.08);border-radius:10px;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;height:28px">
+                  <span style="font-size:11.5px;color:#C7CBD1;flex:1">转写与改字</span>
+                  <span style="font-size:10px;color:#4D8EF0;border:1px solid rgba(77,142,240,.4);border-radius:999px;padding:1px 7px">不限 · 永久保留</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;height:16px"><span style="font-size:10.5px;color:#8A9099;width:28px;flex:none">视频</span><span style="flex:1"></span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#C7CBD1;text-align:right;flex:none">10</span></div>
+                <div style="display:flex;align-items:center;gap:10px;height:16px"><span style="font-size:10.5px;color:#8A9099;width:28px;flex:none">容量</span><span style="flex:1"></span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#C7CBD1;text-align:right;flex:none">1.13 MB</span></div>
+              </div>
             </div>
           </sc-if>
 
@@ -1460,7 +1476,7 @@ class Component extends DCLogic {
     logFilter:'全部', logQuery:'', logOpen:{L1:true}, settingsTab:'stt', copiedLogsN:false,
     libSelected:0, libQuery:'', libHover:null, libMenu:null, markerMoreOpen:false,
     libDelV:{}, libDelM:{}, libMarkHover:null, libDelConfirm:null, libTrashOpen:false, libTrashSel:null, libTrashMarkHover:null, libUndoMsg:null, libUndoKind:null, libUndoKey:null,
-    syncOn:true, syncMarks:true, syncConfig:true, syncKeys:false, davUrl:'https://dav.jianguoyun.com/dav/bilicaption/', davUser:'me@example.com', davPass:'', davTest:null, davSyncing:false, davLast:'2 分钟前',
+    syncOn:true, syncMarks:true, syncConfig:true, syncSubs:true, syncKeys:false, cacheCleared:false, davUrl:'https://dav.jianguoyun.com/dav/bilicaption/', davUser:'me@example.com', davPass:'', davTest:null, davSyncing:false, davLast:'2 分钟前',
     modelPanel:null, sttModelText:'whisper-large-v3-turbo', sumModelText:'gpt-4o-mini', trModelText:'',
     sttFetch:'idle', sumFetch:'idle'
   };
@@ -2523,8 +2539,18 @@ class Component extends DCLogic {
       davStatusStyle:'font-size:10.5px;color:'+(s.davSyncing?'#79ACF5':'#8A9099')+(s.davSyncing?';animation:bcPulse 1.4s infinite ease-in-out':''),
       davPathLabel: (s.syncKeys||s.syncConfig ? '/bilicaption/config.json · ' : '')+'/bilicaption/marks/BV1x94y1Q7Kd-P3.json',
       syncKeysOn: s.syncKeys,
+      cacheRegenSize: s.cacheCleared ? '0' : '0.27',
+      cacheRegenCount: s.cacheCleared ? '0' : '9',
+      cacheTotalLabel: s.cacheCleared ? '1.13 MB' : '1.40 MB',
+      cacheTotalSub: '本机 · '+(s.cacheCleared?10:19)+' 个视频',
+      cacheBarKeep:'flex:none;width:'+(s.cacheCleared?100:80.7)+'%;background:#4D8EF0;transition:width .3s',
+      regenBarCount:'height:100%;border-radius:999px;background:#8A9099;transition:width .3s;width:'+(s.cacheCleared?0:22.5)+'%',
+      regenBarSize:'height:100%;border-radius:999px;background:#8A9099;transition:width .3s;width:'+(s.cacheCleared?0:4.5)+'%',
+      cacheBarRegen:'height:100%;border-radius:999px;background:#4D8EF0;transition:width .3s;width:'+(s.cacheCleared?0:22.5)+'%',
+      clearCache:()=>{ this.setState({cacheCleared:true}); this.flash('已清理可重新获取的字幕'); },
+      clearCacheStyle:'border:1px solid rgba(255,255,255,.16);background:transparent;color:'+(s.cacheCleared?'#8A9099':'#C7CBD1')+';font-size:11px;padding:0 12px;height:28px;border-radius:6px;cursor:'+(s.cacheCleared?'default':'pointer')+';flex:none',
       syncScope: [
-        ['标记', 'syncMarks'], ['设置（服务商 / 模型 / 快捷键）','syncConfig'], ['API Key','syncKeys']
+        ['标记', 'syncMarks'], ['设置','syncConfig'], ['转写与改字','syncSubs'], ['API Key','syncKeys']
       ].map(([label,k])=>({
         label: (s[k]?'✓ ':'') + label,
         style:'border:1px solid '+(s[k]?'rgba(77,142,240,.45)':'rgba(255,255,255,.16)')+';background:'+(s[k]?'rgba(77,142,240,.14)':'transparent')+';color:'+(s[k]?'#4D8EF0':'#C7CBD1')+';'+(s[k]?'font-weight:500;':'')+'font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer',

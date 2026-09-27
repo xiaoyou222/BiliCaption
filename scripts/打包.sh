@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # 运行时需要的：manifest.json、根目录的页面 / 脚本 / 样式，以及下面这几个目录。
-# 设计稿 BiliCaption/、测试/、scripts/、package.json、README 等都不打进去。
+# 设计稿/、测试/、scripts/、package.json、README 等都不打进去。
 RUNTIME_DIRS=(lib 后台 侧栏 内容 icons)
 
 list_files() {

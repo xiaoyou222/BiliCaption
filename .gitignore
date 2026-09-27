@@ -1,8 +1,8 @@
 .DS_Store
 *.log
 参考/
-BiliCaption/screenshots/
-BiliCaption/uploads/
-BiliCaption/.thumbnail
-BiliCaption/HANDOFF-----.md
+设计稿/screenshots/
+设计稿/uploads/
+设计稿/.thumbnail
+设计稿/HANDOFF-----.md
 *.zip

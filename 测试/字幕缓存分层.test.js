@@ -511,12 +511,18 @@ test("设置页：统计两层占用、手动清理只删可再生条目及其�
   assert.equal(usage.protected.asr, 1);
   assert.equal(usage.protected.edited, 1);
   assert.ok(usage.renewable.bytes > 0 && usage.protected.bytes > 0);
+  // 设置页进度条的分母：直接带后台自动淘汰用的上限常量
+  assert.equal(usage.renewable.maxVideos, vm.runInContext("ASR_CACHE_MAX", bg));
+  assert.equal(usage.renewable.maxBytes, vm.runInContext("ASR_CACHE_MAX_BYTES", bg));
+  assert.equal(usage.renewable.maxVideos, 40);
+  assert.equal(usage.renewable.maxBytes, 6 * 1024 * 1024);
 
   const cleared = await route(bg, { type: "CLEAR_RENEWABLE_CACHE" });
   assert.equal(cleared.ok, true);
   assert.equal(cleared.removed, 2);
   assert.equal(cleared.bytes, usage.renewable.bytes);
   assert.equal(cleared.usage.renewable.videos, 0);
+  assert.equal(cleared.usage.renewable.maxVideos, usage.renewable.maxVideos, "清理结果带回的统计同样有上限");
   assert.equal(cleared.usage.protected.videos, 2);
   for (const key of ["asr:BVoff:1", "asr:BVoff:2", "outline:v2:BVoff:1", "outline:v2:BVoff:2", "asrIndex:BVoff", "trJob:BVoff:2"]) {
     assert.equal(store[key], undefined, key);

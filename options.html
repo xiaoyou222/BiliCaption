@@ -132,65 +132,70 @@
             <button type="button" id="syncToggle" class="switch" aria-pressed="false"><span></span></button>
             <span>同步到我的 WebDAV</span>
           </div>
-          <div class="block-7">
-            <span class="label">同步内容</span>
-            <div class="chips">
-              <button type="button" id="syncMarks" class="chip on">✓ 标记</button>
-              <button type="button" id="syncConfig" class="chip on">✓ 设置（服务商 / 模型 / 快捷键）</button>
-              <button type="button" id="syncSubs" class="chip on" aria-pressed="true">✓ 同步转写字幕与改字</button>
-              <button type="button" id="syncKeys" class="chip" title="开启后 API Key 会以明文上传到 WebDAV">API Key</button>
-            </div>
-            <p id="syncSubsNote" class="note">同步转写字幕与改字：只上传转写生成和改过字的字幕，打开视频时按需下载。</p>
-            <p id="syncKeysNote" class="note">勾选「API Key」后，总结和转写通道的 Key 会以明文写进 WebDAV 上的 config.json；不勾选则只同步不含 Key 的设置。</p>
-            <p id="syncKeysWarn" class="warn hidden">API Key 会以明文写入你的网盘文件，确认这个网盘只有你能访问</p>
-            <p class="note">开启后自动同步：改标记或设置后数秒上传，打开扩展时先拉后推。官方字幕和大纲仍只存在本机。</p>
-            <div class="dav-paths">
-              <span>/bilicaption/config.json</span>
-              <span>/bilicaption/marks/{bvid}-P{n}.json</span>
-              <span>/bilicaption/marks/trash.json</span>
-              <span>/bilicaption/subs/{bvid}-P{n}.json</span>
-            </div>
-          </div>
-          <div class="field">
-            <span class="label">服务器地址</span>
-            <input id="davUrl" type="text" placeholder="https://dav.example.com/bilicaption/" />
-          </div>
-          <div class="grid-2">
-            <div class="field">
-              <span class="label">用户名</span>
-              <input id="davUser" type="text" placeholder="me@example.com" />
+          <div id="syncDetails" class="sync-details hidden">
+            <div class="block-7">
+              <div class="chips">
+                <button type="button" id="syncMarks" class="chip on" aria-pressed="true">✓ 标记</button>
+                <button type="button" id="syncConfig" class="chip on" aria-pressed="true">✓ 设置</button>
+                <button type="button" id="syncSubs" class="chip on" aria-pressed="true" title="只上传转写生成和改过字的字幕，打开视频时按需下载">✓ 转写与改字</button>
+                <button type="button" id="syncKeys" class="chip" aria-pressed="false" title="开启后 API Key 会以明文上传到 WebDAV">API Key</button>
+              </div>
+              <p id="syncKeysWarn" class="warn hidden">Key 将明文存入网盘，请确认只有你能访问</p>
             </div>
             <div class="field">
-              <span class="label">密码 / 应用密码</span>
-              <input id="davPass" type="password" placeholder="****" />
+              <span class="label">服务器地址</span>
+              <input id="davUrl" type="text" placeholder="https://dav.example.com/bilicaption/" />
             </div>
-          </div>
-          <div class="dav-actions">
-            <button type="button" id="testDav" class="btn-ghost"><span class="btn-label">测试</span></button>
-            <button type="button" id="syncNow" class="btn-ghost">立即同步</button>
-            <span id="davStatus" class="hint">同步已关闭</span>
-          </div>
-          <div class="hr"></div>
-          <div class="tr-block">
-            <div class="title-row">
-              <div class="sub">本地字幕缓存</div>
-              <span class="tip" data-tip="转写结果和改过字的字幕不会被自动清理">?</span>
-            </div>
-            <div class="cache-usage">
-              <div class="cache-line">
-                <span class="cache-name">可重新生成</span>
-                <span id="cacheRenewable" class="cache-num">统计中…</span>
+            <div class="grid-2">
+              <div class="field">
+                <span class="label">用户名</span>
+                <input id="davUser" type="text" placeholder="me@example.com" />
               </div>
-              <p class="note">官方字幕及其译文。按最近 40 个视频 / 6 MB 自动淘汰，删掉后打开视频会重新读取官方字幕，译文需要重新翻译。</p>
-              <div class="cache-line">
-                <span class="cache-name">转写与改字</span>
-                <span id="cacheProtected" class="cache-num">统计中…</span>
+              <div class="field">
+                <span class="label">密码 / 应用密码</span>
+                <input id="davPass" type="password" placeholder="****" />
               </div>
-              <p class="note">转写生成的字幕和你手动改过字的字幕，不会被自动清理；要删除请在侧栏对该视频点「清理缓存」（网盘上有这个视频的字幕备份时会先确认，确认后一并删除）。</p>
             </div>
             <div class="dav-actions">
-              <button type="button" id="clearRenewable" class="btn-ghost">清理可重新生成的缓存</button>
-              <span id="cacheStatus" class="hint"></span>
+              <button type="button" id="testDav" class="btn-ghost"><span class="btn-label">测试</span></button>
+              <button type="button" id="syncNow" class="btn-ghost">立即同步</button>
+              <span id="davStatus" class="hint">同步已关闭</span>
+            </div>
+          </div>
+          <div class="hr-section"></div>
+          <h2>本地字幕缓存</h2>
+          <div class="cache-grid">
+            <div class="cache-card">
+              <div class="cache-card-head">
+                <span class="cache-card-title" title="删掉后打开视频会免费重新读取官方字幕，译文需重新翻译；超出上限自动删除最旧的">官方字幕与译文</span>
+                <button type="button" id="clearCache" class="cache-clear" disabled>清理</button>
+              </div>
+              <div class="cache-row">
+                <span class="cache-row-label">视频</span>
+                <div class="cache-bar"><div id="cacheRegenCountBar" class="cache-bar-fill"></div></div>
+                <span id="cacheRegenCount" class="cache-num with-bar">统计中…</span>
+              </div>
+              <div class="cache-row">
+                <span class="cache-row-label">容量</span>
+                <div class="cache-bar"><div id="cacheRegenSizeBar" class="cache-bar-fill"></div></div>
+                <span id="cacheRegenSize" class="cache-num with-bar">统计中…</span>
+              </div>
+            </div>
+            <div class="cache-card">
+              <div class="cache-card-head">
+                <span class="cache-card-title" title="花钱转写或手动改过字的字幕不会被自动删除；单个视频可在侧栏「清理缓存」中删除">转写与改字</span>
+                <span class="cache-badge">不自动清理</span>
+              </div>
+              <div class="cache-row">
+                <span class="cache-row-label">视频</span>
+                <span class="cache-gap"></span>
+                <span id="cacheKeepCount" class="cache-num">统计中…</span>
+              </div>
+              <div class="cache-row">
+                <span class="cache-row-label">容量</span>
+                <span class="cache-gap"></span>
+                <span id="cacheKeepSize" class="cache-num">统计中…</span>
+              </div>
             </div>
           </div>
         </section>
@@ -235,6 +240,7 @@
         <button type="button" id="saveSettings">保存</button>
         <span id="settingsMsg"></span>
       </footer>
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
     </div>
   </div>
 

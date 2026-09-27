@@ -222,11 +222,14 @@ function scheduleAsrCachePrune(keepKey) {
   pruneAsrCache(keepKey).catch(() => {});
 }
 
-/** 设置页：本地字幕缓存按两层统计条目数（每个视频分 P 一条）和占用字节 */
+/**
+ * 设置页：本地字幕缓存按两层统计条目数（每个视频分 P 一条）和占用字节。
+ * 可再生层带上自动淘汰的上限（maxVideos / maxBytes），设置页的进度条和分母以此为准，不在页面里写死。
+ */
 async function getSubtitleCacheUsage() {
   const keys = await BiliCaptionDav.listLocalKeys();
   const usage = {
-    renewable: { videos: 0, bytes: 0 },
+    renewable: { videos: 0, bytes: 0, maxVideos: ASR_CACHE_MAX, maxBytes: ASR_CACHE_MAX_BYTES },
     protected: { videos: 0, bytes: 0, asr: 0, edited: 0 }
   };
   for (const item of await scanSubtitleCache(keys.filter(isAsrCacheKey))) {
@@ -239,7 +242,7 @@ async function getSubtitleCacheUsage() {
   return usage;
 }
 
-/** 设置页「清理可重新生成的缓存」：只删可再生条目及其大纲 / asrIndex，受保护条目一条不碰 */
+/** 设置页「官方字幕与译文」卡片的「清理」：只删可再生条目及其大纲 / asrIndex，受保护条目一条不碰 */
 async function clearRenewableSubtitleCache() {
   const keys = await BiliCaptionDav.listLocalKeys();
   const renewable = (await scanSubtitleCache(keys.filter(isAsrCacheKey))).filter((item) => !item.protected);

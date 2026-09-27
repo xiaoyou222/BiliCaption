@@ -604,7 +604,7 @@ test('有字幕时不再显示等待视频，YouTube 标题不被推文规则截
 
 test('空态和限流不显示底栏行动条，分栏按视频页常驻', () => {
   const panel=panelSource();
-  const draft=fs.readFileSync(path.join(root,'BiliCaption/BiliCaption Sidebar.dc.html'),'utf8');
+  const draft=fs.readFileSync(path.join(root,'设计稿/BiliCaption Sidebar.dc.html'),'utf8');
   assert.match(draft,/showActionBar: !selActive/);
   assert.match(draft,/const hasList = !empty && !gen && !err/);
   assert.match(panel,/show\(ui\.actionBar, onCaptions && !hasSummary && !selectOpen\)/);
