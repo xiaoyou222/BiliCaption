@@ -674,6 +674,8 @@ select {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 展开后整句换行显示：转写汇总这类长消息收起时只露一行 */
+.log-row.open .log-msg { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 .log-row:not(.info) .log-msg { color: #C7CBD1; }
 .log-row.info .log-msg { color: var(--muted); }
 .log-detail {

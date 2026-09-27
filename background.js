@@ -175,7 +175,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return reply(clearRenewableSubtitleCache());
   }
   if (message?.type === "GET_LOGS") {
-    return reply(getAppLogs().then((logs) => ({ logs })));
+    // keep：分级保留规则，设置页据此写「保留 7 天 / 24 小时」并在收到新日志时同样裁剪
+    return reply(getAppLogs().then((logs) => ({ logs, keep: LOG_KEEP })));
   }
   if (message?.type === "CLEAR_LOGS") {
     return reply(clearAppLogs());

@@ -280,6 +280,8 @@ async function loadXAudioParts(stream) {
  * 地址失效（403/404/410）时重新读取清单，分片数不变就从同一片接着下。
  */
 async function openXAudioDownload(stream, signal, options = {}) {
+  const stats = audioDownloadStats(options);
+  stats.host = "video.twimg.com";
   let parts = await loadXAudioParts(stream);
   let pos = 0;
   let received = 0;
@@ -293,12 +295,14 @@ async function openXAudioDownload(stream, signal, options = {}) {
           const buf = await fetchXBytes(parts[pos], signal);
           pos += 1;
           received += buf.byteLength;
+          stats.bytes = received;
           if (received > MAX_DOWNLOAD_BYTES) throw downloadTooLarge(received);
           return { done: false, value: new Uint8Array(buf) };
         } catch (error) {
           if (error?.name === "AbortError" || signal?.aborted || error?.fatal) throw error;
           if ([403, 404, 410].includes(Number(error?.status)) && refreshes < ASR_URL_REFRESHES) {
             refreshes += 1;
+            stats.refreshes += 1;
             appLog("warn", "x", `X 音频地址失效，重新读取清单（第 ${refreshes} 次）`);
             const next = await loadXAudioParts(stream);
             if (next.length !== parts.length) {
@@ -308,6 +312,8 @@ async function openXAudioDownload(stream, signal, options = {}) {
             continue;
           }
           if (attempt >= 3) throw error;
+          stats.resumes += 1;
+          appLog("warn", "x", `X 音频分片下载失败，第 ${attempt + 1} 次重试：${error.message || error}`, { status: Number(error?.status) || 0 });
           options.onReconnect?.(attempt + 1, received, 0);
           await sleep(1000 * 2 ** attempt, signal);
         }

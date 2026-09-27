@@ -51,8 +51,13 @@ function mbOf(bytes) {
 }
 
 // ---- 运行日志：存 storage.local，设置页「日志」里看 ----
+// 分级保留：错误和警告（异常）留 7 天、最多 200 条；普通信息留 24 小时、最多 100 条。
+// 两类各自计数，信息再多也挤不掉异常。仍存成一个按时间排列的数组（旧版就是这样存的，读进来按新规则裁剪即可）。
 const LOG_KEY = "appLogs";
-const LOG_MAX = 200;
+const LOG_KEEP = {
+  issue: { ms: 7 * 24 * 60 * 60 * 1000, max: 200 },
+  info: { ms: 24 * 60 * 60 * 1000, max: 100 }
+};
 let appLogs = [];
 let appLogsLoaded = false;
 let appLogsLoading = null;
@@ -62,7 +67,7 @@ function logDetail(extra) {
   if (!extra) return "";
   if (typeof extra === "string") return extra.slice(0, 400);
   const pick = {};
-  for (const key of ["status", "ms", "mb", "done", "total", "current", "bvid", "cid", "host", "waitMs", "chunks", "cues", "try"]) {
+  for (const key of ["status", "ms", "mb", "done", "total", "current", "chunk", "bvid", "cid", "host", "waitMs", "chunks", "cues", "left", "path", "try"]) {
     if (extra[key] != null && extra[key] !== "") pick[key] = extra[key];
   }
   if (!Object.keys(pick).length) return "";
@@ -73,12 +78,47 @@ function logDetail(extra) {
   }
 }
 
+function logIsIssue(entry) {
+  return entry?.level === "error" || entry?.level === "warn";
+}
+
+/** 按级别裁剪：过期的去掉，每类只留最新的若干条；返回新数组，顺序不变 */
+function pruneAppLogs(list, now = Date.now()) {
+  const src = Array.isArray(list) ? list : [];
+  const kept = [];
+  let issues = 0;
+  let infos = 0;
+  for (let i = src.length - 1; i >= 0; i -= 1) {
+    const entry = src[i];
+    if (!entry || typeof entry !== "object") continue;
+    const issue = logIsIssue(entry);
+    const rule = issue ? LOG_KEEP.issue : LOG_KEEP.info;
+    if (now - (Number(entry.t) || 0) > rule.ms) continue;
+    if ((issue ? issues : infos) >= rule.max) continue;
+    if (issue) issues += 1;
+    else infos += 1;
+    kept.push(entry);
+  }
+  return kept.reverse();
+}
+
+/** 裁剪内存里的日志；有删掉的就排一次落盘 */
+function trimAppLogs() {
+  const next = pruneAppLogs(appLogs);
+  if (next.length === appLogs.length) return false;
+  appLogs = next;
+  return true;
+}
+
 function ensureAppLogs() {
   if (appLogsLoaded) return Promise.resolve();
   if (!appLogsLoading) {
     appLogsLoading = chrome.storage.local.get(LOG_KEY).then((data) => {
-      appLogs = Array.isArray(data[LOG_KEY]) ? data[LOG_KEY].slice(-LOG_MAX) : [];
+      const stored = Array.isArray(data[LOG_KEY]) ? data[LOG_KEY] : [];
+      appLogs = pruneAppLogs(stored);
       appLogsLoaded = true;
+      // 旧版按条数存的 200 条、或者上次关掉后已过期的：裁剪后写回
+      if (appLogs.length !== stored.length) scheduleLogFlush(false);
     }).catch(() => {
       appLogs = [];
       appLogsLoaded = true;
@@ -92,7 +132,8 @@ function flushAppLogs() {
     clearTimeout(appLogFlushTimer);
     appLogFlushTimer = 0;
   }
-  chrome.storage.local.set({ [LOG_KEY]: appLogs.slice(-LOG_MAX) }).catch(() => {});
+  appLogs = pruneAppLogs(appLogs);
+  chrome.storage.local.set({ [LOG_KEY]: appLogs.slice() }).catch(() => {});
 }
 
 function scheduleLogFlush(immediate) {
@@ -117,7 +158,7 @@ async function appLog(level, scope, message, extra) {
   };
   await ensureAppLogs();
   appLogs.push(entry);
-  if (appLogs.length > LOG_MAX) appLogs = appLogs.slice(-LOG_MAX);
+  trimAppLogs();
   chrome.runtime.sendMessage({ type: "APP_LOG", entry }).catch(() => {});
   scheduleLogFlush(entry.level === "error");
   return entry;
@@ -125,6 +166,7 @@ async function appLog(level, scope, message, extra) {
 
 async function getAppLogs() {
   await ensureAppLogs();
+  if (trimAppLogs()) scheduleLogFlush(false);
   return appLogs.slice();
 }
 

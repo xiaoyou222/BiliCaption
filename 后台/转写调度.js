@@ -12,7 +12,25 @@ function emitProgress(onProgress, extra) {
   onProgress(extra);
 }
 
-/** 单个转写请求：统一走 stt.js（Groq / OpenAI / Fish / ElevenLabs 同一套实现），这里只管超时、保活和日志 */
+/**
+ * 转写任务的汇总统计。每段的上传、完成、等待不再逐条写进持久日志，
+ * 由任务结束（完成 / 部分完成 / 失败 / 取消）时的一条汇总带出（见 转写任务.js 的 logAsrSummary）。
+ */
+function asrStatsOf(job) {
+  if (!job.asrStats) {
+    job.asrStats = {
+      startedAt: Date.now(),
+      byChannel: {},
+      retries: 0,
+      reused: 0,
+      wholeFile: false,
+      download: {}
+    };
+  }
+  return job.asrStats;
+}
+
+/** 单个转写请求：统一走 stt.js（Groq / OpenAI / Fish / ElevenLabs 同一套实现），这里只管超时、保活和出错日志 */
 async function transcribeWithCfg(blob, cfg, options = {}) {
   if (!cfg) throw new Error("未配置转写服务");
   const Stt = self.BiliCaptionStt;
@@ -21,27 +39,17 @@ async function transcribeWithCfg(blob, cfg, options = {}) {
   const started = Date.now();
   const stopHeartbeat = startWorkerHeartbeat();
   const timed = abortAfter(options.signal, asrRequestTimeoutMs(options.duration));
-  const waitLog = setInterval(() => {
-    appLog("info", "asr", `仍在等 ${label} 第 ${options.current || 1} 段，已 ${Math.round((Date.now() - started) / 1000)} 秒`, {
-      ms: Date.now() - started,
-      current: options.current,
-      total: options.total
-    });
-  }, 30 * 1000);
+  // 等得久时只告诉侧栏（实时状态），不写日志：长视频每段每 30 秒一条会把日志挤满
+  const waitTick = typeof options.onWait === "function"
+    ? setInterval(() => options.onWait(Math.round((Date.now() - started) / 1000)), 30 * 1000)
+    : 0;
   try {
-    const result = await Stt.transcribe(blob, cfg, {
+    return await Stt.transcribe(blob, cfg, {
       language: options.language,
       signal: timed.signal,
       filename: options.filename,
       duration: options.duration
     });
-    const count = Array.isArray(result?.segments) ? result.segments.length : 0;
-    appLog("info", "asr", `第 ${options.current || 1}/${options.total || 1} 段 ${label} 完成，${count} 句，${Math.round((Date.now() - started) / 1000)} 秒`, {
-      ms: Date.now() - started,
-      current: options.current,
-      total: options.total
-    });
-    return result;
   } catch (error) {
     if (error?.name === "AbortError" || timed.signal.aborted) {
       if (options.signal?.aborted) throw error;
@@ -64,7 +72,7 @@ async function transcribeWithCfg(blob, cfg, options = {}) {
     });
     throw error;
   } finally {
-    clearInterval(waitLog);
+    clearInterval(waitTick);
     timed.cleanup();
     stopHeartbeat?.();
   }
@@ -290,11 +298,6 @@ function addAsrChunk(run, chunk) {
   const index = run.chunks.length;
   run.chunks.push(chunk);
   job.chunkPlan[index] = { start: chunk.start || 0, end: chunk.end || 0 };
-  if (index === 0) {
-    appLog("info", "asr", `已切出第 1 段 ${mbOf(chunk.blob?.size || 0)}MB（约 ${Math.round(asrChunkSeconds(chunk))} 秒），开始边下边转`, {
-      estimated: run.estimated
-    });
-  }
   const reused = run.saved?.parts?.length || run.cachedCues?.length
     ? matchSavedParts(run.chunks, run.saved, run.cachedCues)[index]
     : null;
@@ -354,10 +357,7 @@ async function* splitWholeAudio(blob, run, options) {
   }
   const oversized = chunks.find((chunk) => !chunkFitsLimits(chunk, job));
   if (oversized) throw new Error(`切片后仍超过当前服务商限制（${chunkLimitLabel(oversized)}）`);
-  appLog("info", "asr", `音频 ${mbOf(blob.size)}MB / ${Math.round(dur)} 秒，切成 ${chunks.length} 段`, {
-    mb: mbOf(blob.size),
-    chunks: chunks.length
-  });
+  asrStatsOf(job).wholeFile = true;
   yield* chunks;
 }
 
@@ -373,6 +373,7 @@ async function* asrChunkSource(run) {
     overlapSeconds: ASR_OVERLAP_SECONDS
   };
   const downloadOptions = {
+    stats: asrStatsOf(job).download,
     refresh: run.refreshStream,
     onReconnect: (n) => emitProgress(run.onProgress, {
       message: `音频下载断开，正在续传（第 ${n} 次）…`,
@@ -393,7 +394,7 @@ async function* asrChunkSource(run) {
         if (opened.total > 0 && item.blob.size < opened.total - 512 * 1024) {
           throw new Error(`音频下载不完整（${mbOf(item.blob.size)}MB/${mbOf(opened.total)}MB），请点「生成字幕」重试`);
         }
-        appLog("info", "asr", "音频不是分片封装，改走整段切片");
+        // 不是分片封装：整段在手里再切（汇总里记「整段切片」），不算异常
         yield* splitWholeAudio(item.blob, run, chunkOptions);
         return;
       }
@@ -477,6 +478,7 @@ function takeAsrRetries(run) {
     run.tries.delete(index);
     run.notBefore.delete(index);
     run.queue.unshift(index);
+    asrStatsOf(job).retries += 1;
   }
 }
 
@@ -496,21 +498,28 @@ async function transcribeAsrChunk(run, index, { cfg, idx }) {
     total,
     waitUntil: 0
   });
-  appLog("info", "asr", `上传第 ${index + 1}/${total} 段 ${mbOf(chunk.blob.size)}MB · ${label}${multi ? `（通道${idx + 1}）` : ""}`, {
-    mb: mbOf(chunk.blob.size),
-    current: index + 1,
-    total
-  });
   const result = await transcribeWithCfg(chunk.blob, cfg, {
     language: run.language,
     signal: run.requestSignal || run.signal,
     filename: chunk.filename,
     duration: seconds,
     current: index + 1,
-    total
+    total,
+    // 「仍在等」只进侧栏的实时状态；暂停时不发，免得把「已暂停」盖掉
+    onWait: (waited) => {
+      if (job.paused) return;
+      emitProgress(run.onProgress, {
+        stage: "upload",
+        message: `仍在等 ${label} 第 ${index + 1}/${asrRunTotal(run)} 段，已 ${waited} 秒`,
+        current: index + 1,
+        total: asrRunTotal(run)
+      });
+    }
   });
   noteGroqAudio(cfg, seconds);
   noteGroqRateHeaders(job, idx, result?.rateLimit);
+  const stats = asrStatsOf(job);
+  stats.byChannel[label] = (Number(stats.byChannel[label]) || 0) + 1;
   const cues = resultToPartCues(result, chunk);
   run.parts[index] = {
     i: index,
@@ -549,6 +558,7 @@ function handleAsrChunkError(run, index, picked, error) {
     job.lastChannelError = verdict.message;
     markChannelDead(job, picked.idx, verdict.message);
     run.queue.unshift(index);
+    asrStatsOf(job).retries += 1;
     const next = asrAliveChannels(job);
     emitProgress(run.onProgress, {
       stage: "upload",
@@ -568,6 +578,7 @@ function handleAsrChunkError(run, index, picked, error) {
       return;
     }
     run.queue.unshift(index);
+    asrStatsOf(job).retries += 1;
     const next = pickAsrChannel(job, { seconds: asrChunkSeconds(run.chunks[index]) });
     appLog("warn", "asr", `${label} 限流冷却 ${formatWait(verdict.waitMs)}${next ? `，第 ${index + 1} 段改由 ${asrChannelLabel(next.cfg)} 继续` : ""}`, {
       waitMs: verdict.waitMs,
@@ -591,6 +602,7 @@ function handleAsrChunkError(run, index, picked, error) {
     const backoff = Math.max(verdict.waitMs || 0, Math.min(60 * 1000, 8000 * 2 ** (tries.transient - 1)));
     run.notBefore.set(index, Date.now() + backoff);
     run.queue.unshift(index);
+    asrStatsOf(job).retries += 1;
     appLog("warn", "asr", `第 ${index + 1} 段失败（${error?.status || "网络中断"}），${formatWait(backoff)} 后第 ${tries.transient} 次重试：${verdict.message}`, {
       status: Number(error?.status) || 0,
       waitMs: backoff,
@@ -605,6 +617,7 @@ function handleAsrChunkError(run, index, picked, error) {
   // 音频被这条通道拒了：换一条没试过的通道再试，都不行调度器会记为失败段
   tries.tried.add(picked.idx);
   run.queue.unshift(index);
+  asrStatsOf(job).retries += 1;
 }
 
 function launchAsrChunk(run, index, picked) {
@@ -782,9 +795,7 @@ async function transcribeAudio(stream, { meta, language, signal, onProgress, dur
   run.refreshStream = async (old) => pickAudioStream(await fetchPlayurl(meta), { sameAs: old });
   job.wake = run.wake;
   job.chunkTotal = asrRunTotal(run);
-  if (seeded.skipped) {
-    appLog("info", "asr", `从断点继续，已有 ${seeded.skipped}/${seeded.total} 段`, { done: seeded.skipped, chunks: seeded.total });
-  }
+  asrStatsOf(job).reused = Number(seeded.skipped) || 0;
   emitProgress(onProgress, {
     stage: "download",
     message: seeded.skipped ? `从断点继续 ${seeded.skipped}/${seeded.total}，继续拉取音轨…` : "开始拉取音轨…",

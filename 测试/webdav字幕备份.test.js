@@ -1081,3 +1081,44 @@ test("开同步前就有的转写：打开视频时排一次补传；asr: 和同
   assert.equal(Dav.shouldSyncOnChange(change("davSubs"), "local"), false);
   assert.equal(Dav.shouldSyncOnChange(change("syncSubs"), "sync"), true);
 });
+
+test("运行日志：WebDAV 同步没有任何变化时不写日志；有变化时只写一条摘要，字幕备份并进这一条", async () => {
+  const env = loadBackground();
+  const { bg } = env;
+  const davLogs = async () => (await bg.getAppLogs()).filter((entry) => entry.scope === "dav");
+  // 第一次同步（建目录、拉索引等）之后，再同步一次就什么都没变
+  await bg.runDavSync("manual");
+  await env.settle();
+  await bg.clearAppLogs();
+  await bg.runDavSync("dav-auto-sync");
+  await bg.runDavSync("manual");
+  await env.settle();
+  assert.deepEqual(Array.from(await davLogs(), (entry) => entry.message), [], "没有上传、下载、删除、冲突时不写「同步完成」");
+
+  // 有一个待上传的转写：随手动同步传上去，只写一条同步摘要，不再另写「字幕备份：…」
+  await transcribe(env, "BVlog", 1, [line("要备份的一句")]);
+  await bg.clearAppLogs();
+  await bg.runDavSync("manual");
+  await env.settle();
+  const logs = await davLogs();
+  assert.equal(logs.length, 1, Array.from(logs, (entry) => entry.message).join(" | "));
+  assert.equal(logs[0].level, "info");
+  assert.equal(logs[0].message, "同步完成（manual）：字幕备份 上传 1");
+  assert.ok(env.server.files.has("subs/BVlog-P1.json"));
+
+  // 不随整轮同步、单独按防抖上传时仍写自己的一条；全是 0 的项不出现
+  await bg.clearAppLogs();
+  await route(bg, { type: "SAVE_CUES_CACHE", bvid: "BVlog", cid: 1, cues: [line("改过的一句", 0, 1, { edited: true })], source: "groq", activeLan: "groq-asr", edited: true }, CONTENT);
+  await env.settle();
+  await env.fireTimers();
+  assert.deepEqual(Array.from(await davLogs(), (entry) => entry.message), ["字幕备份：上传 1 个"]);
+
+  // 摘要按类别列出非 0 的项；全是 0（含字幕备份被跳过、出错）时为空，不写日志
+  const zero = { pushed: 0, pulled: 0, conflicts: 0 };
+  assert.equal(bg.davSyncChanges({ marks: zero, trash: zero, config: { pushed: 0, pulled: 0 }, subs: { skipped: true } }), "");
+  assert.equal(bg.davSyncChanges({ marks: zero, trash: zero, config: zero, subs: { error: "503" } }), "");
+  assert.equal(
+    bg.davSyncChanges({ marks: { pushed: 2, pulled: 1, conflicts: 0 }, trash: zero, config: { pushed: 0, pulled: 1 }, subs: { pushed: 0, deleted: 3, conflicts: 1 } }),
+    "标记 上传 2、下载 1；设置 下载 1；字幕备份 删除 3、冲突副本 1"
+  );
+});

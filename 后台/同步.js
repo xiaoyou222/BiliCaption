@@ -18,6 +18,28 @@ function davLastLabel(at) {
   return self.BiliCaptionDav.formatSyncAgo(at) || "刚刚";
 }
 
+/**
+ * 一轮同步实际改了什么：标记、回收站、设置、字幕备份各自的上传 / 下载 / 删除 / 冲突数。
+ * 全是 0 时返回空串（这轮同步不写日志）。
+ */
+function davSyncChanges(result) {
+  const groups = [
+    ["标记", result?.marks, [["pushed", "上传"], ["pulled", "下载"], ["conflicts", "冲突"]]],
+    ["回收站", result?.trash, [["pushed", "上传"], ["pulled", "下载"], ["conflicts", "冲突"]]],
+    ["设置", result?.config, [["pushed", "上传"], ["pulled", "下载"]]],
+    ["字幕备份", result?.subs, [["pushed", "上传"], ["deleted", "删除"], ["conflicts", "冲突副本"]]]
+  ];
+  const out = [];
+  for (const [label, counts, fields] of groups) {
+    const bits = fields
+      .map(([key, word]) => [word, Number(counts?.[key]) || 0])
+      .filter(([, n]) => n > 0)
+      .map(([word, n]) => `${word} ${n}`);
+    if (bits.length) out.push(`${label} ${bits.join("、")}`);
+  }
+  return out.join("；");
+}
+
 async function loadDavSettings() {
   return self.BiliCaptionPrefs.loadSettings({
     syncOn: false,
@@ -59,7 +81,8 @@ async function runDavSync(reason = "auto") {
       // 转写字幕与改字的备份（后台/字幕备份.js）：补传待办、顺带拉一次 subs/index.json。
       // 改标记后的防抖同步不做，免得字幕备份跟着进高频路径；它出错不算整轮同步失败。
       if (!SUB_SKIP_SYNC_REASONS.has(reason)) {
-        result.subs = await syncSubtitleBackups(settings, { manual: reason === "manual" }).catch((error) => {
+        // quiet：字幕备份的上传 / 删除数并进下面这一条同步摘要，不再另记一条
+        result.subs = await syncSubtitleBackups(settings, { manual: reason === "manual", quiet: true }).catch((error) => {
           appLog("warn", "dav", `字幕备份同步失败：${error.message || error}`);
           return { error: error.message || String(error) };
         });
@@ -68,7 +91,9 @@ async function runDavSync(reason = "auto") {
         davLast: davLastLabel(result.at),
         davAt: result.at
       });
-      appLog("info", "dav", `同步完成（${reason}）`, result.marks);
+      // 没有任何实际变化（定时同步的常态）不写日志；有变化时写一条摘要
+      const changes = davSyncChanges(result);
+      if (changes) appLog("info", "dav", `同步完成（${reason}）：${changes}`);
       broadcast({ type: "DAV_SYNCED", reason, ...result });
       return result;
     } catch (error) {

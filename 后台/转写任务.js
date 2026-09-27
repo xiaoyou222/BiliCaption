@@ -54,9 +54,78 @@ async function resolveVideoMeta(input = {}) {
 function cancelAsrJob(jobId, extra = {}) {
   const job = findAsrJob({ jobId, bvid: extra.bvid, cid: extra.cid, tabId: extra.tabId });
   if (!job) return false;
+  // 取消由任务结束时的汇总日志记下（generateAsr），这里不再单独写一条
   job.controller.abort();
-  appLog("info", "asr", "已取消生成", { bvid: job.bvid, cid: job.cid });
   return true;
+}
+
+/** 用时：6 分 12 秒、1 小时 3 分 */
+function formatElapsed(ms) {
+  const sec = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+  if (sec < 60) return `${sec} 秒`;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h) return m ? `${h} 小时 ${m} 分` : `${h} 小时`;
+  return s ? `${m} 分 ${s} 秒` : `${m} 分钟`;
+}
+
+/**
+ * 转写任务结束时写一条汇总日志，代替原来逐段的「上传第 N 段」「第 N 段完成」「仍在等」和下载开始 / 完成。
+ * outcome：done 完成（info）、partial 部分完成（warn）、error 失败（error）、canceled 取消（info）。
+ * 限流冷却、通道停用、重连、地址刷新、失败段等异常仍在发生时单独记 warn / error。
+ */
+function logAsrSummary(job, outcome, info = {}) {
+  const stats = job?.asrStats || {};
+  const parts = Array.isArray(job?.partsRef) ? job.partsRef : [];
+  const total = Number(info.total) || Number(job?.chunkTotal) || parts.length || 0;
+  const done = info.done != null ? Number(info.done) || 0 : parts.filter(partIsComplete).length;
+  const facts = [];
+  if (total) facts.push(outcome === "done" ? `${total} 段` : `已完成 ${done}/${total} 段`);
+  if (Number(info.cues) > 0) facts.push(`${info.cues} 句`);
+  const elapsed = stats.startedAt ? Date.now() - stats.startedAt : 0;
+  if (elapsed >= 1000) facts.push(`用时 ${formatElapsed(elapsed)}`);
+  const channels = Object.entries(stats.byChannel || {}).filter(([, n]) => n > 0);
+  if (channels.length) facts.push(channels.map(([label, n]) => `${label} ${n} 段`).join("、"));
+  if (stats.reused) facts.push(`断点复用 ${stats.reused} 段`);
+  if (stats.retries) facts.push(`重试 ${stats.retries} 次`);
+  const failed = (job?.failedChunks || []).slice(0, 12);
+  if (outcome !== "done" && failed.length) facts.push(`失败段 ${failed.join("、")}`);
+  const dl = stats.download || {};
+  if (Number(dl.bytes) > 0) {
+    const notes = [];
+    if (dl.resumes) notes.push(`续传 ${dl.resumes} 次`);
+    if (dl.refreshes) notes.push(`刷新地址 ${dl.refreshes} 次`);
+    if (stats.wholeFile) notes.push("整段切片");
+    facts.push(`音频 ${mbOf(dl.bytes)}MB${notes.length ? `（${notes.join("、")}）` : ""}`);
+  }
+  if (Number(job?.resumes) > 0) facts.push(`后台重启后第 ${job.resumes} 次续跑`);
+  const tail = facts.join("，");
+  const reason = String(info.reason || "").trim();
+  let level = "info";
+  let message;
+  if (outcome === "done") {
+    message = `转写完成：${tail}`;
+  } else if (outcome === "partial") {
+    level = "warn";
+    message = `转写部分完成：${reason || "有分段没转完"}${tail ? `；${tail}` : ""}`;
+  } else if (outcome === "canceled") {
+    message = `转写已取消${reason ? `（${reason}）` : ""}${tail ? `：${tail}` : ""}`;
+  } else {
+    level = "error";
+    message = `转写失败：${reason || "未知错误"}${tail ? `；${tail}` : ""}`;
+  }
+  return appLog(level, "asr", message, {
+    status: info.status,
+    bvid: info.bvid || job?.bvid || "",
+    cid: info.cid || job?.cid || 0,
+    done: total ? done : undefined,
+    total: total || undefined,
+    cues: info.cues,
+    ms: elapsed || undefined,
+    mb: Number(dl.bytes) > 0 ? mbOf(dl.bytes) : undefined,
+    host: dl.host || undefined
+  });
 }
 
 async function generateAsr(input, sender) {
@@ -67,19 +136,18 @@ async function generateAsr(input, sender) {
     controller,
     tabId: Number(input.tabId || sender?.tab?.id) || 0,
     bvid: input.bvid || "",
-    cid: Number(input.cid) || 0
+    cid: Number(input.cid) || 0,
+    resumes: Number(input.resumes) || 0
   };
+  asrStatsOf(job);
   asrJobs.set(jobId, job);
   const { signal } = controller;
 
   try {
+    // 开始不单独记日志：任务结束时有一条汇总（含是否为后台重启后的续跑）
     jobBroadcast(job, {
       stage: "start",
       message: input.resumes ? "后台重启后自动继续转写…" : "准备生成字幕…"
-    });
-    appLog("info", "asr", `${input.resumes ? "后台重启后续跑" : "开始生成"} ${input.bvid || input.epId || ""}`, {
-      bvid: input.bvid || "",
-      cid: Number(input.cid) || 0
     });
 
     const storage = await BiliCaptionPrefs.loadSettings({
@@ -153,6 +221,7 @@ async function generateAsr(input, sender) {
       const canceled = new Error("已取消生成");
       canceled.canceled = true;
       if (!job.joined) {
+        logAsrSummary(job, "canceled", { reason: job.cancelReason });
         jobBroadcast(job, {
           stage: "canceled",
           message: canceled.message,
@@ -163,7 +232,7 @@ async function generateAsr(input, sender) {
       throw canceled;
     }
     if (!job.joined) {
-      appLog("error", "asr", error.message || String(error), { bvid: job.bvid, cid: job.cid });
+      logAsrSummary(job, "error", { reason: error.message || String(error), status: Number(error?.status) || undefined });
       jobBroadcast(job, {
         stage: "error",
         message: error.message || String(error),
@@ -202,7 +271,8 @@ async function generateAsr(input, sender) {
 function cancelPausedAsrForTab(tabId) {
   for (const job of asrJobs.values()) {
     if (!job.paused || !job.tabId || Number(job.tabId) !== Number(tabId)) continue;
-    appLog("info", "asr", "视频页已关闭，取消暂停中的转写（进度已保存）", { bvid: job.bvid, cid: job.cid });
+    // 原因并进取消时的汇总日志
+    job.cancelReason = "视频页已关闭，暂停中的转写不再等待，进度已保存";
     job.controller?.abort();
   }
 }
@@ -299,7 +369,10 @@ async function runAsrJob(job, { meta, signal, asrLanguage, forceRestart }) {
       ? `已生成 ${cues.length} 条字幕，${result.reason}。已保存进度，可点「继续生成」补齐`
       : `已生成 ${cues.length} 条字幕`;
 
-    appLog(partial ? "warn" : "info", "asr", partial ? `部分完成：${result.reason}` : `生成完成 ${cues.length} 条`, {
+    logAsrSummary(job, partial ? "partial" : "done", {
+      reason: result.reason,
+      done: result.done,
+      total: result.total,
       cues: cues.length,
       bvid: meta.bvid,
       cid: meta.cid

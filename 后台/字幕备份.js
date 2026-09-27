@@ -378,7 +378,7 @@ async function flushSubtitleBackups(options = {}) {
   return enqueueSubsRemote(() => runSubsBatch(cfg, subsDavKey(cfg), options));
 }
 
-async function runSubsBatch(cfg, dav, { ids = null, manual = false } = {}) {
+async function runSubsBatch(cfg, dav, { ids = null, manual = false, quiet = false } = {}) {
   const Dav = BiliCaptionDav;
   const state = await readSubsState(dav);
   const want = Array.isArray(ids) ? new Set(ids) : null;
@@ -560,8 +560,14 @@ async function runSubsBatch(cfg, dav, { ids = null, manual = false } = {}) {
     const first = failures.values().next().value;
     appLog("warn", "dav", `字幕备份有 ${failures.size} 个视频没传成：${first?.message || first}；之后的定时同步会自动重试（失败越多间隔越长，最长 1 天），也可以手动「立即同步」`);
   }
-  if (result.pushed || result.deleted) {
-    appLog("info", "dav", `字幕备份：上传 ${result.pushed} 个，删除 ${result.deleted} 个${result.conflicts ? `，冲突副本 ${result.conflicts} 个` : ""}`);
+  // 全是 0 不写；随整轮 WebDAV 同步做的（quiet）由那一条同步摘要带出
+  if (!quiet && (result.pushed || result.deleted)) {
+    const bits = [
+      result.pushed ? `上传 ${result.pushed} 个` : "",
+      result.deleted ? `删除 ${result.deleted} 个` : "",
+      result.conflicts ? `冲突副本 ${result.conflicts} 个` : ""
+    ].filter(Boolean);
+    appLog("info", "dav", `字幕备份：${bits.join("，")}`);
   }
   return result;
 }
@@ -570,9 +576,9 @@ async function runSubsBatch(cfg, dav, { ids = null, manual = false } = {}) {
  * 定时 / 手动同步时顺带做（改标记后的防抖同步不做）：先执行待办队列，再拉一次 subs/index.json
  * 存到本地；队列里有东西时上一步已经读写过索引，不再重复拉。
  */
-async function syncSubtitleBackups(settings, { manual = false } = {}) {
+async function syncSubtitleBackups(settings, { manual = false, quiet = false } = {}) {
   if (!subBackupEnabled(settings)) return { skipped: true };
-  const flushed = await flushSubtitleBackups({ settings, manual });
+  const flushed = await flushSubtitleBackups({ settings, manual, quiet });
   if (flushed?.indexFresh) return flushed;
   const cfg = davCfgOf(settings);
   const dav = subsDavKey(cfg);

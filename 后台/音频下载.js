@@ -158,13 +158,7 @@ async function connectAudioUrls(urls, signal, offset = 0) {
       continue;
     }
     lastStatus = res.status;
-    if (res.ok) {
-      appLog("info", "bili", offset ? `从 ${mbOf(offset)}MB 处续传音频 ${host}` : `开始下载音频 ${host}`, {
-        status: res.status,
-        host
-      });
-      return { res, lastStatus, expired };
-    }
+    if (res.ok) return { res, lastStatus, expired, host };
     if ([403, 404, 410].includes(res.status)) expired = true;
     appLog("warn", "bili", `音频地址 HTTP ${res.status} ${host}`, { status: res.status, host });
     dropResponse(res);
@@ -187,6 +181,19 @@ function bufferReader(buffer) {
 }
 
 /**
+ * 下载统计（options.stats）：开始、完成不再各记一条日志，由转写任务结束时的汇总带上。
+ * 同一个对象可以跨两次下载（边下边切失败后整段重下）累计续传、刷新次数；bytes 是最近这次下载收到的字节。
+ */
+function audioDownloadStats(options = {}) {
+  const stats = options.stats && typeof options.stats === "object" ? options.stats : {};
+  stats.host = stats.host || "";
+  stats.bytes = 0;
+  stats.resumes = Number(stats.resumes) || 0;
+  stats.refreshes = Number(stats.refreshes) || 0;
+  return stats;
+}
+
+/**
  * 打开可自动续传的音频字节流，对上层表现为一条连续不断的流：
  * - 连接断开或 CDN 提前结束时，按已收字节用 Range 续传；服务器不认 Range 就从头下、丢掉已收部分；
  * - 地址过期（403/404/410 或 deadline 已过）时调用 options.refresh 重新获取播放地址再接着下；
@@ -194,6 +201,7 @@ function bufferReader(buffer) {
  */
 async function openAudioDownload(stream, signal, options = {}) {
   if (stream?.kind === "x-hls") return openXAudioDownload(stream, signal, options);
+  const stats = audioDownloadStats(options);
   let current = stream;
   let refreshes = 0;
   let reconnects = 0;
@@ -207,6 +215,7 @@ async function openAudioDownload(stream, signal, options = {}) {
   const refresh = async () => {
     if (typeof options.refresh !== "function" || refreshes >= ASR_URL_REFRESHES) return false;
     refreshes += 1;
+    stats.refreshes += 1;
     appLog("warn", "bili", `音频地址已过期，重新获取播放地址（第 ${refreshes} 次）`);
     current = await options.refresh(current);
     return true;
@@ -216,12 +225,17 @@ async function openAudioDownload(stream, signal, options = {}) {
     for (;;) {
       const urls = audioUrls(current);
       if (!urls.length) throw new Error("音频地址为空");
-      const { res, lastStatus, expired } = await connectAudioUrls(urls, signal, received);
+      const { res, lastStatus, expired, host } = await connectAudioUrls(urls, signal, received);
       if (!res) {
         if (expired && await refresh()) continue;
         const error = new Error(`音频下载失败 ${lastStatus || ""}`.trim());
         error.status = lastStatus;
         throw error;
+      }
+      stats.host = host || stats.host;
+      if (received) {
+        stats.resumes += 1;
+        appLog("warn", "bili", `从 ${mbOf(received)}MB 处续传音频 ${host}`, { status: res.status, host, mb: mbOf(received) });
       }
       if (!received) {
         total = Number(res.headers.get("content-length") || 0);
@@ -324,6 +338,7 @@ async function openAudioDownload(stream, signal, options = {}) {
           skip = 0;
         }
         received += value.byteLength;
+        stats.bytes = received;
         if (received > MAX_DOWNLOAD_BYTES) {
           await reader.cancel();
           throw downloadTooLarge(received);
@@ -365,7 +380,5 @@ async function downloadAudio(stream, onProgress, signal, options = {}) {
       ? `正在下载音频… ${Math.min(99, Math.round((received / total) * 100))}%`
       : `正在下载音频… ${mbOf(received)}MB`);
   }
-  const blob = new Blob(parts, { type: mime });
-  appLog("info", "bili", `音频下载完成 ${mbOf(blob.size)}MB`, { mb: mbOf(blob.size) });
-  return blob;
+  return new Blob(parts, { type: mime });
 }

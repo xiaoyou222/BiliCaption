@@ -1294,3 +1294,157 @@ test("端到端：真实 fMP4 边下边切（中途断流续传），第一段�
   assert.equal(Array.from(result.cues, (cue) => cue.content).filter((text) => text === "开头。").length, 1);
   assert.equal(Array.from(result.cues, (cue) => cue.content).filter((text) => text === "结尾。").length, 1);
 });
+
+// ---------------- 运行日志：逐段不记流水，任务结束一条汇总 ----------------
+
+/** 走真实的 generateAsr → runAsrJob → transcribeAudio：只把取播放地址换成桩；下载走 mock fetch，分段走 useFakeSource */
+function runGenerate(B, input = {}) {
+  const duration = input.duration || 1440;
+  B.fetchPlayurl = async () => ({
+    timelength: duration * 1000,
+    dash: { audio: [{ id: 30216, bandwidth: 1, baseUrl: "https://upos.bilivideo.com/a.m4s" }] }
+  });
+  return B.generateAsr({ bvid: "BV1sum", cid: 7, aid: 1, tabId: 0, jobId: "sum-1", ...input, duration }, null);
+}
+
+const twoChannels = { sttChannels: [{ provider: "Groq", key: "gsk-sum" }, { provider: "OpenAI", key: "sk-sum" }] };
+const bigAudio = () => audioResponse(new Uint8Array(2 * 1024 * 1024));
+// 以前每段都会写的信息日志：上传、完成、仍在等、切片、下载开始 / 完成
+const CHUNK_NOISE = /上传第|段 .*完成，|仍在等|已切出|切成 \d+ 段|开始下载音频|音频下载完成|开始生成|从断点继续/;
+
+test("转写任务结束只写一条汇总：段数、句数、用时、通道分布、音频大小；每段不再写信息日志", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_700_000_000_000 });
+  const B = loadAsr({ fetchImpl: async () => bigAudio(), settings: twoChannels });
+  useFakeSource(B, fakeChunks(3));
+  B.BiliCaptionStt = {
+    ...B.BiliCaptionStt,
+    async transcribe(_blob, cfg, extra) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      return segmentResult(`${cfg.provider} 第${Math.round(extra.duration)}秒段`);
+    }
+  };
+  const result = await settle(t, runGenerate(B));
+  assert.equal(result.partial, false);
+  const logs = await B.getAppLogs();
+  assert.equal(logs.length, 1, `只剩一条汇总：${logs.map((entry) => entry.message).join(" | ")}`);
+  const [summary] = logs;
+  assert.equal(summary.level, "info");
+  assert.equal(summary.scope, "asr");
+  assert.match(summary.message, /^转写完成：3 段，3 句，用时 \d+ 秒/);
+  assert.match(summary.message, /Groq 2 段/);
+  assert.match(summary.message, /OpenAI 1 段/);
+  assert.match(summary.message, /音频 2MB/);
+  assert.doesNotMatch(summary.message, /重试/, "没重试就不写");
+  const detail = JSON.parse(summary.detail);
+  assert.equal(detail.bvid, "BV1sum");
+  assert.equal(detail.cid, 7);
+  assert.equal(detail.total, 3);
+  assert.equal(detail.cues, 3);
+  assert.ok(!logs.some((entry) => CHUNK_NOISE.test(entry.message)));
+});
+
+test("限流冷却等异常仍单独记 warn；汇总里带重试次数", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_700_000_000_000 });
+  const B = loadAsr({ fetchImpl: async () => bigAudio(), settings: twoChannels });
+  useFakeSource(B, fakeChunks(3));
+  let limited = false;
+  B.BiliCaptionStt = {
+    ...B.BiliCaptionStt,
+    async transcribe(_blob, cfg, extra) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (cfg.provider === "Groq" && !limited) {
+        limited = true;
+        throw httpError(429, groqAshMessage("1m0s"), { retryAfter: 60_000 });
+      }
+      return segmentResult(`${cfg.provider} ${Math.round(extra.duration)}`);
+    }
+  };
+  const result = await settle(t, runGenerate(B, { jobId: "sum-429" }));
+  assert.equal(result.partial, false);
+  const logs = await B.getAppLogs();
+  const cooled = logs.filter((entry) => /限流冷却/.test(entry.message));
+  assert.equal(cooled.length, 1);
+  assert.equal(cooled[0].level, "warn");
+  assert.equal(JSON.parse(cooled[0].detail).waitMs, 60_000);
+  const http = logs.find((entry) => /Groq HTTP 429/.test(entry.message));
+  assert.equal(http?.level, "error", "原始的服务商报错和状态码照常记");
+  assert.equal(JSON.parse(http.detail).status, 429);
+  const summaries = logs.filter((entry) => /^转写/.test(entry.message));
+  assert.equal(summaries.length, 1);
+  assert.match(summaries[0].message, /^转写完成：3 段/);
+  assert.match(summaries[0].message, /重试 1 次/);
+  assert.ok(!logs.some((entry) => entry.level === "info" && entry !== summaries[0]), "除汇总外没有信息日志");
+});
+
+test("等得久时「仍在等」只进侧栏的实时状态，不写日志", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_700_000_000_000 });
+  const B = loadAsr({ fetchImpl: async () => bigAudio(), settings: { sttChannels: [{ provider: "Groq", key: "gsk-slow" }] } });
+  useFakeSource(B, fakeChunks(1));
+  B.BiliCaptionStt = {
+    ...B.BiliCaptionStt,
+    async transcribe() {
+      await new Promise((resolve) => setTimeout(resolve, 65_000));
+      return segmentResult("慢慢回来");
+    }
+  };
+  await settle(t, runGenerate(B, { jobId: "sum-slow", duration: 480 }), { step: 1000 });
+  const waits = B.__sent.filter((message) => message.type === "ASR_PROGRESS" && /仍在等/.test(message.message || ""));
+  assert.deepEqual(waits.map((message) => message.message), ["仍在等 Groq 第 1/1 段，已 30 秒", "仍在等 Groq 第 1/1 段，已 60 秒"]);
+  const logs = await B.getAppLogs();
+  assert.ok(!logs.some((entry) => /仍在等/.test(entry.message)));
+  assert.equal(logs.length, 1);
+  assert.match(logs[0].message, /^转写完成：1 段，1 句，用时 1 分 \d+ 秒/);
+});
+
+test("取消、失败也各写一条汇总：取消记已完成几段，失败为 error 并保留 bvid/cid 和状态码", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_700_000_000_000 });
+  const B = loadAsr({ fetchImpl: async () => bigAudio(), settings: { sttChannels: [{ provider: "Groq", key: "gsk-cancel" }] } });
+  useFakeSource(B, fakeChunks(3));
+  B.BiliCaptionStt = {
+    ...B.BiliCaptionStt,
+    async transcribe(_blob, _cfg, extra) {
+      // 和真实请求一样跟随取消信号中断
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, 10_000);
+        extra.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        }, { once: true });
+      });
+      return segmentResult(`段 ${Math.round(extra.duration)}`);
+    }
+  };
+  const work = runGenerate(B, { jobId: "sum-cancel" });
+  work.catch(() => {});
+  await advance(t, 12_000, 500);
+  assert.equal(B.cancelAsrJob("sum-cancel"), true);
+  await assert.rejects(settle(t, work), (error) => error.canceled === true);
+  let logs = await B.getAppLogs();
+  assert.equal(logs.length, 1, logs.map((entry) => entry.message).join(" | "));
+  assert.equal(logs[0].level, "info");
+  assert.match(logs[0].message, /^转写已取消：已完成 2\/3 段，用时 \d+ 秒，Groq 2 段/);
+
+  // 失败：唯一的通道 Key 无效
+  await B.clearAppLogs();
+  const bad = loadAsr({ fetchImpl: async () => bigAudio(), settings: { sttChannels: [{ provider: "Groq", key: "gsk-bad" }] } });
+  useFakeSource(bad, fakeChunks(2));
+  bad.BiliCaptionStt = {
+    ...bad.BiliCaptionStt,
+    async transcribe() {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      throw httpError(401, "Invalid API Key");
+    }
+  };
+  await assert.rejects(settle(t, runGenerate(bad, { jobId: "sum-fail", bvid: "BV1fail", cid: 9 })), /所有转写通道都不可用/);
+  logs = await bad.getAppLogs();
+  const summary = logs.filter((entry) => /^转写/.test(entry.message));
+  assert.equal(summary.length, 1);
+  assert.equal(summary[0].level, "error");
+  assert.match(summary[0].message, /^转写失败：所有转写通道都不可用：.*；已完成 0\/2 段/);
+  const detail = JSON.parse(summary[0].detail);
+  assert.equal(detail.bvid, "BV1fail");
+  assert.equal(detail.cid, 9);
+  assert.ok(logs.some((entry) => entry.level === "warn" && /已停用/.test(entry.message)), "通道停用照常单独记");
+  const http = logs.find((entry) => /HTTP 401/.test(entry.message));
+  assert.equal(JSON.parse(http.detail).status, 401);
+});

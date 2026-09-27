@@ -5,7 +5,7 @@ const Prefs = window.BiliCaptionPrefs;
 const { keyLabel } = window.BiliCaptionCueTools;
 
 const $ = (id) => document.getElementById(id);
-const SCOPE = { groq: "转写", asr: "转写", bili: "B站", net: "网络", set: "设置", app: "应用", sum: "总结", dav: "同步" };
+const SCOPE = { groq: "转写", asr: "转写", bili: "B站", net: "网络", set: "设置", app: "应用", sum: "总结", dav: "同步", cache: "缓存", sub: "字幕", x: "X" };
 
 const TABS = ["stt", "sum", "sync", "keys", "logs"];
 let tab = TABS.includes(new URLSearchParams(location.search).get("tab"))
@@ -18,6 +18,11 @@ let sttChannels = [];
 let sumProvider = "OpenAI";
 let settings = {};
 let appLogs = [];
+// 日志分级保留规则，以后台 GET_LOGS 带回来的为准；这里是后台没回时的兜底（与 后台/基础.js 的 LOG_KEEP 一致）
+let logKeep = {
+  issue: { ms: 7 * 24 * 60 * 60 * 1000, max: 200 },
+  info: { ms: 24 * 60 * 60 * 1000, max: 100 }
+};
 let logOpen = {};
 let logFilter = "全部";
 let modelPanel = null;
@@ -815,9 +820,85 @@ async function loadSettings() {
   setTab(tab);
 }
 
+const pad2 = (n) => String(n).padStart(2, "0");
+
+/** 列表里的时间：今天的只显示时分秒，更早的（异常最多留 7 天）带上月-日 */
 function logTime(ts) {
   const d = new Date(ts);
-  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":");
+  const clock = [d.getHours(), d.getMinutes(), d.getSeconds()].map(pad2).join(":");
+  return d.toDateString() === new Date().toDateString() ? clock : `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${clock}`;
+}
+
+/** 复制、导出用：一律带月-日 */
+function logStamp(ts) {
+  const d = new Date(ts);
+  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${[d.getHours(), d.getMinutes(), d.getSeconds()].map(pad2).join(":")}`;
+}
+
+function logLine(item) {
+  const detail = item.detail ? `  ${item.detail}` : "";
+  return `${logStamp(item.t)}  ${(item.level || "info").toUpperCase()}  ${item.scope || "-"}  ${item.message || ""}${detail}`;
+}
+
+function logIsIssue(item) {
+  return item?.level === "error" || item?.level === "warn";
+}
+
+/** 与后台相同的分级裁剪：设置页开着时收到的新日志也按规则去掉过期和超出条数的 */
+function pruneLogs(list, now = Date.now()) {
+  const kept = [];
+  let issues = 0;
+  let infos = 0;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const item = list[i];
+    if (!item) continue;
+    const issue = logIsIssue(item);
+    const rule = issue ? logKeep.issue : logKeep.info;
+    if (now - (Number(item.t) || 0) > rule.ms) continue;
+    if ((issue ? issues : infos) >= rule.max) continue;
+    if (issue) issues += 1;
+    else infos += 1;
+    kept.push(item);
+  }
+  return kept.reverse();
+}
+
+function keepLabel(ms) {
+  const hours = Math.round((Number(ms) || 0) / 3600000);
+  return hours >= 48 && hours % 24 === 0 ? `${hours / 24} 天` : `${hours} 小时`;
+}
+
+function logCountText() {
+  const issues = appLogs.filter(logIsIssue).length;
+  const infos = appLogs.length - issues;
+  return `异常 ${issues} 条（保留 ${keepLabel(logKeep.issue.ms)}）· 信息 ${infos} 条（保留 ${keepLabel(logKeep.info.ms)}）`;
+}
+
+const LOG_DETAIL_LABEL = {
+  status: "状态码", ms: "耗时", mb: "大小", done: "已完成", total: "总数", current: "段号", chunk: "段号",
+  bvid: "视频", cid: "cid", host: "主机", waitMs: "等待", chunks: "分段", cues: "句数", left: "剩余", path: "路径", try: "次数"
+};
+
+/** 详情：后台存的是 JSON（{"status":429,"current":3}），拆成「状态码 429」这样一行一项 */
+function logDetailRows(detail) {
+  const text = String(detail || "");
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      return Object.entries(obj).map(([key, value]) => {
+        let shown = typeof value === "object" ? JSON.stringify(value) : String(value);
+        if ((key === "ms" || key === "waitMs") && Number(value) >= 0) shown = `${Math.round(Number(value) / 1000)} 秒`;
+        else if (key === "mb") shown = `${value} MB`;
+        return [LOG_DETAIL_LABEL[key] || key, shown];
+      });
+    }
+  } catch {
+    // 不是 JSON，按行拆
+  }
+  return text.split(/\n/).filter(Boolean).map((line) => {
+    const [k, ...rest] = line.split(":");
+    return rest.length ? [k, rest.join(":").trim()] : ["详情", line];
+  });
 }
 
 function filteredLogs() {
@@ -825,14 +906,14 @@ function filteredLogs() {
   return appLogs.filter((item) => {
     const level = String(item.level || "info").toUpperCase();
     if (logFilter === "异常" && level === "INFO") return false;
-    if (q && !`${item.message || ""}${item.scope || ""}`.includes(q)) return false;
+    if (q && !`${item.message || ""}${item.scope || ""}${item.detail || ""}`.includes(q)) return false;
     return true;
   });
 }
 
 function renderLogs() {
   const rows = filteredLogs();
-  $("logCount").textContent = `${appLogs.length} 条 · 最近 24 小时`;
+  $("logCount").textContent = logCountText();
   const host = $("logList");
   host.replaceChildren();
   for (const item of [...rows].reverse()) {
@@ -862,21 +943,12 @@ function renderLogs() {
     if (open && item.detail) {
       const box = document.createElement("div");
       box.className = "log-detail";
-      const lines = String(item.detail).split(/\n/).filter(Boolean);
-      if (!lines.length) {
+      for (const [k, v] of logDetailRows(item.detail)) {
         const d = document.createElement("div");
-        d.innerHTML = `<span class="k">详情</span><span class="v"></span>`;
-        d.querySelector(".v").textContent = item.detail;
+        d.innerHTML = `<span class="k"></span><span class="v"></span>`;
+        d.querySelector(".k").textContent = k;
+        d.querySelector(".v").textContent = v;
         box.appendChild(d);
-      } else {
-        for (const line of lines) {
-          const [k, ...rest] = line.split(":");
-          const d = document.createElement("div");
-          d.innerHTML = `<span class="k"></span><span class="v"></span>`;
-          d.querySelector(".k").textContent = rest.length ? k : "详情";
-          d.querySelector(".v").textContent = rest.length ? rest.join(":").trim() : line;
-          box.appendChild(d);
-        }
       }
       row.appendChild(box);
     }
@@ -891,6 +963,7 @@ function renderLogs() {
 async function loadLogs() {
   try {
     const data = await chrome.runtime.sendMessage({ type: "GET_LOGS" });
+    if (data?.keep?.issue?.ms && data?.keep?.info?.ms) logKeep = data.keep;
     appLogs = Array.isArray(data?.logs) ? data.logs : [];
   } catch {
     appLogs = [];
@@ -1117,7 +1190,7 @@ $("copyLogsN").addEventListener("click", async () => {
     flashSettingsMsg(btn, "没有日志");
     return;
   }
-  const text = rows.map((item) => `${logTime(item.t)}  ${(item.level || "info").toUpperCase()}  ${item.scope || "-"}  ${item.message || ""}`).join("\n");
+  const text = rows.map(logLine).join("\n");
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -1146,7 +1219,7 @@ $("clearLogs").addEventListener("click", async () => {
   renderLogs();
 });
 $("exportLogs").addEventListener("click", () => {
-  const text = filteredLogs().map((item) => `${logTime(item.t)}  ${(item.level || "info").toUpperCase()}  ${item.scope || "-"}  ${item.message || ""}`).join("\n");
+  const text = filteredLogs().map(logLine).join("\n");
   const blob = new Blob([text || "（没有日志）"], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -1156,8 +1229,7 @@ $("exportLogs").addEventListener("click", () => {
 });
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== "APP_LOG" || !message.entry) return;
-  appLogs.push(message.entry);
-  if (appLogs.length > 200) appLogs = appLogs.slice(-200);
+  appLogs = pruneLogs([...appLogs, message.entry]);
   renderLogs();
 });
 

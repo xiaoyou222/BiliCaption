@@ -203,7 +203,7 @@ async function pruneAsrCache(keepKey = "") {
   }
   if (drop.length) {
     await dropSubtitleEntries(drop).catch(() => {});
-    appLog("info", "asr", `已清理 ${drop.length} 份可重新获取的旧字幕缓存`);
+    appLog("info", "cache", `已清理 ${drop.length} 份可重新获取的旧字幕缓存`);
   }
   return { removed: drop.length };
 }
