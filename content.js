@@ -1555,6 +1555,8 @@
           cues: data.cues || [],
           login: data.login || null,
           source: data.source || "",
+          // 来源类别（official / asr）：转回后台保存时带上，本地条目已被清掉时据此重建
+          origin: data.origin || "",
           canGenerate: data.canGenerate !== false,
           partial: Boolean(data.partial),
           asrDone: Number(data.asrDone) || 0,
@@ -1610,6 +1612,7 @@
     cachedState.cues = data.cues || [];
     cachedState.activeLan = track.lan;
     cachedState.source = cachedState.platform || "bilibili";
+    cachedState.origin = "official";
     cachedState.error = "";
     setOverlayCues(cachedState.cues);
     return cachedState;
@@ -1743,6 +1746,7 @@
         : (message.cues || []);
       cachedState.activeLan = keepTranslation ? "translated" : (message.activeLan || "groq-asr");
       cachedState.source = keepTranslation ? "translated" : (message.source || "groq");
+      cachedState.origin = "asr";
       cachedState.canGenerate = allowsAsr(parsePage().kind);
       cachedState.partial = Boolean(message.partial);
       cachedState.error = "";
@@ -1782,6 +1786,7 @@
       if (message.source) cachedState.source = message.source;
       setOverlayCues(cachedState.cues);
       // persisted：后台翻译已自己写缓存，不再回传整份字幕重写一遍；侧栏改字等来源仍由这里保存。
+      // edited：只有侧栏 / 浮窗里用户手动改字、批量替换发来的才带 true，原样转给后台记 editedAt。
       if (!message.persisted && cachedState.bvid && cachedState.cid && cachedState.cues.length) {
         askBackground({
           type: "SAVE_CUES_CACHE",
@@ -1789,7 +1794,9 @@
           cid: cachedState.cid,
           cues: cachedState.cues,
           activeLan: cachedState.activeLan,
-          source: cachedState.source
+          source: cachedState.source,
+          origin: cachedState.origin || "",
+          edited: message.edited === true
         }).catch(() => {});
       }
       const snap = snapshot();

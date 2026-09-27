@@ -178,7 +178,12 @@ test("思考参数只在翻译任务、文档明确支持的服务商和模型�
   assert.deepEqual(f("DeepSeek", "deepseek-flash"), { thinking: { type: "disabled" } });
   assert.deepEqual(f("DeepSeek", "deepseek-v4-pro"), { thinking: { type: "disabled" } });
   assert.deepEqual(f("OpenAI", "gpt-4o-mini"), {});
+  // 新默认：OpenAI gpt-6-luna 翻译关思考；Gemini 默认翻译模型 3.5 Flash-Lite 默认已是 minimal，不加参数
+  assert.deepEqual(f("OpenAI", "gpt-6-luna"), { reasoning_effort: "none" });
+  assert.deepEqual(f("OpenAI", "gpt-6-sol"), { reasoning_effort: "none" });
+  assert.deepEqual(f("Gemini", "models/gemini-3.8-flash"), { reasoning_effort: "low" });
   assert.deepEqual(f("自定义", "xy-fast"), {});
+  assert.deepEqual(f("自定义", "gpt-6-luna"), {});
   assert.deepEqual(f("自定义", "gemini-2.5-flash"), {});
   // 总结、大纲、润色保持服务商默认
   assert.deepEqual(f("Gemini", "gemini-2.5-flash", "summary"), {});
@@ -197,6 +202,79 @@ test("自定义网关下主模型和翻译模型别名都保留，换到具体�
   assert.equal(deepseek.apiModel, "deepseek-flash");
   assert.equal(deepseek.translateModel, "deepseek-flash");
   assert.equal(P.resolveSum({ sumProvider: "DeepSeek", apiKey: "k" }).model, "deepseek-flash");
+});
+
+test("默认模型按服务商取；Gemini 翻译默认用 Flash-Lite 速度档，OpenAI / DeepSeek 跟随总结模型", () => {
+  const { BiliCaptionProviders: P } = loadLibs(["lib/providers.js"]);
+  assert.deepEqual(plain(P.SUM_MODELS), { OpenAI: "gpt-6-luna", Gemini: "gemini-3.8-flash", DeepSeek: "deepseek-flash", 自定义: "" });
+  assert.equal(P.translateDefault("Gemini"), "gemini-3.5-flash-lite");
+  assert.equal(P.translateDefault("OpenAI"), "gpt-6-luna");
+  assert.equal(P.translateDefault("DeepSeek"), "deepseek-flash");
+  assert.equal(P.translateDefault("自定义"), "");
+  assert.equal(P.resolveSum({ sumProvider: "OpenAI", apiKey: "k" }).model, "gpt-6-luna");
+  assert.equal(P.resolveSum({ sumProvider: "Gemini", apiKey: "k" }).model, "gemini-3.8-flash");
+});
+
+test("已下线的 Gemini 模型迁到新默认；仍可用但不再推荐的已保存值不动", () => {
+  const { BiliCaptionProviders: P } = loadLibs(["lib/providers.js"]);
+  // 2.0 Flash 2026-06-01 停用、3 Pro Preview 2026-03-09 停用、3.1 Flash-Lite Preview 2026-05-25 停用
+  const retired = P.migrateSum({ sumProvider: "Gemini", apiModel: "gemini-2.0-flash", translateModel: "models/gemini-2.0-flash-lite" });
+  assert.equal(retired.apiModel, "gemini-3.8-flash");
+  assert.equal(retired.translateModel, "gemini-3.5-flash-lite");
+  assert.equal(P.migrateSum({ sumProvider: "Gemini", apiModel: "gemini-3-pro-preview" }).apiModel, "gemini-3.8-flash");
+  assert.equal(P.migrateSum({ sumProvider: "Gemini", apiModel: "x", translateModel: "gemini-3.1-flash-lite-preview" }).translateModel, "gemini-3.5-flash-lite");
+  assert.equal(P.resolveSum({ sumProvider: "Gemini", apiKey: "k", apiModel: "gemini-2.5-flash-preview-05-20" }).model, "gemini-3.8-flash");
+
+  // 老用户仍能用：2.5 系列只限老用户访问但没停用、3 Flash Preview 没公布停用日期、gpt-4o-mini 没弃用
+  const keepGemini = P.migrateSum({ sumProvider: "Gemini", apiModel: "gemini-2.5-flash", translateModel: "gemini-3-flash-preview" });
+  assert.equal(keepGemini.apiModel, "gemini-2.5-flash");
+  assert.equal(keepGemini.translateModel, "gemini-3-flash-preview");
+  const keepOpenAI = P.migrateSum({ sumProvider: "OpenAI", apiModel: "gpt-4o-mini", translateModel: "" });
+  assert.equal(keepOpenAI.apiModel, "gpt-4o-mini");
+  assert.equal(keepOpenAI.translateModel, "");
+  // 翻译模型留空仍表示跟随总结模型，不会被悄悄换成 Flash-Lite
+  assert.equal(P.migrateSum({ sumProvider: "Gemini", apiModel: "gemini-2.5-flash", translateModel: "" }).translateModel, "");
+
+  // 下线名单按服务商区分：自定义网关里同名模型不动，Gemini 名单不套到 DeepSeek
+  assert.equal(P.migrateSum({ sumProvider: "自定义", apiBase: "https://cpa.example/v1", apiModel: "gemini-2.0-flash" }).apiModel, "gemini-2.0-flash");
+  assert.equal(P.migrateSum({ sumProvider: "Gemini", apiModel: "deepseek-chat" }).apiModel, "deepseek-chat");
+});
+
+/** 设置页 options.js 里 loadSettings 内的 pickSum（点总结服务商的分段按钮），配最小的 DOM 桩单独执行 */
+function loadPickSum(initial) {
+  const source = fs.readFileSync(path.join(root, "options.js"), "utf8");
+  const start = source.indexOf("  function pickSum(p) {");
+  const end = source.indexOf("\n  }\n", start);
+  assert.ok(start > 0 && end > start, "找不到 pickSum");
+  const { BiliCaptionProviders: P } = loadLibs(["lib/providers.js"]);
+  const inputs = { sumModel: { value: initial.sumModel }, trModel: { value: initial.trModel }, sumKey: { placeholder: "" }, sumSeg: {}, sumCustom: {} };
+  const context = {
+    P,
+    sumProvider: initial.provider,
+    sumFetch: "done",
+    $: (id) => inputs[id],
+    updateTrPlaceholder() {},
+    show() {},
+    renderSeg() {}
+  };
+  vm.createContext(context);
+  vm.runInContext(`${source.slice(start, end + 4)}\nthis.pickSum = pickSum;`, context);
+  return { context, inputs };
+}
+
+test("设置页：再点一次当前服务商不清掉手填的模型；真换服务商时才换成新服务商的默认 / 速度档", () => {
+  const { context, inputs } = loadPickSum({ provider: "Gemini", sumModel: "gemini-2.5-pro", trModel: "gemini-2.5-flash-lite" });
+  context.pickSum("Gemini");
+  assert.equal(inputs.trModel.value, "gemini-2.5-flash-lite", "手填的翻译模型不被速度档预填覆盖");
+  assert.equal(inputs.sumModel.value, "gemini-2.5-pro");
+
+  context.pickSum("OpenAI");
+  assert.equal(context.sumProvider, "OpenAI");
+  assert.equal(inputs.sumModel.value, "gpt-6-luna");
+  assert.equal(inputs.trModel.value, "", "OpenAI 没有单独的速度档：留空跟随总结模型，不留上一家的模型名");
+  context.pickSum("Gemini");
+  assert.equal(inputs.sumModel.value, "gemini-3.8-flash");
+  assert.equal(inputs.trModel.value, "gemini-3.5-flash-lite");
 });
 
 // ---------- 统一调用层 ----------
@@ -281,6 +359,12 @@ test("调用层按服务商与模型挑参数：OpenAI 推理模型不发 temper
   // Gemini 3 系列官方建议保持默认 temperature；2.5 不受影响
   assert.equal("temperature" in await send("Gemini", "gemini-3.8-flash"), false);
   assert.equal("temperature" in await send("Gemini", "gemini-3.1-flash-lite"), false);
+  // 新默认：OpenAI gpt-6-luna 总结不发强度和 temperature；Gemini 3.8 Flash 翻译降到 low（不支持 minimal），
+  // 默认翻译模型 3.5 Flash-Lite 不发强度也不发 temperature
+  assert.deepEqual(pick(await send("OpenAI", "gpt-6-luna", { task: "summary", maxTokens: 8 })), { temperature: none, effort: none, max_tokens: none, max_completion_tokens: 8 });
+  assert.deepEqual(pick(await send("Gemini", "gemini-3.8-flash")), { temperature: none, effort: "low", max_tokens: none, max_completion_tokens: none });
+  assert.deepEqual(pick(await send("Gemini", "gemini-3.8-flash", { task: "summary" })), { temperature: none, effort: none, max_tokens: none, max_completion_tokens: none });
+  assert.deepEqual(pick(await send("Gemini", "gemini-3.5-flash-lite", { maxTokens: 8 })), { temperature: none, effort: none, max_tokens: 8, max_completion_tokens: none });
   assert.equal((await send("Gemini", "gemini-2.5-flash")).temperature, 0.3);
   assert.equal((await send("Gemini", "gemini-2.5-flash", { maxTokens: 8 })).max_tokens, 8);
 });
@@ -546,6 +630,32 @@ test("翻译运行中只广播本批变化的行，页面收补丁且不回传�
   const content = contentSource();
   assert.match(content, /if \(!message\.persisted && cachedState\.bvid/);
   assert.match(content, /return reply\(Promise\.resolve\(\{ needFull: true \}\)\)/);
+});
+
+test("后台翻译用的翻译模型也走读设置时的迁移：已下线的换成默认速度档，别处的网关别名不带到具体服务商", async () => {
+  const cases = [
+    { settings: { sumProvider: "Gemini", apiModel: "gemini-3.8-flash", translateModel: "gemini-2.0-flash-lite" }, model: "gemini-3.5-flash-lite" },
+    { settings: { sumProvider: "DeepSeek", apiModel: "deepseek-flash", translateModel: "deepseek-chat" }, model: "deepseek-flash" },
+    { settings: { sumProvider: "OpenAI", apiModel: "gpt-6-luna", translateModel: "xy-fast" }, model: "gpt-6-luna" },
+    // 仍可用的手填翻译模型、自定义网关的别名原样用
+    { settings: { sumProvider: "Gemini", apiModel: "gemini-3.8-flash", translateModel: "gemini-2.5-flash-lite" }, model: "gemini-2.5-flash-lite" },
+    { settings: { sumProvider: "自定义", apiBase: "https://cpa.example.com/v1", apiModel: "xy-smart", translateModel: "xy-fast" }, model: "xy-fast" }
+  ];
+  for (const { settings, model } of cases) {
+    const models = [];
+    const { B, runtimeMessages } = loadBackground(async (_url, options) => {
+      const body = JSON.parse(options.body);
+      models.push(body.model);
+      return okJson(echoTranslate(body));
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    run(B, "lib/providers.js");
+    B.BiliCaptionPrefs.loadSettings = async (defaults) => ({ ...defaults, apiKey: "key", translateConcurrency: 1, ...settings });
+    await B.startTranslate({ tabId: 3, bvid: "BV-migrate", cid: 1, cues: englishCues(2) });
+    assert.ok(await waitFor(() => runtimeMessages.some((m) => m.type === "TRANSLATE_PROGRESS" && m.stage !== "run")), settings.translateModel);
+    assert.ok(models.length > 0, settings.translateModel);
+    assert.deepEqual([...new Set(models)], [model], `${settings.sumProvider} / ${settings.translateModel}`);
+  }
 });
 
 test("部分批次重试后仍失败：保留停下的存档、提示 N 行未翻译，不自动续跑，再点一次只补缺的行", async () => {

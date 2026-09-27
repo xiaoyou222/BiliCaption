@@ -37,6 +37,9 @@ test("权限：去掉用不到的 pbs.twimg.com；tabs、clipboardWrite 仍在�
   assert.ok(manifest.permissions.includes("tabs"));
   assert.ok(manifest.permissions.includes("clipboardWrite"));
   assert.match(panelSource(), /document\.execCommand\("copy"\)/);
+  // unlimitedStorage：转写结果和改过字的字幕不参与自动淘汰，会一直累积，storage.local 默认只有 10MB。
+  // 该权限没有安装提示，升级时不会因新增权限被停用。
+  assert.ok(manifest.permissions.includes("unlimitedStorage"));
 });
 
 test("zh-simp 映射表没有重复键", () => {

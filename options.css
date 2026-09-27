@@ -266,6 +266,39 @@ select {
 .btn-ghost.copied { color: var(--green); }
 
 .dav-actions .btn-ghost { min-height: 28px; }
+.btn-ghost:disabled,
+.btn-ghost:disabled:hover {
+  background: transparent;
+  border-color: rgba(255,255,255,.1);
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+/* 本地字幕缓存：两层占用，一行一层 */
+.cache-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cache-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.cache-name {
+  min-width: 72px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.cache-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text);
+}
 
 .btn-sm {
   border: 1px solid rgba(255,255,255,.16);

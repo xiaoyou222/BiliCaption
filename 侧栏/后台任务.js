@@ -485,6 +485,7 @@ function applyAsrProgress(info) {
       cues,
       source: translated ? "translated" : (info.source || "groq"),
       activeLan: translated ? "translated" : (info.activeLan || "groq-asr"),
+      origin: "asr",
       partial: info.partial !== false,
       asrDone: asrProgress.done,
       asrTotal: asrProgress.total

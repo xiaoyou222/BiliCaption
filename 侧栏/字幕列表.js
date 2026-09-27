@@ -118,6 +118,10 @@ function closeSelectionForCueEdit() {
   paintSelection();
 }
 
+/**
+ * 用户手动改字 / 批量替换后保存。edited: true 让页面转给后台时带上改字标志，后台据此记 editedAt，
+ * 这份缓存从此受保护、不被自动清理；改过的行自己带 cue.edited，之后的译文回写不会冲掉它们。
+ */
 function persistEditedCues(next) {
   state = { ...state, cues: next };
   lastCuesSig = "";
@@ -128,7 +132,8 @@ function persistEditedCues(next) {
     source: state.source,
     activeLan: state.activeLan,
     bvid: state.bvid || "",
-    cid: Number(state.cid) || 0
+    cid: Number(state.cid) || 0,
+    edited: true
   }).catch(() => {});
 }
 
@@ -163,7 +168,7 @@ function commitCueEdit() {
     paintVisibleCues();
     return;
   }
-  persistEditedCues(cues.map((item, i) => (i === index ? { ...item, [field]: written } : item)));
+  persistEditedCues(cues.map((item, i) => (i === index ? { ...item, [field]: written, edited: true } : item)));
 }
 
 function replaceAllCues() {
@@ -185,7 +190,10 @@ function replaceAllCues() {
     renderCues();
     return;
   }
-  persistEditedCues(cues);
+  const before = state.cues || [];
+  persistEditedCues(cues.map((cue, i) => (
+    cue[field] !== before[i]?.[field] ? { ...cue, edited: true } : cue
+  )));
   flash(`已替换 ${n} 处「${term}」`);
 }
 

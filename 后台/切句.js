@@ -375,6 +375,7 @@ function mergeTinyCues(cues) {
       if (prev.original || cue.original) {
         prev.original = BiliCaptionTranslate.joinCueText(prev.original || "", cue.original || "");
       }
+      if (cue.edited === true) prev.edited = true;
       continue;
     }
     out.push({ ...cue });
@@ -404,6 +405,7 @@ function stitchBrokenWraps(cues) {
       if (prev.original || cue.original) {
         prev.original = BiliCaptionTranslate.joinCueText(prev.original || "", cue.original || "");
       }
+      if (cue.edited === true) prev.edited = true;
       continue;
     }
     out.push({ ...cue });
@@ -430,6 +432,9 @@ function flattenCueParts(cues, words = []) {
       };
       const original = String(part.original || cue.original || "").trim();
       if (original) row.original = original;
+      // 用户改过字的行（见 lib/字幕工具.js keepEditedCues）：切开后每一段都还算改过，
+      // 否则翻译前的切句会丢掉标记，回写缓存时译文被改字前的文本换回去
+      if (cue.edited === true || part.edited === true) row.edited = true;
       flat.push(row);
     }
   }

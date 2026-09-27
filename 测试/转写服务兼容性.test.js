@@ -69,6 +69,48 @@ test("未知旧服务商回落到 Groq，无效备用不启用", () => {
   assert.equal(P.resolveBackup({ backupProvider: "不启用" }), null);
 });
 
+test("已下线的转写模型换成当前默认，仍可用的旧模型和自填模型不动", () => {
+  const C = loadStt(async () => { throw new Error("不应请求网络"); });
+  const P = C.BiliCaptionProviders;
+  // Groq distil-whisper-large-v3-en 2025-08-23 下线；ElevenLabs scribe_v1 2026-07-09 移除
+  assert.equal(P.migrateSttModel("Groq", "distil-whisper-large-v3-en"), "whisper-large-v3-turbo");
+  assert.equal(P.migrateSttModel("ElevenLabs", " scribe_v1 "), "scribe_v2");
+  // 仍可用：whisper-1 虽已公告 2027-02-26 下线，但现在能用、且是 OpenAI 唯一带时间戳的模型
+  assert.equal(P.migrateSttModel("OpenAI", "whisper-1"), "whisper-1");
+  assert.equal(P.migrateSttModel("Groq", "whisper-large-v3"), "whisper-large-v3");
+  assert.equal(P.migrateSttModel("Groq", ""), "");
+  // 下线名单按服务商区分，不跨家套用
+  assert.equal(P.migrateSttModel("OpenAI", "scribe_v1"), "scribe_v1");
+
+  const channels = P.resolveChannels({
+    sttChannels: [
+      { provider: "Groq", key: "g", model: "distil-whisper-large-v3-en" },
+      { provider: "ElevenLabs", key: "e", model: "scribe_v1" },
+      { provider: "OpenAI", key: "o", model: "whisper-1" },
+      { provider: "Groq", key: "g2", model: "" }
+    ]
+  });
+  assert.deepEqual(channels.map((ch) => ch.model), ["whisper-large-v3-turbo", "scribe_v2", "whisper-1", "whisper-large-v3-turbo"]);
+  // 旧的单服务商字段 sttModel 同样迁移
+  assert.equal(P.resolveStt({ sttProvider: "ElevenLabs", sttModel: "scribe_v1", sttCreds: { ElevenLabs: { key: "e" } } }).model, "scribe_v2");
+});
+
+test("转写候选只列带时间戳的模型，默认值都在候选里", () => {
+  const C = loadStt(async () => { throw new Error("不应请求网络"); });
+  const P = C.BiliCaptionProviders;
+  assert.deepEqual(Array.from(P.STT_MODEL_HINTS.Groq), ["whisper-large-v3-turbo", "whisper-large-v3"]);
+  assert.deepEqual(Array.from(P.STT_MODEL_HINTS.OpenAI), ["whisper-1"]);
+  assert.deepEqual(Array.from(P.STT_MODEL_HINTS.ElevenLabs), ["scribe_v2"]);
+  for (const provider of ["Groq", "OpenAI", "ElevenLabs"]) {
+    assert.ok(P.STT_MODEL_HINTS[provider].includes(P.schema(provider).model), provider);
+  }
+  // 对话候选按总结服务商取，不再混进转写模型
+  for (const provider of ["OpenAI", "Gemini", "DeepSeek"]) {
+    assert.ok(P.MODEL_HINTS[provider].includes(P.SUM_MODELS[provider]), provider);
+    assert.equal(P.MODEL_HINTS[provider].some((id) => /whisper|transcribe|scribe/.test(id)), false, provider);
+  }
+});
+
 test("OpenAI 改接口地址后请求打到新 host，空值回落官方地址", async () => {
   let capturedUrl;
   const C = loadStt(async (url, options) => {
@@ -360,7 +402,7 @@ test("总结服务商只剩 OpenAI / Gemini / DeepSeek / 自定义", () => {
   const gemini = P.resolveSum({ sumProvider: "Gemini", apiKey: "k" });
   assert.equal(gemini.provider, "Gemini");
   assert.equal(gemini.base, "https://generativelanguage.googleapis.com/v1beta/openai");
-  assert.equal(gemini.model, "gemini-2.5-flash");
+  assert.equal(gemini.model, "gemini-3.8-flash");
   const hijack = P.resolveSum({
     sumProvider: "Gemini",
     apiBase: "https://evil.example/v1",
@@ -370,7 +412,10 @@ test("总结服务商只剩 OpenAI / Gemini / DeepSeek / 自定义", () => {
   const def = P.resolveSum({});
   assert.equal(def.provider, "OpenAI");
   assert.equal(def.base, "https://api.openai.com/v1");
-  assert.equal(def.model, "gpt-4o-mini");
+  assert.equal(def.model, "gpt-6-luna");
+  // 自定义没填模型时的兜底：非推理的通用模型名，不套用 OpenAI 的新默认
+  assert.equal(P.resolveSum({ sumProvider: "自定义", apiBase: "https://cpa.example/v1", apiKey: "k" }).model, "gpt-4o-mini");
+  assert.equal(P.SUM_MODELS.自定义, "");
 });
 
 test("旧总结服务商迁移到自定义或 OpenAI", () => {

@@ -24,6 +24,7 @@ async function loadDavSettings() {
     syncMarks: true,
     syncConfig: true,
     syncKeys: false,
+    syncSubs: true,
     davUrl: "",
     davUser: "",
     davPass: "",
@@ -55,6 +56,14 @@ async function runDavSync(reason = "auto") {
     davApplying = true;
     try {
       const result = await self.BiliCaptionDav.autoSync(davCfgOf(settings), settings);
+      // 转写字幕与改字的备份（后台/字幕备份.js）：补传待办、顺带拉一次 subs/index.json。
+      // 改标记后的防抖同步不做，免得字幕备份跟着进高频路径；它出错不算整轮同步失败。
+      if (!SUB_SKIP_SYNC_REASONS.has(reason)) {
+        result.subs = await syncSubtitleBackups(settings, { manual: reason === "manual" }).catch((error) => {
+          appLog("warn", "dav", `字幕备份同步失败：${error.message || error}`);
+          return { error: error.message || String(error) };
+        });
+      }
       await self.BiliCaptionPrefs.saveSettings({
         davLast: davLastLabel(result.at),
         davAt: result.at

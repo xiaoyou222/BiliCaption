@@ -31,7 +31,8 @@ async function resumePendingTranslateJobs() {
     for (const value of live) {
       const tabId = await findVideoTab(value);
       if (!tabId) continue;
-      resumeStoredTranslate({ ...value, tabId }).catch(() => {});
+      // 只等任务建好（会先读一次字幕缓存套回改字），不等翻译跑完
+      await resumeStoredTranslate({ ...value, tabId }).catch(() => {});
       break;
     }
   } catch {
@@ -144,6 +145,7 @@ async function saveTranslateJob(job) {
       pending,
       halted,
       pageKey: job.pageKey || "",
+      origin: job.origin || "",
       savedAt: Date.now()
     }
   });
@@ -260,12 +262,25 @@ async function findVideoTab(record) {
 
 async function writeTranslatedCache(job) {
   if ((job.bvid || job.cid) && job.cues?.length) {
+    // 译文看不出原字幕是官方的还是转写的：本地条目已不在时按发起翻译时记下的来源建条目
     await saveCachedAsr(job.bvid, job.cid, {
       cues: job.cues,
       activeLan: "translated",
       source: "translated"
-    });
+    }, { originHint: job.origin });
   }
+}
+
+/**
+ * 发起翻译时这份字幕的来源类别（official / asr），本地条目已不在时建条目用（见 writeCachedAsr）。
+ * 本地条目还在就以它为准；否则看侧栏发来的字幕来源（官方轨 / 转写），最后才用侧栏记着的 origin。
+ */
+function translateOriginHint(input, cached) {
+  if (cached?.cues?.length) return BiliCaptionCueTools.subtitleCacheOrigin(cached);
+  const source = String(input?.source || "");
+  if (BiliCaptionCueTools.isOfficialSubtitleSource(source)) return "official";
+  if (source === "groq") return "asr";
+  return input?.origin === "official" || input?.origin === "asr" ? input.origin : "";
 }
 
 /**
@@ -416,7 +431,12 @@ async function startTranslate(input, sender) {
     return { started: true, joined: true, ...translateJobSnapshot(existing) };
   }
   // 顺带记下标签页地址的页面标识（分 P / 分集），后台重启后据此判断还在不在这个视频
-  const [stored, pageKey] = await Promise.all([loadTranslateJob(input.bvid, input.cid), tabPageKey(tabId)]);
+  const [stored, pageKey, cached] = await Promise.all([
+    loadTranslateJob(input.bvid, input.cid),
+    tabPageKey(tabId),
+    loadCachedAsr(input.bvid, input.cid).catch(() => null)
+  ]);
+  const origin = translateOriginHint(input, cached);
   if (stored?.pending) {
     // 用户亲自点的翻译：停下的（halted）任务也从存档续上，已译出的行不用重译。
     const resumed = await resumeStoredTranslate({
@@ -425,6 +445,7 @@ async function startTranslate(input, sender) {
       tabId: tabId || stored.tabId,
       title: input.title || stored.title,
       pageKey: pageKey || stored.pageKey || "",
+      origin: stored.origin || origin,
       anchorTime
     });
     if (resumed) return { started: true, joined: true, ...translateJobSnapshot(resumed) };
@@ -444,6 +465,7 @@ async function startTranslate(input, sender) {
     cid: Number(input.cid) || 0,
     title: String(input.title || ""),
     pageKey,
+    origin,
     anchorTime,
     cues,
     done: 0,
@@ -465,10 +487,16 @@ async function startTranslate(input, sender) {
 
 async function resumeStoredTranslate(stored) {
   if (!stored?.pending || stored.halted || !stored.cues?.length) return null;
+  // 翻译停下后用户可能又改过字：存档里的字幕是停下时的样子，先把缓存里改过的行套回来再续跑。
+  // 读缓存放在查重之前，查重到建任务之间不能有 await，否则两次续跑会各建一个任务。
+  const cached = await loadCachedAsr(stored.bvid, stored.cid).catch(() => null);
   const live = findTranslateJob({ bvid: stored.bvid, cid: stored.cid, jobId: stored.jobId });
   if (live) return live;
   const T = self.BiliCaptionTranslate;
-  const { cues, targets } = T.prepareCues(stored.cues);
+  const base = cached?.cues?.length
+    ? BiliCaptionCueTools.keepEditedCues(stored.cues, cached.cues)
+    : stored.cues;
+  const { cues, targets } = T.prepareCues(base);
   if (!targets.length) {
     await clearTranslateJob(stored.bvid, stored.cid);
     return null;
@@ -482,6 +510,7 @@ async function resumeStoredTranslate(stored) {
     cid: Number(stored.cid) || 0,
     title: String(stored.title || ""),
     pageKey: String(stored.pageKey || ""),
+    origin: translateOriginHint(stored, cached),
     anchorTime: Number(stored.anchorTime) || 0,
     cues,
     done: Number(stored.done) || Math.max(0, (Number(stored.total) || 0) - targets.length),
@@ -625,7 +654,10 @@ async function runTranslateJob(job, targets) {
     const apiKey = sumCfg.key;
     const apiModel = sumCfg.model;
     const provider = sumCfg.provider || "";
-    const translateModel = String(settings.translateModel || apiModel).trim();
+    // 翻译模型和主模型一样按读设置时的规则迁移（已下线的换成默认速度档、网关别名只留给自定义），
+    // 不能等用户打开设置页才写回，否则这期间每次翻译都打到已下线的模型上
+    const migrated = self.BiliCaptionProviders.migrateSum?.(settings) || settings;
+    const translateModel = String(migrated.translateModel || apiModel).trim();
     const translateConcurrency = settings.translateConcurrency;
     throwIfAborted(signal);
     if (!apiKey) throw new Error("请先在设置里配置总结服务和 API Key");
@@ -710,6 +742,8 @@ async function runTranslateJob(job, targets) {
       failed: leftover,
       message
     });
+    // 受保护视频（转写、改过字）的译文也一起备份到 WebDAV；官方字幕的译文不传
+    if (applied) queueSubtitleBackup(job.bvid, job.cid, "translate").catch(() => {});
   } catch (error) {
     job.failed = true;
     clearTimeout(job.persistTimer);

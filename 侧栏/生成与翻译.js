@@ -254,7 +254,10 @@ async function translateCues() {
       cid: state.cid,
       title: state.title || "",
       currentTime: translateSeekAt,
-      cues: state.cues
+      cues: state.cues,
+      // 本地条目已被清掉（例如刚清理可重新生成的缓存）时，后台按这份字幕的来源给译文建条目
+      source: state.source,
+      origin: state.origin || ""
     });
     if (started?.error) {
       flash(started.error);

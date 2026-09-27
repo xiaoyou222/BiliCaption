@@ -94,6 +94,7 @@ async function persistAsrProgress({ bvid, cid, tabId, fingerprint, parts, total,
       provider: job?.lastSttProvider || job?.sttCfg?.provider || "Groq",
       activeLan: "groq-asr",
       source: "groq",
+      origin: "asr",
       partial: pending
     });
     cues = stored.cues || cues;

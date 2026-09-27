@@ -289,9 +289,12 @@ async function runAsrJob(job, { meta, signal, asrLanguage, forceRestart }) {
       provider: job.lastSttProvider || job.sttCfg?.provider || "Groq",
       activeLan: "groq-asr",
       source: "groq",
+      origin: "asr",
       partial
     });
     const cues = stored.cues || result.cues;
+    // 转写完成（含部分完成）：备份到 WebDAV（没开字幕同步时什么都不做）
+    queueSubtitleBackup(meta.bvid, meta.cid, "asr").catch(() => {});
     const message = partial
       ? `已生成 ${cues.length} 条字幕，${result.reason}。已保存进度，可点「继续生成」补齐`
       : `已生成 ${cues.length} 条字幕`;

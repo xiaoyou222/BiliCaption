@@ -279,6 +279,33 @@ $("btnTxt").addEventListener("click", () => {
   setMoreOpen(false);
 });
 $("btnTranslate").addEventListener("click", translateCues);
+function videoCacheClearWarning(status) {
+  const lines = ["清理本视频缓存会同时删除网盘上的字幕备份（转写结果和改过的字），其他电脑也取不回来了。"];
+  if (status?.local === false) {
+    lines.push("注意：网盘上的备份还没取回到本机，现在显示的只是官方字幕；删掉后这份转写 / 改字就找不回来了。");
+  }
+  lines.push("确定要清理吗？");
+  return lines.join("\n\n");
+}
+
+/**
+ * 「清理本视频缓存」发给后台的请求。先问后台清理会不会连带删掉网盘上的字幕备份（开了字幕同步、
+ * 网盘上有这个视频的备份，包括本机取回超时、只显示了官方字幕的情况）：会的话二次确认，
+ * 用户确认后消息里才带 deleteRemote: true；取消则什么都不清，返回 { canceled: true }。
+ * 没开字幕同步、网盘上没有备份或查询失败时不问，也不删网盘。
+ */
+async function requestVideoCacheClear(bvid, cid) {
+  let status = null;
+  try {
+    status = await chrome.runtime.sendMessage({ type: "GET_SUBTITLE_BACKUP_STATUS", bvid, cid });
+  } catch {
+    status = null;
+  }
+  const deleteRemote = Boolean(status?.remote);
+  if (deleteRemote && !confirm(videoCacheClearWarning(status))) return { canceled: true };
+  return chrome.runtime.sendMessage({ type: "CLEAR_VIDEO_CACHE", bvid, cid, deleteRemote });
+}
+
 $("btnClearCache")?.addEventListener("click", async () => {
   setMoreOpen(false);
   const bvid = state?.bvid || "";
@@ -289,9 +316,13 @@ $("btnClearCache")?.addEventListener("click", async () => {
   }
   let cleared;
   try {
-    cleared = await chrome.runtime.sendMessage({ type: "CLEAR_VIDEO_CACHE", bvid, cid });
+    cleared = await requestVideoCacheClear(bvid, cid);
   } catch (error) {
     flash(error.message || "清理缓存失败");
+    return;
+  }
+  if (cleared?.canceled) {
+    flash("已取消，本视频缓存和网盘备份都没动");
     return;
   }
   if (!cleared?.ok) {
@@ -320,8 +351,25 @@ $("btnClearCache")?.addEventListener("click", async () => {
   }
 });
 
+/**
+ * 后台处理 WebDAV 字幕备份冲突后的通知（SUBS_BACKUP_NOTICE）：是当前视频就提示一句（含冲突副本在网盘上的路径）；
+ * 本机字幕已被换成网盘上的版本（replaced）时放弃正在改的那一行、重读字幕，免得拿旧字幕回写盖掉别人的改字。
+ */
+function onSubsBackupNotice(message) {
+  if (!state || message.bvid !== state.bvid || Number(message.cid) !== Number(state.cid)) return;
+  if (message.notice) flash(message.notice, 8000);
+  if (message.replaced && !generating && !translating) {
+    cancelCueEdit();
+    refresh(true).catch(() => {});
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!isForThisPanel(message, sender)) return;
+  if (message?.type === "SUBS_BACKUP_NOTICE") {
+    onSubsBackupNotice(message);
+    return;
+  }
   if (message?.type === "DAV_SYNCED") {
     loadMarkers(state).then(() => {
       if (view === "markers") renderMarkers();
@@ -368,6 +416,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
           cues,
           source: translated ? "translated" : "groq",
           activeLan: translated ? "translated" : "groq-asr",
+          origin: "asr",
           partial: true,
           asrDone: Number(message.done) || Number(state?.asrDone) || 0,
           asrTotal: Number(message.total) || Number(state?.asrTotal) || 0
@@ -402,6 +451,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
           cues,
           source: translated ? "translated" : "groq",
           activeLan: translated ? "translated" : "groq-asr",
+          origin: "asr",
           partial,
           ...(partial
             ? {

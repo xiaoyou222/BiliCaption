@@ -34,7 +34,8 @@
     "clipboardWrite",
     "declarativeNetRequest",
     "alarms",
-    "webRequest"
+    "webRequest",
+    "unlimitedStorage"
   ],
   "minimum_chrome_version": "116",
   "host_permissions": [

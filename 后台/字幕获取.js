@@ -123,7 +123,16 @@ async function platformAsrProgress(page, cached, cues, duration) {
   };
 }
 
-function platformSubtitleState(page, { data, cached, tracks, cues, active, error, asr }) {
+/**
+ * 状态里带上字幕的来源类别（official / asr），页面转回来保存、侧栏发起翻译时用它给新条目定来源：
+ * 命中缓存按缓存条目；刚拉到官方字幕是 official；没有字幕为空。
+ */
+function subtitleStateOrigin(cached, fromCache, cues) {
+  if (!cues?.length) return "";
+  return fromCache ? BiliCaptionCueTools.subtitleCacheOrigin(cached) : "official";
+}
+
+function platformSubtitleState(page, { data, cached, tracks, cues, active, error, asr, fromCache = false }) {
   const canGenerate = asr?.canGenerate === true;
   return {
     page: "video",
@@ -140,6 +149,7 @@ function platformSubtitleState(page, { data, cached, tracks, cues, active, error
     cues,
     activeLan: active,
     source: cached?.source || page.kind,
+    origin: subtitleStateOrigin(cached, fromCache, cues),
     canGenerate,
     partial: Boolean(asr?.partial),
     asrDone: Number(asr?.asrDone) || 0,
@@ -155,7 +165,9 @@ function platformSubtitleState(page, { data, cached, tracks, cues, active, error
 
 async function loadPlatformSubtitles(page, tabId, options = {}) {
   const force = Boolean(options.force);
-  const cached = await loadCachedAsr(page.bvid, 1);
+  let cached = await loadCachedAsr(page.bvid, 1);
+  // 本机没有转写 / 改字而 WebDAV 上有备份时取回来用（至多一个 GET，见 后台/字幕备份.js）
+  cached = (await restoreSubtitleBackup(page.bvid, 1, cached, { force }).catch(() => null)) || cached;
   if (shouldUseSubtitleCache(cached, force)) {
     let meta = {
       title: cached.title || "",
@@ -178,6 +190,7 @@ async function loadPlatformSubtitles(page, tabId, options = {}) {
           };
           await saveCachedAsr(page.bvid, 1, {
             ...cached,
+            origin: BiliCaptionCueTools.subtitleCacheOrigin(cached),
             title: meta.title,
             titleFull: meta.titleFull,
             up: meta.up,
@@ -198,7 +211,8 @@ async function loadPlatformSubtitles(page, tabId, options = {}) {
       cues: cached.cues,
       active: cached.activeLan || "",
       error: "",
-      asr
+      asr,
+      fromCache: true
     });
   }
 
@@ -290,6 +304,35 @@ async function loadPlatformSubtitles(page, tabId, options = {}) {
   });
 }
 
+/**
+ * 切换官方字幕轨（FETCH_CUES）：拉这条轨并写进本视频的字幕缓存。
+ * 缓存被用户改过字时：切回改的那条轨直接用缓存里改过的版本；切到别的轨只显示、不落盘，
+ * 免得改过的字被官方原文盖掉。
+ */
+async function fetchTrackCues(message, tabId) {
+  const page = message.page;
+  const platform = page?.kind === "youtube" || page?.kind === "x";
+  const source = platform ? page.kind : "bilibili";
+  const bvid = page?.bvid || message.bvid || "";
+  const cid = platform ? 1 : (Number(page?.cid || message.cid) || 0);
+  if (bvid && message.lan) {
+    const cached = await loadCachedAsr(bvid, cid).catch(() => null);
+    if (isEditedSubtitleCache(cached) && cached.cues?.length
+      && isOfficialSubtitleSource(cached.source) && cached.activeLan === message.lan) {
+      return { cues: cached.cues };
+    }
+  }
+  const cues = await fetchPlatformTrack(message, tabId);
+  if (bvid && cues.length) {
+    await persistOfficialSubtitleCache(bvid, cid, {
+      cues,
+      activeLan: message.lan || "",
+      source
+    }, undefined, { overwrite: true });
+  }
+  return { cues };
+}
+
 async function loadSubtitles(page, tabId, options = {}) {
   if (["youtube", "x"].includes(page?.kind)) return loadPlatformSubtitles(page, tabId, options);
   const force = Boolean(options.force);
@@ -336,10 +379,13 @@ async function loadSubtitles(page, tabId, options = {}) {
   let cues = [];
   let activeLan = "";
   let source = "";
+  let origin = "";
   let error = "";
   let notice = "";
   let subtitleStatus = "";
-  const cached = await loadCachedAsr(meta.bvid, meta.cid);
+  let cached = await loadCachedAsr(meta.bvid, meta.cid);
+  // 本机没有转写 / 改字而 WebDAV 上有备份时取回来用，受保护条目优先于官方字幕（至多一个 GET）
+  cached = (await restoreSubtitleBackup(meta.bvid, meta.cid, cached, { force }).catch(() => null)) || cached;
   const asrJob = await loadAsrJob(meta.bvid, meta.cid);
   const lastCueTo = maxCueField(cached?.cues);
   // 新缓存会明确写 partial=false；长片尾静音不能仅凭最后一句离视频结尾远
@@ -361,6 +407,7 @@ async function loadSubtitles(page, tabId, options = {}) {
     tracks = Array.isArray(cached.tracks) ? cached.tracks : [];
     cues = cached.cues;
     source = cached.source || "groq";
+    origin = BiliCaptionCueTools.subtitleCacheOrigin(cached);
     if (cached.activeLan) activeLan = cached.activeLan;
     else if (source === "translated") activeLan = "translated";
     else if (isOfficialSubtitleSource(source)) activeLan = "";
@@ -394,6 +441,7 @@ async function loadSubtitles(page, tabId, options = {}) {
       cues = picked.cues;
       activeLan = picked.track.lan || "";
       source = "bilibili";
+      origin = "official";
       await persistOfficialSubtitleCache(meta.bvid, meta.cid, {
         cues,
         activeLan,
@@ -447,6 +495,7 @@ async function loadSubtitles(page, tabId, options = {}) {
     cues,
     login,
     source,
+    origin,
     subtitleStatus,
     canGenerate: true,
     partial,

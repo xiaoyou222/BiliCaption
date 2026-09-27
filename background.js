@@ -1,4 +1,4 @@
-importScripts("lib/视频平台.js", "lib/字幕工具.js", "lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/模型调用.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js", "lib/markers.js", "lib/webdav.js", "后台/基础.js", "后台/启动设置.js", "后台/同步.js", "后台/缓存.js", "后台/B站接口.js", "后台/YouTube与X.js", "后台/字幕获取.js", "后台/音频下载.js", "后台/翻译任务.js", "后台/转写通道.js", "后台/转写分段.js", "后台/切句.js", "后台/转写调度.js", "后台/转写任务.js");
+importScripts("lib/视频平台.js", "lib/字幕工具.js", "lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/模型调用.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js", "lib/markers.js", "lib/webdav.js", "后台/基础.js", "后台/启动设置.js", "后台/同步.js", "后台/字幕备份.js", "后台/缓存.js", "后台/B站接口.js", "后台/YouTube与X.js", "后台/字幕获取.js", "后台/音频下载.js", "后台/翻译任务.js", "后台/转写通道.js", "后台/转写分段.js", "后台/切句.js", "后台/转写调度.js", "后台/转写任务.js");
 
 // 后台入口。上面按顺序加载 lib/ 和 后台/ 下的各模块（共享同一个全局作用域，后台/ 里只做声明）；
 // 这里只留三件事：消息来源校验、service worker 启动时必须同步注册的事件监听、消息路由。
@@ -50,7 +50,10 @@ const EXTENSION_MESSAGE_TYPES = new Set([
   "CANCEL_TRANSLATE",
   "TRANSLATE_SEEK",
   "CLEAR_VIDEO_CACHE",
-  "DAV_SYNC_NOW"
+  "DAV_SYNC_NOW",
+  "GET_CACHE_USAGE",
+  "CLEAR_RENEWABLE_CACHE",
+  "GET_SUBTITLE_BACKUP_STATUS"
 ]);
 
 function allowMessage(type, sender) {
@@ -69,7 +72,7 @@ enableAllBiliPanels();
 installAudioRefererRules();
 resumePendingTranslateJobs();
 chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
-// onInstalled / onStartup 各只注册一次；WebDAV 定时同步、缓存淘汰也在这里一起做。
+// onInstalled / onStartup 各只注册一次；WebDAV 定时同步、缓存淘汰（字幕缓存分层淘汰 + 大纲 / 索引）也在这里一起做。
 chrome.runtime.onInstalled.addListener(() => {
   enableAllBiliPanels();
   installAudioRefererRules();
@@ -77,7 +80,7 @@ chrome.runtime.onInstalled.addListener(() => {
   injectBiliContentScripts();
   armDavAlarm();
   runDavSync("install").catch(() => {});
-  pruneAuxCache().catch(() => {});
+  pruneLocalCaches().catch(() => {});
 });
 chrome.runtime.onStartup.addListener(() => {
   enableAllBiliPanels();
@@ -85,7 +88,7 @@ chrome.runtime.onStartup.addListener(() => {
   resumePendingTranslateJobs();
   armDavAlarm();
   runDavSync("startup").catch(() => {});
-  pruneAuxCache().catch(() => {});
+  pruneLocalCaches().catch(() => {});
 });
 
 chrome.alarms?.onAlarm?.addListener(onDavAlarm);
@@ -150,14 +153,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     );
   }
   if (message?.type === "SAVE_CUES_CACHE") {
+    // edited：侧栏 / 浮窗里用户手动改字或批量替换才带 true，后台据此记 editedAt；翻译回写等其它保存不带。
+    // origin：页面加载字幕时记下的来源类别，本地还没有条目时据此建（不再把没带来源的保存默认成转写）
     return reply(saveCachedAsr(message.bvid, message.cid, {
       cues: clampCues(message.cues),
       activeLan: message.activeLan || "",
-      source: message.source || "groq"
-    }).then(() => ({ ok: true })));
+      source: message.source || ""
+    }, { edited: message.edited === true, originHint: message.origin }).then(() => ({ ok: true })));
   }
   if (message?.type === "CLEAR_VIDEO_CACHE") {
-    return reply(clearVideoCache(message.bvid || "", Number(message.cid) || 0));
+    // deleteRemote：侧栏确认过「会同时删除网盘上的字幕备份」才带 true
+    return reply(clearVideoCache(message.bvid || "", Number(message.cid) || 0, { deleteRemote: message.deleteRemote === true }));
+  }
+  if (message?.type === "GET_SUBTITLE_BACKUP_STATUS") {
+    return reply(subtitleBackupStatus(message.bvid || "", Number(message.cid) || 0));
+  }
+  if (message?.type === "GET_CACHE_USAGE") {
+    return reply(getSubtitleCacheUsage());
+  }
+  if (message?.type === "CLEAR_RENEWABLE_CACHE") {
+    return reply(clearRenewableSubtitleCache());
   }
   if (message?.type === "GET_LOGS") {
     return reply(getAppLogs().then((logs) => ({ logs })));
@@ -202,27 +217,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "FETCH_CUES") {
     return reply(
-      fetchPlatformTrack(message, tabId)
-        .then(async (cues) => {
-          const page = message.page;
-          const source = page?.kind === "youtube" || page?.kind === "x" ? page.kind : "bilibili";
-          const bvid = page?.bvid || message.bvid || "";
-          const cid = page?.kind === "youtube" || page?.kind === "x"
-            ? 1
-            : (Number(page?.cid || message.cid) || 0);
-          if (bvid && cues.length) {
-            await persistOfficialSubtitleCache(bvid, cid, {
-              cues,
-              activeLan: message.lan || "",
-              source
-            }, undefined, { overwrite: true });
-          }
-          return { cues };
-        })
-        .catch((error) => ({
-          error: error.message || String(error),
-          cues: []
-        }))
+      fetchTrackCues(message, tabId).catch((error) => ({
+        error: error.message || String(error),
+        cues: []
+      }))
     );
   }
   if (message?.type === "GENERATE_ASR") {
@@ -259,7 +257,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       cid: message.cid,
       title: message.title,
       currentTime: message.currentTime,
-      cues: clampCues(message.cues)
+      cues: clampCues(message.cues),
+      // 侧栏上这份字幕的来源：本地条目已不在（刚清掉可再生缓存）时，译文按它记来源类别
+      source: message.source || "",
+      origin: message.origin || ""
     }, _sender));
   }
   if (message?.type === "TRANSLATE_SEEK") {

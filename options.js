@@ -44,6 +44,8 @@ function setTab(next) {
   tab = TABS.includes(next) ? next : "stt";
   document.querySelectorAll(".nav-item").forEach((btn) => btn.classList.toggle("on", btn.dataset.tab === tab));
   TABS.forEach((id) => show($(`tab-${id}`), id === tab));
+  // 每次切到「数据同步」都重新统计一次本地字幕缓存
+  if (tab === "sync") loadCacheUsage();
 }
 
 function renderSeg(host, list, current, onPick) {
@@ -602,6 +604,9 @@ function renderSync() {
   $("syncMarks").textContent = (settings.syncMarks !== false ? "✓ " : "") + "标记";
   $("syncConfig").classList.toggle("on", Boolean(settings.syncConfig));
   $("syncConfig").textContent = (settings.syncConfig ? "✓ " : "") + "设置（服务商 / 模型 / 快捷键）";
+  $("syncSubs").classList.toggle("on", settings.syncSubs !== false);
+  $("syncSubs").setAttribute("aria-pressed", String(settings.syncSubs !== false));
+  $("syncSubs").textContent = (settings.syncSubs !== false ? "✓ " : "") + "同步转写字幕与改字";
   $("syncKeys").classList.toggle("on", Boolean(settings.syncKeys));
   $("syncKeys").textContent = (settings.syncKeys ? "✓ " : "") + "API Key";
   show($("syncKeysWarn"), Boolean(settings.syncKeys));
@@ -646,6 +651,7 @@ function collect() {
     syncMarks: settings.syncMarks !== false,
     syncConfig: Boolean(settings.syncConfig),
     syncKeys: Boolean(settings.syncKeys),
+    syncSubs: settings.syncSubs !== false,
     davUrl: $("davUrl").value.trim(),
     davUser: $("davUser").value.trim(),
     davPass: $("davPass").value,
@@ -671,6 +677,7 @@ function configStamp(data) {
     syncMarks: data.syncMarks,
     syncConfig: data.syncConfig,
     syncKeys: data.syncKeys,
+    syncSubs: data.syncSubs,
     davUrl: data.davUrl,
     davUser: data.davUser,
     davPass: data.davPass
@@ -729,6 +736,7 @@ async function loadSettings() {
     syncMarks: true,
     syncConfig: true,
     syncKeys: false,
+    syncSubs: true,
     davUrl: "",
     davUser: "",
     davPass: "",
@@ -741,7 +749,8 @@ async function loadSettings() {
       provider: ch?.provider,
       note: String(ch?.note || ""),
       key: String(ch?.key || ""),
-      model: String(ch?.model || ""),
+      // 已下线的转写模型（如 scribe_v1）显示成当前默认，下次保存时写回
+      model: P.migrateSttModel(ch?.provider, ch?.model),
       url: String(ch?.url || ""),
       off: Boolean(ch?.off)
     }))
@@ -755,7 +764,7 @@ async function loadSettings() {
         note: "",
         key: cfg.key || "",
         // 迁移时保留用户旧模型选择，否则留空走默认
-        model: cfg.provider === (settings.sttProvider || "Groq") && settings.sttModel ? settings.sttModel : "",
+        model: cfg.provider === (settings.sttProvider || "Groq") ? P.migrateSttModel(cfg.provider, settings.sttModel) : "",
         url: meta.editableUrl && cfg.base && cfg.base !== meta.url ? cfg.base : "",
         off: false
       };
@@ -786,9 +795,14 @@ async function loadSettings() {
   $("sumKey").placeholder = P.SUM_KEY_HINT[sumProvider] || "sk-...";
   $("recordKey").textContent = keyLabel(selKey);
   function pickSum(p) {
+    // 再点一次当前服务商：什么都不改，免得把手填的总结 / 翻译模型换回默认
+    if (p === sumProvider) return;
     sumProvider = p;
     sumFetch = "idle";
     $("sumModel").value = P.SUM_MODELS[p] || "";
+    // 换服务商时翻译模型跟着换：有官方速度档（如 Gemini Flash-Lite）就预填，否则留空跟随总结模型，
+    // 免得留下上一家的模型名。
+    $("trModel").value = P.SUM_TRANSLATE_MODELS[p] || "";
     updateTrPlaceholder();
     show($("sumCustom"), p === "自定义");
     $("sumKey").placeholder = P.SUM_KEY_HINT[p] || "sk-...";
@@ -959,6 +973,7 @@ $("syncToggle").addEventListener("click", () => { settings.syncOn = !settings.sy
 $("syncMarks").addEventListener("click", () => { settings.syncMarks = settings.syncMarks === false; renderSync(); });
 $("syncConfig").addEventListener("click", () => { settings.syncConfig = !settings.syncConfig; renderSync(); });
 $("syncKeys").addEventListener("click", () => { settings.syncKeys = !settings.syncKeys; renderSync(); });
+$("syncSubs").addEventListener("click", () => { settings.syncSubs = settings.syncSubs === false; renderSync(); });
 $("testDav").addEventListener("click", async () => {
   setTestBtn("testDav", "testing");
   try {
@@ -991,6 +1006,68 @@ $("syncNow").addEventListener("click", async () => {
     $("davStatus").textContent = error.message || String(error);
   } finally {
     setDavSyncing(false);
+  }
+});
+
+// ---- 本地字幕缓存：分层统计与手动清理（计算和删除都在后台，见 后台/缓存.js） ----
+
+function formatCacheMB(bytes) {
+  const mb = (Number(bytes) || 0) / (1024 * 1024);
+  if (!mb) return "0 MB";
+  return `${mb < 10 ? mb.toFixed(2) : mb.toFixed(1)} MB`;
+}
+
+function renderCacheUsage(usage) {
+  const renewable = usage?.renewable || { videos: 0, bytes: 0 };
+  const kept = usage?.protected || { videos: 0, bytes: 0 };
+  $("cacheRenewable").textContent = `${renewable.videos} 个视频 / ${formatCacheMB(renewable.bytes)}`;
+  $("cacheProtected").textContent = `${kept.videos} 个视频 / ${formatCacheMB(kept.bytes)}`;
+  $("clearRenewable").disabled = !renewable.videos;
+}
+
+async function loadCacheUsage() {
+  try {
+    const usage = await chrome.runtime.sendMessage({ type: "GET_CACHE_USAGE" });
+    if (usage?.error) throw new Error(usage.error);
+    renderCacheUsage(usage);
+  } catch (error) {
+    $("cacheRenewable").textContent = "读取失败";
+    $("cacheProtected").textContent = "读取失败";
+    $("cacheStatus").textContent = error.message || String(error);
+  }
+}
+
+// 点一次先变成「确认清理」，3 秒内再点才真的删：官方字幕的译文删掉后要重新花钱翻译
+let clearRenewableArmed = 0;
+$("clearRenewable").addEventListener("click", async () => {
+  const btn = $("clearRenewable");
+  if (!clearRenewableArmed) {
+    btn.textContent = "再点一次确认清理";
+    btn.classList.add("fail");
+    clearRenewableArmed = setTimeout(() => {
+      clearRenewableArmed = 0;
+      btn.textContent = "清理可重新生成的缓存";
+      btn.classList.remove("fail");
+    }, 3000);
+    return;
+  }
+  clearTimeout(clearRenewableArmed);
+  clearRenewableArmed = 0;
+  btn.textContent = "清理中…";
+  btn.classList.remove("fail");
+  btn.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "CLEAR_RENEWABLE_CACHE" });
+    if (result?.error) throw new Error(result.error);
+    renderCacheUsage(result.usage);
+    $("cacheStatus").textContent = result.removed
+      ? `已清理 ${result.removed} 个视频，释放 ${formatCacheMB(result.bytes)}${result.skipped ? `；${result.skipped} 个正在转写或翻译，稍后再清` : ""}`
+      : (result.skipped ? `${result.skipped} 个视频正在转写或翻译，稍后再清` : "没有可清理的缓存");
+  } catch (error) {
+    $("cacheStatus").textContent = error.message || String(error);
+    btn.disabled = false;
+  } finally {
+    btn.textContent = "清理可重新生成的缓存";
   }
 });
 
