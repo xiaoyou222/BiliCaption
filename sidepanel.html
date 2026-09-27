@@ -165,6 +165,7 @@
         <button id="btnCopyOutline" type="button" class="btn-primary">复制大纲</button>
         <button id="btnOutlineMd" type="button" class="btn-outline">下载 Markdown</button>
         <button id="btnRegenOutline" type="button" class="btn-outline">重新生成</button>
+        <button id="btnChatOutline" type="button" class="chat-btn" title="字幕助手" aria-label="字幕助手" aria-pressed="false"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5z"></path></svg></button>
       </div>
 
       <div id="markerView" class="marker-view hidden">
@@ -182,6 +183,7 @@
       <div id="markerBar" class="action-bar hidden">
         <button id="btnAddMarker" type="button" class="btn-outline">+ 标记</button>
         <div style="flex:1"></div>
+        <button id="btnChatMarker" type="button" class="chat-btn" title="字幕助手" aria-label="字幕助手" aria-pressed="false"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5z"></path></svg></button>
         <button id="btnLibrary" type="button" class="btn-outline">标记库 ›</button>
         <div class="more-wrap">
           <button id="btnMarkerMore" type="button" class="btn-outline">更多 ⋯</button>
@@ -197,6 +199,7 @@
         <button id="btnSelect" type="button" class="btn-outline">划选</button>
         <button id="btnMarkNow" type="button" class="btn-outline">标记</button>
         <button id="btnOverlay" type="button" class="btn-outline">显示字幕</button>
+        <button id="btnChat" type="button" class="chat-btn" title="字幕助手" aria-label="字幕助手" aria-pressed="false"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5z"></path></svg></button>
         <div class="more-wrap">
           <button id="btnMore" type="button" class="btn-outline">更多 ⋯</button>
           <div id="moreMenu" class="more-menu hidden">
@@ -206,6 +209,30 @@
             <button id="btnTranslate" type="button">翻译成中文</button>
             <button id="btnClearCache" type="button" class="danger" title="只清理本插件生成的转写、翻译和大纲，不影响视频自带字幕；网盘上有字幕备份时会先确认是否一起删除">清理缓存</button>
           </div>
+        </div>
+      </div>
+
+      <div id="chatPanel" class="chat-panel hidden" role="dialog" aria-label="字幕助手">
+        <div class="chat-head">
+          <span class="chat-title">字幕助手</span>
+          <button id="btnChatClose" type="button" class="chat-close" title="收起" aria-label="收起">×</button>
+        </div>
+        <div id="chatScroll" class="chat-scroll">
+          <div id="chatEmpty" class="chat-empty">
+            <div id="chatEmptyTitle" class="chat-empty-title">问问这个视频</div>
+            <div id="chatEmptyNote" class="chat-empty-note">回答只基于当前字幕</div>
+          </div>
+          <div id="chatList" class="chat-list"></div>
+          <div id="chatThinking" class="chat-thinking hidden">
+            <span id="chatThinkOrb" class="chat-think-orb"></span>
+            <span class="chat-think-label">思考中…</span>
+          </div>
+          <div id="chatNotice" class="chat-notice hidden">还没有配置总结服务或 API Key，配置后才能提问 · <button type="button" class="link-btn" data-chat-action="settings">打开设置</button></div>
+        </div>
+        <div class="chat-foot">
+          <button id="btnChatClear" type="button" class="chat-clear hidden" title="清空对话">清空</button>
+          <textarea id="chatInput" class="chat-input" rows="1" placeholder="问点关于这个视频的…"></textarea>
+          <button id="btnChatSend" type="button" class="chat-send" disabled>发送</button>
         </div>
       </div>
     </div>
@@ -223,6 +250,7 @@
   <script src="lib/outline.js"></script>
   <script src="lib/模型路由.js"></script>
   <script src="lib/模型调用.js"></script>
+  <script src="lib/字幕助手.js"></script>
   <script src="lib/视频平台.js"></script>
   <script src="lib/markers.js"></script>
   <script src="lib/providers.js"></script>
@@ -240,6 +268,7 @@
   <script src="侧栏/生成与翻译.js"></script>
   <script src="侧栏/总结与模型.js"></script>
   <script src="侧栏/快捷键与设置.js"></script>
+  <script src="侧栏/字幕助手.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

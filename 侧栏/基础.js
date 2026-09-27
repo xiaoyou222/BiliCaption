@@ -92,6 +92,18 @@ const ui = {
   btnOverlay: $("btnOverlay"),
   btnMore: $("btnMore"),
   moreMenu: $("moreMenu"),
+  chatPanel: $("chatPanel"),
+  chatScroll: $("chatScroll"),
+  chatEmpty: $("chatEmpty"),
+  chatEmptyTitle: $("chatEmptyTitle"),
+  chatEmptyNote: $("chatEmptyNote"),
+  chatList: $("chatList"),
+  chatThinking: $("chatThinking"),
+  chatThinkOrb: $("chatThinkOrb"),
+  chatNotice: $("chatNotice"),
+  chatInput: $("chatInput"),
+  btnChatClear: $("btnChatClear"),
+  btnChatSend: $("btnChatSend"),
   toast: $("toast")
 };
 

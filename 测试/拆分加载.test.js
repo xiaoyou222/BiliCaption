@@ -325,6 +325,10 @@ test("侧栏冒烟：按 script 标签顺序加载全部脚本不报错，界面
   assert.ok(byId("btnSettings").listeners.click?.length, "设置按钮");
   assert.ok(byId("cueList").listeners.pointerdown?.length, "字幕列表选择");
   assert.ok(byId("btnGenOutline").listeners.click?.length, "生成大纲");
+  for (const id of ["btnChat", "btnChatMarker", "btnChatOutline", "btnChatSend"]) {
+    assert.ok(byId(id).listeners.click?.length, `字幕助手 ${id}`);
+  }
+  assert.ok(byId("chatInput").listeners.keydown?.length, "字幕助手输入框");
   // 状态变量、共用工具在后面的文件里都读得到
   assert.equal(vm.runInContext("typeof state + typeof renderState + typeof formatClock + typeof ui.cueList", context), "objectfunctionfunctionobject");
 });

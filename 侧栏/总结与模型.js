@@ -1,4 +1,4 @@
-// 侧栏 · 总结与模型：选区总结和它的编辑，以及总结、润色、大纲共用的大模型请求。
+// 侧栏 · 总结与模型：选区总结和它的编辑，以及总结、润色、大纲共用的大模型请求（字幕助手也读这里的服务配置）。
 
 function selectedCues() {
   if (!state?.cues?.length || range.start < 0 || range.end < 0) return [];
@@ -58,14 +58,19 @@ async function requestPromptModel(prompt, { base, key, model, provider, task, on
   return result.text;
 }
 
-async function openaiPrompt(prompt, { onDelta, signal, validate, system, task } = {}) {
+/** 设置里「总结服务」的主模型：{ provider, base, model, key }。总结、大纲、润色和字幕助手共用 */
+async function sumServiceConfig() {
   const settings = await BiliCaptionPrefs.loadSettings({
     sumProvider: "OpenAI",
     apiBase: "",
     apiKey: "",
     apiModel: ""
   });
-  const cfg = globalThis.BiliCaptionProviders.resolveSum(settings);
+  return globalThis.BiliCaptionProviders.resolveSum(settings);
+}
+
+async function openaiPrompt(prompt, { onDelta, signal, validate, system, task } = {}) {
+  const cfg = await sumServiceConfig();
   if (!cfg.key) return null;
   if (!cfg.base) throw new Error("请先在设置里填写接口地址");
   await ensureApiOrigin(cfg.base);

@@ -169,6 +169,8 @@ ui.cueList.addEventListener("pointercancel", onCuePointerUp);
 window.addEventListener("pointermove", (event) => {
   rememberPointer(event);
   if (cueEdit) return;
+  // 对话面板盖在字幕列表上：在面板里按着 Shift 打字、移动鼠标，不去划选下面的字幕
+  if (!selectHeld && !dragSelect && pointerInChat(event)) return;
   if (selKeyReleasedNow(event) && selectHeld) {
     finishHeldSelect();
     return;
@@ -259,6 +261,16 @@ ui.btnMore.addEventListener("click", (event) => {
   event.stopPropagation();
   setMoreOpen(!moreOpen);
 });
+
+// 字幕助手：三个视图底部操作栏各有一个入口按钮（侧栏与浮窗是同一页面）
+for (const id of CHAT_TOGGLE_IDS) $(id)?.addEventListener("click", toggleChat);
+$("btnChatClose")?.addEventListener("click", closeChat);
+ui.btnChatClear?.addEventListener("click", clearChat);
+ui.btnChatSend?.addEventListener("click", sendChat);
+ui.chatInput?.addEventListener("input", onChatInput);
+ui.chatInput?.addEventListener("keydown", onChatKey);
+ui.chatScroll?.addEventListener("click", onChatAreaClick);
+ui.chatScroll?.addEventListener("scroll", onChatScroll, { passive: true });
 document.addEventListener("click", () => {
   if (moreOpen) setMoreOpen(false);
   if (markerMoreOpen) setMarkerMoreOpen(false);
@@ -538,6 +550,10 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  // 字幕助手开着时，在设置页配好总结服务就收起「还没配置」的提示
+  if (chatOpen && (changes.apiKey || changes.sumProvider || changes.apiBase)) {
+    chatController().checkConfig().catch(() => {});
+  }
   if (area === "local") {
     if (changes.groqApiKey || changes.sttKey || changes.sttCreds) {
       loadPrefs().catch(() => {});

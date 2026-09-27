@@ -13,6 +13,8 @@ function renderState(next) {
     next = { ...next, cues: hydrateCueOriginals(next.cues) };
   }
   state = next;
+  // 字幕助手跟上当前视频：换视频就切到那个视频自己的对话
+  syncChatVideo(next);
   applyPlatformChrome(next);
   renderLogin(next?.login || lastLogin, next);
   renderHeaderTitle(next);
@@ -259,6 +261,7 @@ function renderState(next) {
     ui.cueList.classList.remove("selecting");
     syncSelKeyArmed();
   }
+  renderChatChrome();
 }
 
 async function refreshLoginOnly(platform) {

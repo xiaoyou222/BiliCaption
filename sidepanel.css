@@ -252,6 +252,8 @@ html.float-embed #btnFloat { display: none !important; }
 }
 
 .video-view {
+  /* 字幕助手面板按它绝对定位 */
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -270,7 +272,7 @@ html.float-embed #btnFloat { display: none !important; }
   flex-wrap: nowrap;
   overflow: visible;
   position: relative;
-  z-index: 8;
+  z-index: 31;
 }
 
 .view-tabs > button {
@@ -1547,7 +1549,7 @@ html.float-embed .lang-switch button.active {
   flex-direction: column;
   gap: 2px;
   min-width: 120px;
-  z-index: 5;
+  z-index: 32;
   animation: bcFade .12s ease;
 }
 
@@ -1739,7 +1741,7 @@ html.float-embed .lang-switch button.active {
   white-space: nowrap;
   animation: toastIn .16s ease;
   box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
-  z-index: 10;
+  z-index: 45;
 }
 
 .btn-mark {
@@ -1929,3 +1931,289 @@ html.float-embed .lang-switch button.active {
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .14); border-radius: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 字幕助手（设计稿 chatBtnStyle / chatOpen 面板） ---------- */
+/* 视图标签（任务胶囊下拉）、「更多」菜单、提示条的 z-index 都高于面板的 30 */
+
+.chat-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-left: auto;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.chat-btn svg {
+  display: block;
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+
+.chat-btn:hover {
+  background: rgba(255,255,255,.06);
+  color: var(--text-2);
+}
+
+.chat-btn.active {
+  background: var(--blue-wash);
+  color: var(--blue);
+}
+
+/* 字幕栏里按钮自己靠右，「更多 ⋯」紧跟其后 */
+.chat-btn + .more-wrap { margin-left: 0; }
+
+.chat-panel {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 56px;
+  height: 64%;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #16181C;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(0,0,0,.55);
+  animation: bcFade .12s ease;
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 6px 0 12px;
+  flex: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chat-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.chat-close:hover {
+  background: rgba(255,255,255,.06);
+  color: var(--text-2);
+}
+
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 消息直接参与外层的纵向排布，间距统一 14px */
+.chat-list { display: contents; }
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.chat-empty-title {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.chat-empty-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.chat-row { display: flex; }
+.chat-row.user { justify-content: flex-end; }
+
+.chat-row.ai {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  background: var(--blue-wash);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 7px 10px;
+  border-radius: 10px 10px 3px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-answer {
+  max-width: 100%;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-wrap: pretty;
+}
+
+.chat-answer.is-error { color: var(--pink); }
+.chat-flag { color: var(--muted); }
+
+/* 回答里的时间点：点了跳到那个播放位置 */
+.chat-time {
+  display: inline;
+  border: none;
+  background: rgba(77,142,240,.12);
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 4px;
+}
+
+.chat-time:hover {
+  background: rgba(77,142,240,.22);
+  color: var(--blue);
+}
+
+.chat-retry {
+  border: none;
+  background: transparent;
+  color: var(--blue);
+  font-size: 11px;
+  padding: 0;
+}
+
+.chat-retry:hover { color: var(--blue-hover); }
+
+.chat-notice {
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.chat-think-orb {
+  display: inline-flex;
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.chat-think-label {
+  font-size: 11px;
+  color: var(--muted);
+  animation: bcPulse 1.4s infinite ease-in-out;
+}
+
+.chat-foot {
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  background: #16181C;
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  flex: none;
+}
+
+.chat-clear {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 6px;
+  height: 30px;
+  border-radius: 6px;
+  flex: none;
+}
+
+.chat-clear:hover {
+  background: rgba(255,255,255,.06);
+  color: var(--text-2);
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  resize: none;
+  overflow-y: hidden;
+  max-height: 96px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 16px;
+  font-family: inherit;
+  outline: none;
+}
+
+.chat-input:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.chat-send {
+  border: none;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 500;
+  flex: none;
+  background: rgba(255,255,255,.05);
+  color: var(--muted);
+}
+
+/* 置灰由底色和字色表达，不叠全局 button:disabled 的半透明 */
+.chat-send:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.chat-send.ready {
+  background: var(--blue);
+  color: #0B0C0E;
+  cursor: pointer;
+}
+
+.chat-send.ready:hover { filter: brightness(1.1); }
