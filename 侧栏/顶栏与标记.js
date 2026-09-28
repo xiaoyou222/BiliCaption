@@ -120,15 +120,6 @@ function persistLastVideo(next) {
   chrome.storage.local.set({ lastVideo }).catch(() => {});
 }
 
-function renderLastVideoHint() {
-  if (!lastVideo?.bvid && !lastVideo?.part) {
-    ui.lastVideoHint.textContent = "";
-    return;
-  }
-  const bits = [lastVideo.bvid, lastVideo.part].filter(Boolean);
-  ui.lastVideoHint.textContent = bits.length ? `上次：${bits.join(" · ")}` : "";
-}
-
 function setMoreOpen(open) {
   moreOpen = open;
   show(ui.moreMenu, open);

@@ -30,7 +30,6 @@ function renderState(next) {
     show(ui.videoView, false);
     show(ui.speedSelect, false);
     if (ui.noVideoTitle) ui.noVideoTitle.textContent = platformLabels(next).other;
-    renderLastVideoHint();
     return;
   }
 

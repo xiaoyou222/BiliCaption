@@ -23,7 +23,6 @@ const ui = {
   headerTitle: $("headerTitle"),
   noVideoView: $("noVideoView"),
   noVideoTitle: $("noVideoTitle"),
-  lastVideoHint: $("lastVideoHint"),
   videoView: $("videoView"),
   speedSelect: $("speedSelect"),
   speedBtn: $("speedBtn"),

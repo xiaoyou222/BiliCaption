@@ -612,7 +612,6 @@ if (!inFloatEmbed()) {
 
 chrome.storage.local.get({ lastVideo: null }).then((data) => {
   lastVideo = data.lastVideo;
-  renderLastVideoHint();
 });
 
 loadPrefs().then(() => {

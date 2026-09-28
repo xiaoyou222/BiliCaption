@@ -523,12 +523,6 @@ html.float-embed .lang-switch button.active {
   color: var(--faint);
 }
 
-.empty-meta {
-  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
-  font-size: 10px;
-  color: var(--ghost);
-}
-
 .gen-view {
   flex: 1;
   display: flex;
