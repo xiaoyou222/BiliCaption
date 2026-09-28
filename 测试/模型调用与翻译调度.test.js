@@ -888,3 +888,57 @@ test("侧栏：选区总结可中止旧请求，翻译进度按补丁更新，�
   assert.doesNotMatch(outline, /buildChaptersPrompt|buildSummaryMapPrompt/);
   assert.doesNotMatch(background, /translateBatchWithFallback|function defaultChatModel|siliconflow/);
 });
+
+// ---------- 输出一律简体中文 ----------
+
+test("调用层：系统提示总带「一律简体中文」规则且不重复；自带 messages（字幕助手）也补上", async () => {
+  const bodies = [];
+  const C = loadLibs(["lib/zh-simp.js", "lib/模型路由.js", "lib/模型调用.js"]);
+  const fetchImpl = async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return okJson("好");
+  };
+  const Call = C.BiliCaptionModelCall;
+  const base = "https://api.openai.com/v1";
+  await Call.chat({ base, key: "k", prompt: "总结", fetch: fetchImpl });
+  await Call.chat({ base, key: "k", prompt: "大纲", system: "你是大纲助手。", fetch: fetchImpl });
+  await Call.chat({ base, key: "k", fetch: fetchImpl, messages: [
+    { role: "system", content: "你是视频助手。" },
+    { role: "user", content: "问" }
+  ] });
+  await Call.chat({ base, key: "k", fetch: fetchImpl, messages: [{ role: "user", content: "只有用户消息" }] });
+  for (const body of bodies) {
+    const systems = body.messages.filter((m) => m.role === "system");
+    assert.equal(systems.length, 1);
+    assert.match(systems[0].content, /一律使用简体中文输出/);
+    assert.equal(systems[0].content.split("一律使用简体中文输出").length, 2, "规则不重复");
+  }
+  assert.match(bodies[1].messages[0].content, /^你是大纲助手。/);
+  assert.equal(bodies[3].messages[0].role, "system");
+});
+
+test("调用层：模型仍输出繁体时兜底转成简体（流式与非流式），简体里也合法的字不误转", async () => {
+  const C = loadLibs(["lib/zh-simp.js", "lib/模型路由.js", "lib/模型调用.js"]);
+  const Call = C.BiliCaptionModelCall;
+  const base = "https://api.openai.com/v1";
+  const plainOut = await Call.chat({ base, key: "k", prompt: "p", fetch: async () => okJson("這個資料結構很複雜，著名的乾隆也會說。") });
+  assert.equal(plainOut.text, "这个资料结构很复杂，著名的乾隆也会说。");
+
+  const deltas = [];
+  const frame = (content) => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
+  const streamed = await Call.chat({
+    base, key: "k", prompt: "p", stream: true,
+    onDelta: (text) => deltas.push(text),
+    fetch: sseResponse([frame("總結："), frame("點擊這裡觀看"), "data: [DONE]\n\n"])
+  });
+  assert.equal(streamed.text, "总结：点击这里观看");
+  assert.ok(deltas.length > 0 && deltas.every((d) => !/[總結點擊這裡觀]/.test(d)));
+});
+
+test("繁转简字表：字幕仍按原规则转换，补充表覆盖常见繁体，安全模式跳过简体里也合法的字", () => {
+  const { BiliCaptionZh: Z } = loadLibs(["lib/zh-simp.js"]);
+  assert.equal(Z.toSimplified("資料雜誌記憶點擊"), "资料杂志记忆点击");
+  assert.equal(Z.toSimplified("乾淨"), "干净");
+  assert.equal(Z.toSimplifiedSafe("著名的乾隆，姊姊藉口"), "著名的乾隆，姊姊藉口");
+  assert.equal(Z.toSimplifiedSafe("資料"), "资料");
+});
