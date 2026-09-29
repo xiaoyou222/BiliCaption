@@ -119,7 +119,8 @@ function renderVideoSummary({ streaming = false } = {}) {
   show(box, visible);
   if (!visible) return;
   if (body) {
-    if (body.textContent !== videoSummary) body.textContent = videoSummary;
+    const textEl = ui.videoSummaryText || body;
+    if (textEl.textContent !== videoSummary) textEl.textContent = videoSummary;
     body.classList.toggle("is-streaming", Boolean(streaming || outlineLoading));
     show(body, videoSummaryOpen);
   }
@@ -252,7 +253,9 @@ async function loadOutlineCache(next) {
     resetOutlineTree();
     return;
   }
+  const startedRequest = outlineAbort;
   const data = await chrome.storage.local.get({ [key]: null });
+  if (outlineKey(state) !== key || outlineAbort !== startedRequest || outlineLoading) return;
   const rec = outlineApi()?.normalizeOutlineRecord(data[key]) || { summary: "", chapters: [] };
   const chapters = Array.isArray(rec.chapters) ? rec.chapters : [];
   const cues = next?.cues || [];
@@ -401,14 +404,19 @@ async function generateLongOutline(cues, signal, paint) {
         }
         : undefined,
       onDelta(full) {
-        const summary = needMerge ? O.parseStreamingOutline(full, cues).summary : full;
+        // 汇总现在也输出 JSON；模型只回一段纯文本时照旧整段当总结预览
+        const summary = O.parseStreamingOutline(full, cues).summary
+          || (needMerge || /^\s*[{`]/.test(full) ? "" : full);
         if (!summary || summary === lastPreview) return;
         lastPreview = summary;
         paint(summary, null);
       }
     }
   );
-  if (!needMerge) return { summary: String(result || "").trim(), chapters: combined };
+  if (!needMerge) {
+    const reduced = O.parseSummaryReduce(result);
+    return { summary: reduced.summary, chapters: combined };
+  }
   const merged = O.parseOutlineMerge(result);
   return {
     summary: merged.summary,
@@ -452,6 +460,7 @@ async function generateOutline() {
       ({ summary, chapters } = await generateLongOutline(cues, ac.signal, paint));
     } else {
       let lastPreview = "";
+      if (ac.signal.aborted) return;
       const result = await runModel(O?.buildOutlinePrompt(cues) || "", {
         signal: ac.signal,
         task: "outline",
@@ -482,7 +491,7 @@ async function generateOutline() {
     if (!summary || !chapters.length) throw new Error("大纲结果结构校验失败");
     const key = startedOutlineKey;
     if (key) await chrome.storage.local.set({ [key]: { summary, chapters } });
-    if (outlineKey(state) !== startedOutlineKey) return;
+    if (ac.signal.aborted || outlineAbort !== ac || outlineKey(state) !== startedOutlineKey) return;
     videoSummary = summary;
     outline = chapters;
     flash("大纲已生成");

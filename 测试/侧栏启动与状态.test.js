@@ -257,3 +257,60 @@ test("字幕行数变少后旧选区越界：重画选区不抛错，并清掉�
     panel.run("selecting = false;");
   }
 });
+
+test("转写只剩失败段在等重试：胶囊显示失败态、点阵球停下，点胶囊重试全部失败段", async () => {
+  const sent = [];
+  const panel = loadPanel({
+    onRuntimeMessage: (message) => {
+      sent.push(message);
+      if (message.type === "RETRY_ASR_CHUNK") return { ok: true };
+      return {};
+    }
+  });
+  await tick();
+  const failRows = [
+    { i: 1, start: 0, end: 90, status: "fail" },
+    { i: 2, start: 87, end: 567, status: "fail" }
+  ];
+  const summary = panel.run(`asrFailSummary(${JSON.stringify(failRows)})`);
+  assert.equal(summary.stalled, true);
+  assert.equal(summary.label, "转写失败 · 重试");
+
+  // 部分成功部分失败
+  const mixed = panel.run(`asrFailSummary(${JSON.stringify([
+    { i: 1, status: "done" }, { i: 2, status: "fail" }, { i: 3, status: "done" }
+  ])})`);
+  assert.equal(mixed.label, "2/3 · 1 段失败");
+  assert.equal(mixed.stalled, true);
+  // 还有段在转：不算卡住
+  const busy = panel.run(`asrFailSummary(${JSON.stringify([{ i: 1, status: "fail" }, { i: 2, status: "run" }])})`);
+  assert.equal(busy.stalled, false);
+  assert.equal(panel.run(`asrFailSummary([{ i: 1, status: "done" }])`).label, "");
+
+  panel.run(`
+    state = { ...(state || {}), bvid: "BV1TYN76GEBP", cid: 39819807045, duration: 1041 };
+    generating = true;
+    asrPaused = false;
+    asrProgress = { jobId: "j", done: 0, total: 2, waitUntil: 0, failed: [1, 2], chunks: ${JSON.stringify(failRows)} };
+    renderAsrJobBar();
+  `);
+  const pill = panel.byId("jobPill");
+  assert.equal(panel.byId("jobPillLabel").textContent, "转写失败 · 重试");
+  assert.equal(pill.classList.contains("is-fail"), true);
+  assert.equal(panel.byId("jobPillOrb").children.length, 0, "点阵球不再转");
+  assert.equal(panel.byId("btnPauseAsr").dataset.mode, "retry");
+
+  const head = panel.byId("jobPillHead");
+  for (const fn of head.listeners.click || []) fn({ stopPropagation() {}, target: head });
+  await tick();
+  const retries = sent.filter((message) => message.type === "RETRY_ASR_CHUNK").map((message) => message.index);
+  assert.deepEqual(retries, [1, 2]);
+
+  // 重试后有段在跑：恢复正常计数和点阵球
+  panel.run(`
+    asrProgress = { ...asrProgress, failed: [], chunks: [{ i: 1, status: "run" }, { i: 2, status: "wait" }] };
+    renderAsrJobBar();
+  `);
+  assert.equal(panel.byId("jobPillLabel").textContent, "转写 0/2");
+  assert.equal(pill.classList.contains("is-fail"), false);
+});

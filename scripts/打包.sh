@@ -43,4 +43,4 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED, compresslevel=9) as
     for name in names:
         zf.write(name, name)
 ' "$out"
-echo "已生成 $out，共 $(list_files | wc -l | tr -d ' ') 个文件"
+echo "已生成 ${out}，共 $(list_files | wc -l | tr -d ' ') 个文件"

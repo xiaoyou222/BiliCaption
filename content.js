@@ -1549,6 +1549,7 @@
         part: data.part || "",
           pic: data.pic || "",
           up: data.up || "",
+          stat: data.stat || null,
           rate: targetRate,
           tracks: data.tracks || [],
           activeLan: data.activeLan || "",

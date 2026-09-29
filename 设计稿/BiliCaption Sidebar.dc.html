@@ -15,6 +15,7 @@ input[type=range]{-webkit-appearance:none;appearance:none;background:transparent
 input[type=range]::-webkit-slider-runnable-track{height:2px;background:rgba(255,255,255,.18);border-radius:2px}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:#4D8EF0;margin-top:-4.5px;cursor:pointer;border:none}
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:5px}::-webkit-scrollbar-track{background:transparent}
+[data-thin-scroll]::-webkit-scrollbar{width:4px}[data-thin-scroll]::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:2px}
 @keyframes bcPulse{0%,100%{opacity:.35}50%{opacity:1}}
 @keyframes bcFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @keyframes bcOrbSpin{to{transform:rotate(360deg)}}
@@ -39,6 +40,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
   <div style="display:flex;gap:5px;flex-wrap:wrap">
     <sc-for list="{{ scenarios }}" as="s" hint-placeholder-count="10">
       <button style="{{ s.style }}" style-hover="filter:brightness(1.2)" onClick="{{ s.onClick }}">{{ s.label }}</button>
+    </sc-for>
+  </div>
+  <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+    <span style="font-size:10px;color:#8A9099;margin-right:2px">推荐</span>
+    <sc-for list="{{ verdictDemos }}" as="v" hint-placeholder-count="3">
+      <button style="{{ v.style }}" style-hover="filter:brightness(1.2)" onClick="{{ v.onClick }}">{{ v.label }}</button>
     </sc-for>
   </div>
   <div style="flex:1;min-width:12px"></div>
@@ -513,6 +520,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
           <div style="display:flex;gap:2px;padding:0 12px;flex:none;background:#1A1D22;border-bottom:1px solid rgba(255,255,255,.08);align-items:center;flex-wrap:nowrap">
             <sc-for list="{{ viewTabs }}" as="v" hint-placeholder-count="3"><button style="{{ v.style }}" style-hover="filter:brightness(1.2)" onClick="{{ v.onClick }}">{{ v.label }}</button></sc-for>
             <div style="flex:1;min-width:8px;position:relative;height:24px;align-self:center;z-index:40">
+<sc-if value="{{ verdictShowTab }}" hint-placeholder-val="{{ true }}"><span style="{{ verdictBadgeStyle }}" onMouseEnter="{{ verdictEnter }}" onMouseLeave="{{ verdictLeave }}"><sc-if value="{{ verdictReady }}" hint-placeholder-val="{{ true }}"><span style="{{ verdictBadgeLeftStyle }}"><svg width="8" height="8" style="flex:none" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ verdictIcon }}"></path></svg>{{ verdictLabel }}</span><span style="{{ verdictBadgeRightStyle }}">{{ verdictScore }}</span></sc-if><sc-if value="{{ verdictLoading }}" hint-placeholder-val="{{ false }}">{{ verdictLoadingEl }}</sc-if><sc-if value="{{ verdictHover }}" hint-placeholder-val="{{ false }}"><span style="{{ verdictPopWrapStyle }}"><span style="{{ verdictPopStyle2 }}">
+<span data-thin-scroll="1" style="display:flex;flex-direction:column;overflow-y:auto;min-height:0;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent">
+<sc-for list="{{ verdictDims }}" as="d" hint-placeholder-count="4"><span style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05)">
+<span style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;font-weight:600;color:#E7E9ED">{{ d.name }}</span><span style="font-size:10px;color:#5C626B;flex:1">{{ d.hint }}</span><span style="{{ d.scoreStyle }}">{{ d.score }}</span></span>
+<span style="font-size:11px;line-height:1.65;color:#A4AAB3;text-wrap:pretty">{{ d.why }}</span>
+<sc-if value="{{ d.hasRule }}" hint-placeholder-val="{{ false }}"><span style="font-size:10px;color:#5C626B">{{ d.rule }}</span></sc-if>
+<sc-if value="{{ d.hasEv }}" hint-placeholder-val="{{ false }}"><span style="display:flex;flex-direction:column;gap:3px;margin-top:2px"><sc-for list="{{ d.ev }}" as="e" hint-placeholder-count="2"><button style="display:flex;align-items:baseline;gap:8px;width:100%;border:none;padding:5px 8px;border-radius:6px;background:rgba(255,255,255,.035);cursor:pointer;text-align:left;font-family:inherit" style-hover="background:rgba(77,142,240,.12)" onClick="{{ e.onClick }}"><span style="flex:none;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#6FA3F5">{{ e.t }}</span><span style="font-size:10.5px;line-height:1.5;color:#C7CBD1">{{ e.q }}</span></button></sc-for></span></sc-if>
+</span></sc-for>
+</span>
+<span style="display:flex;align-items:center;gap:10px;padding:9px 14px;flex:none;border-top:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.12)"><span style="flex:1;font-size:10px;line-height:1.5;color:#5C626B;text-wrap:pretty">依据字幕，B 站互动与热评仅辅助；不含画面，未经外部事实核查。</span><button style="flex:none;display:inline-flex;align-items:center;gap:4px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#C7CBD1;font-size:10.5px;padding:4px 8px;border-radius:6px;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,.06)" onClick="{{ verdictRerun }}"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5V5h-2.5"></path></svg>重新评估</button></span>
+</span></span></sc-if></span></span></sc-if></span></sc-if>
               <sc-if value="{{ pillVisible }}" hint-placeholder-val="{{ false }}">
                 <div style="{{ morphStyle }}">
                   <div style="{{ morphHeadStyle }}" onClick="{{ toggleChunkPanel }}">
@@ -701,7 +719,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                   <button style="{{ moreBtnStyle }}" style-hover="filter:brightness(1.2)" onClick="{{ toggleMore }}">更多 ⋯</button>
                   <sc-if value="{{ moreOpen }}" hint-placeholder-val="{{ false }}">
                     <div style="position:absolute;bottom:calc(100% + 6px);right:0;background:#1A1D22;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:2px;min-width:120px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-                      <sc-for list="{{ moreActions }}" as="m" hint-placeholder-count="4"><button style="{{ m.style }}" style-hover="filter:brightness(1.2)" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for>
+                      <sc-if value="{{ notCustomizing }}" hint-placeholder-val="{{ true }}"><sc-for list="{{ moreActions }}" as="m" hint-placeholder-count="4"><button style="{{ m.style }}" style-hover="filter:brightness(1.2)" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for><div style="height:1px;background:rgba(255,255,255,.08);margin:3px 4px"></div><button style="border:none;background:transparent;color:#8A9099;font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap" style-hover="color:#C7CBD1;background:rgba(255,255,255,.05)" onClick="{{ openCustomize }}">自定义快捷栏…</button></sc-if><sc-if value="{{ customizing }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:8px;padding:5px 8px 6px;min-width:150px"><span style="font-size:11px;font-weight:500;color:#E7E9ED;flex:1">放在外面</span><span style="font-size:10.5px;color:#8A9099;font-variant-numeric:tabular-nums">{{ pinCount }}</span></div><sc-for list="{{ pinRows }}" as="p" hint-placeholder-count="8"><button style="{{ p.style }}" style-hover="background:rgba(255,255,255,.05)" onClick="{{ p.onClick }}"><span style="{{ p.boxStyle }}">{{ p.mark }}</span>{{ p.name }}</button></sc-for><div style="height:1px;background:rgba(255,255,255,.08);margin:3px 4px"></div><div style="display:flex;gap:4px;padding:2px"><button style="flex:1;border:none;background:transparent;color:#8A9099;font-size:11px;padding:6px 8px;border-radius:6px;cursor:pointer;text-align:left" style-hover="color:#C7CBD1" onClick="{{ resetPinned }}">恢复默认</button><button style="border:none;background:#4D8EF0;color:#fff;font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer" style-hover="filter:brightness(1.1)" onClick="{{ doneCustomize }}">完成</button></div></sc-if>
                     </div>
                   </sc-if>
                 </div>
@@ -979,6 +997,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
               <div style="display:flex;gap:2px;padding:0 12px;flex:none;background:rgba(255,255,255,.035);border-bottom:1px solid rgba(255,255,255,.08);align-items:center;flex-wrap:nowrap">
                 <sc-for list="{{ viewTabs }}" as="v" hint-placeholder-count="3"><button style="{{ v.style }}" style-hover="filter:brightness(1.2)" onClick="{{ v.onClick }}">{{ v.label }}</button></sc-for>
                 <div style="flex:1;min-width:8px;position:relative;height:24px;align-self:center;z-index:40">
+<sc-if value="{{ verdictShowTab }}" hint-placeholder-val="{{ true }}"><span style="{{ verdictBadgeStyle }}" onMouseEnter="{{ verdictEnter }}" onMouseLeave="{{ verdictLeave }}"><sc-if value="{{ verdictReady }}" hint-placeholder-val="{{ true }}"><span style="{{ verdictBadgeLeftStyle }}"><svg width="8" height="8" style="flex:none" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ verdictIcon }}"></path></svg>{{ verdictLabel }}</span><span style="{{ verdictBadgeRightStyle }}">{{ verdictScore }}</span></sc-if><sc-if value="{{ verdictLoading }}" hint-placeholder-val="{{ false }}">{{ verdictLoadingEl }}</sc-if><sc-if value="{{ verdictHover }}" hint-placeholder-val="{{ false }}"><span style="{{ verdictPopWrapStyle }}"><span style="{{ verdictPopStyle2 }}">
+<span data-thin-scroll="1" style="display:flex;flex-direction:column;overflow-y:auto;min-height:0;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent">
+<sc-for list="{{ verdictDims }}" as="d" hint-placeholder-count="4"><span style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05)">
+<span style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;font-weight:600;color:#E7E9ED">{{ d.name }}</span><span style="font-size:10px;color:#5C626B;flex:1">{{ d.hint }}</span><span style="{{ d.scoreStyle }}">{{ d.score }}</span></span>
+<span style="font-size:11px;line-height:1.65;color:#A4AAB3;text-wrap:pretty">{{ d.why }}</span>
+<sc-if value="{{ d.hasRule }}" hint-placeholder-val="{{ false }}"><span style="font-size:10px;color:#5C626B">{{ d.rule }}</span></sc-if>
+<sc-if value="{{ d.hasEv }}" hint-placeholder-val="{{ false }}"><span style="display:flex;flex-direction:column;gap:3px;margin-top:2px"><sc-for list="{{ d.ev }}" as="e" hint-placeholder-count="2"><button style="display:flex;align-items:baseline;gap:8px;width:100%;border:none;padding:5px 8px;border-radius:6px;background:rgba(255,255,255,.035);cursor:pointer;text-align:left;font-family:inherit" style-hover="background:rgba(77,142,240,.12)" onClick="{{ e.onClick }}"><span style="flex:none;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#6FA3F5">{{ e.t }}</span><span style="font-size:10.5px;line-height:1.5;color:#C7CBD1">{{ e.q }}</span></button></sc-for></span></sc-if>
+</span></sc-for>
+</span>
+<span style="display:flex;align-items:center;gap:10px;padding:9px 14px;flex:none;border-top:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.12)"><span style="flex:1;font-size:10px;line-height:1.5;color:#5C626B;text-wrap:pretty">依据字幕，B 站互动与热评仅辅助；不含画面，未经外部事实核查。</span><button style="flex:none;display:inline-flex;align-items:center;gap:4px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#C7CBD1;font-size:10.5px;padding:4px 8px;border-radius:6px;cursor:pointer;font-family:inherit" style-hover="background:rgba(255,255,255,.06)" onClick="{{ verdictRerun }}"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5V5h-2.5"></path></svg>重新评估</button></span>
+</span></span></sc-if></span></span></sc-if></span></sc-if>
                   <sc-if value="{{ pillVisible }}" hint-placeholder-val="{{ false }}">
                     <div style="{{ morphStyle }}">
                       <div style="{{ morphHeadStyle }}" onClick="{{ toggleChunkPanel }}">
@@ -1167,7 +1196,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
                       <button style="{{ moreBtnStyle }}" style-hover="filter:brightness(1.2)" onClick="{{ toggleMore }}">更多 ⋯</button>
                       <sc-if value="{{ moreOpen }}" hint-placeholder-val="{{ false }}">
                         <div style="position:absolute;bottom:calc(100% + 6px);right:0;background:#1A1D22;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:2px;min-width:120px;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-                          <sc-for list="{{ moreActions }}" as="m" hint-placeholder-count="4"><button style="{{ m.style }}" style-hover="filter:brightness(1.2)" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for>
+                          <sc-if value="{{ notCustomizing }}" hint-placeholder-val="{{ true }}"><sc-for list="{{ moreActions }}" as="m" hint-placeholder-count="4"><button style="{{ m.style }}" style-hover="filter:brightness(1.2)" onClick="{{ m.onClick }}">{{ m.label }}</button></sc-for><div style="height:1px;background:rgba(255,255,255,.08);margin:3px 4px"></div><button style="border:none;background:transparent;color:#8A9099;font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap" style-hover="color:#C7CBD1;background:rgba(255,255,255,.05)" onClick="{{ openCustomize }}">自定义快捷栏…</button></sc-if><sc-if value="{{ customizing }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:8px;padding:5px 8px 6px;min-width:150px"><span style="font-size:11px;font-weight:500;color:#E7E9ED;flex:1">放在外面</span><span style="font-size:10.5px;color:#8A9099;font-variant-numeric:tabular-nums">{{ pinCount }}</span></div><sc-for list="{{ pinRows }}" as="p" hint-placeholder-count="8"><button style="{{ p.style }}" style-hover="background:rgba(255,255,255,.05)" onClick="{{ p.onClick }}"><span style="{{ p.boxStyle }}">{{ p.mark }}</span>{{ p.name }}</button></sc-for><div style="height:1px;background:rgba(255,255,255,.08);margin:3px 4px"></div><div style="display:flex;gap:4px;padding:2px"><button style="flex:1;border:none;background:transparent;color:#8A9099;font-size:11px;padding:6px 8px;border-radius:6px;cursor:pointer;text-align:left" style-hover="color:#C7CBD1" onClick="{{ resetPinned }}">恢复默认</button><button style="border:none;background:#4D8EF0;color:#fff;font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer" style-hover="filter:brightness(1.1)" onClick="{{ doneCustomize }}">完成</button></div></sc-if>
                         </div>
                       </sc-if>
                     </div>
@@ -1359,7 +1388,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 </div>
 
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;site&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;bilibili&quot;,&quot;youtube&quot;,&quot;twitter&quot;],&quot;default&quot;:&quot;bilibili&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;site&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;bilibili&quot;,&quot;youtube&quot;,&quot;twitter&quot;],&quot;default&quot;:&quot;bilibili&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;verdict&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;yes&quot;,&quot;no&quot;],&quot;default&quot;:&quot;yes&quot;,&quot;tsType&quot;:&quot;'yes'|'no'&quot;,&quot;section&quot;:&quot;价值判断&quot;}}">
 const LINES = [
   [34,'先把默认的立方体删掉，我们从一个平面开始。'],
   [41,'在修改器面板里添加 Geometry Nodes，右边会出现节点编辑器。'],
@@ -1539,7 +1568,7 @@ class Component extends DCLogic {
     trActive:false, trDone:120, trTotal:140, chunkListExpanded:false,
     backupProvider:'OpenAI', backupKey:'', backupTest:null,
     logFilter:'全部', logQuery:'', logOpen:{L1:true}, settingsTab:'stt', copiedLogsN:false,
-    libSelected:0, libQuery:'', libHover:null, libMenu:null, markerMoreOpen:false,
+    pinned:(()=>{try{return JSON.parse(localStorage.getItem('bc_pinned'))||null}catch(e){return null}})(), customizing:false, libSelected:0, libQuery:'', libHover:null, libMenu:null, markerMoreOpen:false,
     libDelV:{}, libDelM:{}, libMarkHover:null, libDelConfirm:null, libTrashOpen:false, libTrashSel:null, libTrashMarkHover:null, libUndoMsg:null, libUndoKind:null, libUndoKey:null,
     syncOn:true, syncMarks:true, syncConfig:true, syncSubs:true, syncKeys:false, cacheCleared:false, davUrl:'https://dav.jianguoyun.com/dav/bilicaption/', davUser:'me@example.com', davPass:'', davTest:null, davSyncing:false, davLast:'2 分钟前',
     modelPanel:null, sttModelText:'whisper-large-v3-turbo', sumModelText:'gpt-4o-mini', trModelText:'',
@@ -1944,6 +1973,8 @@ class Component extends DCLogic {
         : k==='settings' ? (sc==='settings' && s.settingsTab!=='logs') : sc===k;
       return {label, style: on?DEMO_ON:DEMO, onClick:()=>this.go(k)};
     });
+    const vCur = s.verdictDemo||this.props.verdict||'yes';
+    const verdictDemos = [['yes','值得看'],['no','不值得看'],['loading','评估中']].map(([k,label])=>({label, style: vCur===k?DEMO_ON:DEMO, onClick:()=>this.setState({verdictDemo:k})}));
 
     const SITES = {
       bilibili:{ title:'【教程】Blender 几何节点入门 · 从零做程序化建模' },
@@ -2003,20 +2034,32 @@ class Component extends DCLogic {
     const chipW = Math.ceil(this._mc.measureText(chipTxt).width) + 58;
     const pillCool = s.transActive && s.allCool && s.coolLeft>0;
 
-    const actions = [
-      [s.selMode ? (s.selStart===null?'点起点…':'点终点…') : '划选',
-        ()=>this.setState({selMode:!s.selMode, selStart:null, selEnd:null, summaryOpen:false, anchor:null, playing: s.selMode ? s.playing : false}), s.selMode],
-      ['+ 标记', ()=>this.addManualMarker(), false],
-      ['显示字幕', ()=>this.setState({showOverlay:!s.showOverlay}), s.showOverlay]
-    ].map(([label,fn,on])=>({ label, onClick:fn, style: on?BTN_ON:BTN }));
-
-    const moreActions = [
-      [generated?'重新生成字幕':'生成字幕', ()=>{ this.setState({scenario:'generating', gen:0, moreOpen:false}); }],
-      ['下载 SRT', ()=>{ this.flash('已保存 BV1x94y1Q7Kd-P3.srt'); this.setState({moreOpen:false}); }],
-      ['下载纯文本', ()=>{ this.flash('已保存 BV1x94y1Q7Kd-P3.txt'); this.setState({moreOpen:false}); }],
-      ['翻译成中文', ()=>{ this.flash('已是中文字幕'); this.setState({moreOpen:false}); }],
-      ['清理缓存', ()=>{ this.flash('已清理本视频的字幕和翻译缓存'); this.setState({scenario:'empty', moreOpen:false}); }]
-    ].map(([label,fn])=>({ label, onClick:fn, style:'border:none;background:transparent;color:'+(label==='清理缓存'?'#E2637E':'#C7CBD1')+';font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap' }));
+    const PIN_DEF=['sel','mark','overlay'];
+    const pinned = (s.pinned||PIN_DEF);
+    const closeM = ()=>this.setState({moreOpen:false, customizing:false});
+    const ALL = [
+      {id:'sel', label: s.selMode ? (s.selStart===null?'点起点…':'点终点…') : '划选', name:'划选', on:s.selMode,
+        fn:()=>this.setState({selMode:!s.selMode, selStart:null, selEnd:null, summaryOpen:false, anchor:null, playing: s.selMode ? s.playing : false, moreOpen:false})},
+      {id:'mark', label:'+ 标记', name:'添加标记', fn:()=>{ this.addManualMarker(); closeM(); }},
+      {id:'overlay', label:'显示字幕', name:'显示字幕', on:s.showOverlay, fn:()=>this.setState({showOverlay:!s.showOverlay, moreOpen:false})},
+      {id:'gen', label:generated?'重新生成字幕':'生成字幕', name:generated?'重新生成字幕':'生成字幕', fn:()=>this.setState({scenario:'generating', gen:0, moreOpen:false})},
+      {id:'srt', label:'下载 SRT', name:'下载 SRT', fn:()=>{ this.flash('已保存 BV1x94y1Q7Kd-P3.srt'); closeM(); }},
+      {id:'txt', label:'下载纯文本', name:'下载纯文本', fn:()=>{ this.flash('已保存 BV1x94y1Q7Kd-P3.txt'); closeM(); }},
+      {id:'tr', label:'翻译成中文', name:'翻译成中文', fn:()=>{ this.flash('已是中文字幕'); closeM(); }},
+      {id:'clear', label:'清理缓存', name:'清理缓存', danger:true, fn:()=>{ this.flash('已清理本视频的字幕和翻译缓存'); this.setState({scenario:'empty', moreOpen:false}); }}
+    ];
+    const actions = pinned.map(id=>ALL.find(a=>a.id===id)).filter(Boolean).map(a=>({ label:a.label, onClick:a.fn, style: a.on?BTN_ON:BTN }));
+    const moreActions = ALL.filter(a=>!pinned.includes(a.id)).map(a=>({ label:a.label, onClick:a.fn, style:'border:none;background:transparent;color:'+(a.danger?'#E2637E':'#C7CBD1')+';font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap' }));
+    const setPinned = p=>{ try{localStorage.setItem('bc_pinned',JSON.stringify(p));}catch(e){} this.setState({pinned:p}); };
+    const pinFull = pinned.length>=3;
+    const pinRows = ALL.map(a=>{ const on=pinned.includes(a.id); const dis=!on&&pinFull;
+      return { name:a.name, onClick:()=>{ if(dis) return; setPinned(on?pinned.filter(x=>x!==a.id):[...pinned,a.id]); },
+        style:'display:flex;align-items:center;gap:8px;border:none;background:transparent;font-size:11px;padding:6px 8px;border-radius:6px;text-align:left;white-space:nowrap;cursor:'+(dis?'default':'pointer')+';color:'+(dis?'#5C626B':'#C7CBD1'),
+        boxStyle:'width:13px;height:13px;flex:none;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:9px;line-height:1;color:#fff;'+(on?'background:#4D8EF0;border:1px solid #4D8EF0':'border:1px solid '+(dis?'rgba(255,255,255,.12)':'rgba(255,255,255,.28)')),
+        mark: on?'✓':'' }; });
+    const customUI = { customizing:!!s.customizing, notCustomizing:!s.customizing, pinRows, pinCount:pinned.length+'/3',
+      openCustomize:()=>this.setState({customizing:true}), doneCustomize:()=>this.setState({customizing:false}),
+      resetPinned:()=>setPinned(PIN_DEF) };
 
     const keyArmed = hasList && s.keyHeld && s.view==='captions' && !s.selMode;
     const keyArmedHint = keyArmed && !s.dragSelecting;
@@ -2095,7 +2138,7 @@ class Component extends DCLogic {
     const libVisibleMarks = libVis.length===0 ? [] : this.libMarksLeft(libSel).filter(m=>!s.libQuery.trim()||m[1].indexOf(s.libQuery.trim())>-1);
 
     return {
-      scenarios,
+      scenarios, verdictDemos,
       stageRef: el=>{ this._stageEl = el; },
       sidebarWrapStyle, sidebarInnerStyle, floatWrapStyle, floatInnerStyle,
       settingsRef: el=>{ this._settingsEl = el; if(el){ const hh = el.offsetHeight; if(hh && hh!==this.state.settingsH) setTimeout(()=>this.setState({settingsH:hh}),0); } },
@@ -2289,7 +2332,7 @@ class Component extends DCLogic {
       },
 
       showActionBar: !selActive,
-      actions, moreOpen: s.moreOpen, toggleMore:()=>this.setState({moreOpen:!s.moreOpen}),
+      actions, ...customUI, moreOpen: s.moreOpen, toggleMore:()=>this.setState({moreOpen:!s.moreOpen, customizing:false}),
       moreBtnStyle:'border:1px solid rgba(255,255,255,.16);background:'+(s.moreOpen?'#1A1D22':'transparent')+';color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer',
       moreActions,
 
@@ -2354,10 +2397,38 @@ class Component extends DCLogic {
       chapters, outlineActions,
       videoSummaryLabel: s.streaming ? VIDEO_SUMMARY.slice(0, s.summaryChars||0)+((s.summaryChars||0)<VIDEO_SUMMARY.length?'▍':'') : VIDEO_SUMMARY,
       videoSummaryOpen: s.videoSummaryOpen!==false,
+      ...(()=>{ const lv0=s.verdictDemo||this.props.verdict||'yes'; const lv=lv0==='no'?'no':'yes'; const c={yes:['值得看','#4CC38A'],no:['不值得看','#E5685C']}[lv];
+        const DATA={
+          yes:{ dims:[['逻辑性',7.8,'评分结论基本由逐项对比得出，推理连贯；个别结论只基于单一样本，推广到所有场景略显跳跃。',[[26,'对比有共同基础：六款工具使用同一份样本控制变量']]],
+              ['充分性',8.5,'横评按视觉效果、扩展语法支持、公众号粘贴还原度和特色功能逐项比较六个 Skill，并给出具体表现与评分；不足是未交代样本具体内容、测试环境和评分标准细节，复现与横向验证有限。',[[26,'交代了对比方法：各款工具使用同一份样本']]],
+              ['干货度',8.5,'大部分篇幅用于结果对照，包含表格换行、样式还原和特色功能演示等具体观察；过渡简短，只有少量无新增信息的重复。',[]],
+              ['标题党',0.0,'标题承诺比较开源公众号排版 Skill，视频横评六款工具的排版、语法支持、粘贴还原度及特色功能，未发现具体的标题误导。',[],1]]},
+          no:{ dims:[['逻辑性',3.4,'把"参数越多效果一定越好"当作前提，未给对比数据就推出结论，忽略了任务类型等关键条件。',[[405,'推断缺少条件：仅凭参数量断言效果更好']]],
+              ['充分性',3.0,'只罗列了几个工具名称，没有演示步骤或具体案例，看完无法上手。',[[312,'操作交代不足：具体用法留给观众自行尝试']]],
+              ['干货度',3.2,'开场铺垫近 4 分钟，中段多次重复同一观点，寒暄、求三连和跑题占用了较多篇幅。',[[18,'无新增信息：求三连打断了内容讲解']]],
+              ['标题党',8.5,'标题称"一期讲透所有 AI 工具"，实际只简单提到三款，承诺基本未兑现。',[],1]]}
+        }[lv];
+                const val=n=>DATA.dims.find(d=>d[0]===n)[1];
+        const base=(val('充分性')+val('逻辑性')+val('干货度')+10-val('标题党'))/4; const avg=base.toFixed(1);
+        const fmt=t=>String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+        const chip=k=>'flex:none;min-width:34px;text-align:center;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:'+k+';background:color-mix(in oklab, '+k+' 15%, transparent)';
+        const col=g=>g>=7?'#4CC38A':g>=5?'#E8B04B':'#E5685C';
+        const ORDER=['充分性','逻辑性','干货度','标题党']; const dimRows=(ORDER.map(k=>DATA.dims.find(d=>d[0]===k)).map(([n,v,why,ev,inv])=>({ name:n, hint:inv?'越低越好':'越高越好', score:v.toFixed(1), why, scoreStyle:chip(col(inv?10-v:v)), hasEv:ev.length>0, rule:'', hasRule:false,
+            ev:ev.map(([t,reason])=>({ t:fmt(t), q:reason, onClick:()=>this.flash&&this.flash('跳转到 '+fmt(t)) })) })));
+        const strip=dimRows.map(d=>({ name:d.name, score:d.score, style:'display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;padding:6px 2px;border-radius:6px;background:rgba(255,255,255,.035)', scoreStyle:d.scoreStyle.replace('min-width:34px;','')+';font-size:10.5px' }));
+        const hov=!!s.verdictHover;
+        const vShow = s.scenario!=='empty' && s.scenario!=='error'; const vLoad = s.scenario==='generating' || s.verdictDemo==='loading'; const E=React.createElement; const verdictLoadingEl=E('span',{style:{display:'inline-flex',alignItems:'center',gap:5}},E('span',{style:{width:8,height:8,flex:'none',borderRadius:'50%',border:'1.5px solid rgba(232,176,75,.3)',borderTopColor:'#F0C06A',animation:'bcRingSpin .8s linear infinite'}}),E('span',{style:{fontWeight:500,backgroundImage:'linear-gradient(90deg,#E8B04B 0%,#E8B04B 35%,#FFF1D2 50%,#E8B04B 65%,#E8B04B 100%)',backgroundSize:'200% 100%',WebkitBackgroundClip:'text',backgroundClip:'text',color:'transparent',animation:'bcTextShine 1.6s linear infinite'}},'评估中…')); return { verdictLoadingEl, verdictShow:vShow, verdictReady: !vLoad, verdictLoading: vLoad, verdictShowTab: vShow && (s.verdictDemo==='loading' || !(s.transActive||s.trActive)), verdictBadgeStyle:'position:absolute;left:8px;top:4px;display:inline-flex;align-items:stretch;height:16px;border-radius:8px;font-size:10px;white-space:nowrap;cursor:default;'+(vLoad?'align-items:center;padding:0 8px 0 6px;border:1px solid rgba(232,176,75,.4);background:rgba(232,176,75,.12)':'border:1px solid color-mix(in oklab, '+c[1]+' '+(hov?38:22)+'%, transparent)'), verdictBadgeLeftStyle:'border-radius:7px 0 0 7px;display:inline-flex;align-items:center;gap:3px;padding:0 5px 0 6px;font-weight:500;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' '+(hov?18:10)+'%, transparent)', verdictBadgeRightStyle:'border-radius:0 7px 7px 0;display:inline-flex;align-items:center;padding:0 6px;font-weight:600;font-variant-numeric:tabular-nums;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' '+(hov?30:22)+'%, transparent)', verdictBadgeLeft:'display:inline-flex;align-items:center;gap:4px;padding:0 7px 0 8px;border-radius:999px 0 0 999px;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' 14%, transparent)', verdictBadgeRight:'display:inline-flex;align-items:center;padding:0 8px 0 7px;border-radius:0 999px 999px 0;font-weight:700;font-variant-numeric:tabular-nums;color:#0F1114;background:'+c[1], verdictLabel:c[0], verdictScore:avg,
+          verdictStyle:'white-space:nowrap;font-weight:600;color:'+c[1],
+          verdictScoreWrapStyle:'position:relative;display:inline-block;white-space:nowrap;margin-left:6px;padding-left:6px;border-left:1px solid #3A3F47;color:#A4AAB3;cursor:default',
+          verdictScoreStyle:'margin-left:4px;padding:1px 5px;border-radius:4px;font-weight:600;font-variant-numeric:tabular-nums;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' '+(hov?26:16)+'%, transparent)',
+          verdictPillStyle:'white-space:nowrap;margin-right:8px;padding-right:8px;border-right:1px solid #3A3F47',
+          verdictIcon:{yes:'M3.5 8.5l3 3 6-7',no:'M4 4l8 8M12 4l-8 8'}[lv],
+          verdictHover:hov, verdictPopWrapStyle:'position:absolute;top:100%;left:'+(s.verdictPopX||0)+'px;padding-top:6px;z-index:30;display:block', verdictPopStyle:'display:flex;flex-direction:column;gap:9px;width:236px;padding:11px 12px 10px;background:linear-gradient(180deg, color-mix(in oklab, '+c[1]+' 13%, #1A1D22) 0%, #1A1D22 55%);border:1px solid color-mix(in oklab, '+c[1]+' 22%, rgba(255,255,255,.12));border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.45);white-space:normal;font-weight:400', verdictHeadStyle:'display:flex;align-items:center;gap:10px;padding:12px 14px 11px;border-bottom:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg, color-mix(in oklab, '+c[1]+' 10%, transparent), transparent)', verdictBigStyle:'font-size:24px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:'+c[1], verdictTagStyle:'flex:none;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' 15%, transparent);border:1px solid color-mix(in oklab, '+c[1]+' 30%, transparent)', verdictEnter:(e)=>{ const el=e.currentTarget; const b=el.getBoundingClientRect(); const k=(b.width/(el.offsetWidth||b.width))||1; let p=el.parentElement; while(p&&p.parentElement&&p.offsetWidth<280) p=p.parentElement; const r=p?p.getBoundingClientRect():{left:0,right:window.innerWidth}; const W=300; const L=(r.left-b.left)/k+6, R=(r.right-b.left)/k-6; let x=0; if(x+W>R) x=R-W; if(x<L) x=L; this.setState({verdictHover:true, verdictPopX:Math.round(x)}); }, verdictLeave:()=>this.setState({verdictHover:false}),
+          verdictDims: dimRows, verdictStrip: strip, verdictBase: base.toFixed(1), verdictDed: '0.0', verdictRerun:()=>this.flash&&this.flash('已重新提交评估'), verdictPopStyle2:'display:flex;flex-direction:column;width:300px;max-height:min(480px, 72vh);background:linear-gradient(180deg, color-mix(in oklab, '+c[1]+' 9%, #1A1D22) 0%, #1A1D22 90px);border:1px solid color-mix(in oklab, '+c[1]+' 22%, rgba(255,255,255,.12));border-radius:10px;box-shadow:0 14px 36px rgba(0,0,0,.5);white-space:normal;font-weight:400;overflow:hidden;cursor:auto' }; })(),
       toggleVideoSummary:()=>this.setState({videoSummaryOpen: s.videoSummaryOpen===false}),
       summaryChevronStyle:'display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;font-size:16px;line-height:1;color:#8A9099;transition:transform .15s;transform:rotate('+(s.videoSummaryOpen===false?'-90':'0')+'deg)',
       streaming: s.streaming, outlineIdle: !s.streaming,
-      outlineEmptyLabel: s.streaming ? 'AI 正在阅读全文字幕…' : '还没有生成大纲',
+      outlineEmptyLabel: s.streaming ? 'AI 正在阅读全文字幕…' : '',
       genOutline:()=>this.genOutline(),
 
       toastMsg: s.toast,

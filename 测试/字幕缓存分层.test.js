@@ -93,13 +93,14 @@ const transcribed = (i, extra = {}) => ({
 const keysWith = (store, prefix) => Object.keys(store).filter((key) => key.startsWith(prefix));
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test("受保护条目超过 40 个也不淘汰；可再生条目只在它们之间按 40 个从旧到新淘汰，连同大纲 / 索引", async () => {
+test("受保护条目超过上限也不淘汰；可再生条目只在它们之间按数量上限从旧到新淘汰，连同大纲 / 索引", async () => {
   const bg = loadBackground();
   const store = bg.__store;
-  // 50 份转写（比所有官方字幕都旧）+ 5 份改过字的官方字幕 + 45 份可再生官方字幕
+  const max = vm.runInContext("ASR_CACHE_MAX", bg);
+  // 50 份转写（比所有官方字幕都旧）+ 5 份改过字的官方字幕 + 上限多 5 份的可再生官方字幕
   for (let i = 0; i < 50; i++) store[`asr:BVasr${i}:1`] = transcribed(i);
   for (let i = 0; i < 5; i++) store[`asr:BVedit${i}:1`] = official(i, { editedAt: 5000 + i });
-  for (let i = 0; i < 45; i++) store[`asr:BVoff${i}:1`] = official(100 + i);
+  for (let i = 0; i < max + 5; i++) store[`asr:BVoff${i}:1`] = official(100 + i);
   store["outline:v2:BVasr0:1"] = { summary: "转写视频的大纲", chapters: [] };
   store["asrIndex:BVasr0"] = 1;
   store["outline:v2:BVoff0:1"] = { summary: "最旧官方字幕的大纲", chapters: [] };
@@ -110,7 +111,7 @@ test("受保护条目超过 40 个也不淘汰；可再生条目只在它们之�
   assert.equal(result.removed, 5);
   assert.equal(keysWith(store, "asr:BVasr").length, 50, "转写一份不少");
   assert.equal(keysWith(store, "asr:BVedit").length, 5, "改过字的一份不少");
-  assert.equal(keysWith(store, "asr:BVoff").length, 40, "可再生条目只在自己之间算 40 个");
+  assert.equal(keysWith(store, "asr:BVoff").length, max, "可再生条目只在自己之间按上限算");
   for (let i = 0; i < 5; i++) assert.equal(store[`asr:BVoff${i}:1`], undefined, `最旧的 BVoff${i} 被淘汰`);
   assert.ok(store["asr:BVoff5:1"]);
   // 被淘汰视频的大纲、索引和翻译存档一起走；受保护视频的留着
@@ -128,15 +129,16 @@ test("受保护条目超过 40 个也不淘汰；可再生条目只在它们之�
 test("体积上限也只在可再生条目之间算：受保护的大条目不计入、不删除", async () => {
   const bg = loadBackground();
   const store = bg.__store;
-  const big = (n) => "字".repeat(n); // 每个汉字 3 字节
-  for (let i = 0; i < 3; i++) store[`asr:BVasr${i}:1`] = transcribed(i, { cues: [line(big(1_000_000))] }); // 各约 3MB
-  for (let i = 0; i < 4; i++) store[`asr:BVoff${i}:1`] = official(10 + i, { cues: [line(big(600_000))] }); // 各约 1.8MB
+  const maxBytes = vm.runInContext("ASR_CACHE_MAX_BYTES", bg);
+  const big = (bytes) => "字".repeat(Math.ceil(bytes / 3)); // 每个汉字 3 字节
+  store["asr:BVasr0:1"] = transcribed(0, { cues: [line(big(maxBytes * 0.8))] }); // 受保护，约占上限的 80%
+  for (let i = 0; i < 4; i++) store[`asr:BVoff${i}:1`] = official(10 + i, { cues: [line(big(maxBytes * 0.3))] }); // 各约 30%
 
   const result = await bg.pruneAsrCache();
-  assert.equal(result.removed, 1, "可再生 4 × 1.8MB 超过 6MB，删最旧的一份就够");
+  assert.equal(result.removed, 1, "可再生 4 × 30% 超过上限，删最旧的一份就够");
   assert.equal(store["asr:BVoff0:1"], undefined);
   for (let i = 1; i < 4; i++) assert.ok(store[`asr:BVoff${i}:1`]);
-  for (let i = 0; i < 3; i++) assert.ok(store[`asr:BVasr${i}:1`], "约 9MB 的转写不占可再生的额度");
+  assert.ok(store["asr:BVasr0:1"], "大体积的转写不占可再生的额度");
 });
 
 test("改字保存（edited: true）写 editedAt；翻译回写和不带标志的保存不写", async () => {
@@ -461,14 +463,15 @@ test("旧数据迁移：没有 origin 的条目按 source 推断，拿不准的�
   assert.equal(T.isProtectedSubtitleCache({ source: "translated" }), true);
 
   const store = bg.__store;
-  for (let i = 0; i < 42; i++) store[`asr:BVold${i}:1`] = { cues: [line(`old ${i}`)], source: "youtube", savedAt: 100 + i };
+  const max = vm.runInContext("ASR_CACHE_MAX", bg);
+  for (let i = 0; i < max + 2; i++) store[`asr:BVold${i}:1`] = { cues: [line(`old ${i}`)], source: "youtube", savedAt: 100 + i };
   store["asr:BVlegacyAsr:1"] = { cues: [line("转写")], source: "groq", savedAt: 1 };
   store["asr:BVlegacyTr:1"] = { cues: [line("译文")], source: "translated", savedAt: 2 };
   store["asr:BVlegacyOffTr:1"] = { cues: [line("官方译文")], source: "translated", tracks: [{ lan: "en" }], savedAt: 3 };
   await bg.pruneAsrCache();
   assert.ok(store["asr:BVlegacyAsr:1"]);
   assert.ok(store["asr:BVlegacyTr:1"]);
-  // 可再生 43 份（42 份旧官方 + 1 份官方译文），删最旧的 3 份：官方译文 savedAt 最小先走
+  // 可再生比上限多 3 份（上限 + 2 份旧官方 + 1 份官方译文），删最旧的 3 份：官方译文 savedAt 最小先走
   assert.equal(store["asr:BVlegacyOffTr:1"], undefined);
   assert.equal(store["asr:BVold0:1"], undefined);
   assert.equal(store["asr:BVold1:1"], undefined);
@@ -514,8 +517,8 @@ test("设置页：统计两层占用、手动清理只删可再生条目及其�
   // 设置页进度条的分母：直接带后台自动淘汰用的上限常量
   assert.equal(usage.renewable.maxVideos, vm.runInContext("ASR_CACHE_MAX", bg));
   assert.equal(usage.renewable.maxBytes, vm.runInContext("ASR_CACHE_MAX_BYTES", bg));
-  assert.equal(usage.renewable.maxVideos, 40);
-  assert.equal(usage.renewable.maxBytes, 6 * 1024 * 1024);
+  assert.equal(usage.renewable.maxVideos, 500);
+  assert.equal(usage.renewable.maxBytes, 50 * 1024 * 1024);
 
   const cleared = await route(bg, { type: "CLEAR_RENEWABLE_CACHE" });
   assert.equal(cleared.ok, true);
@@ -560,12 +563,13 @@ test("大纲超上限时先删可重新生成视频的大纲，受保护视频�
 test("新增可再生条目后主动检查上限（装了 unlimitedStorage 写入不再因配额失败）", async () => {
   const bg = loadBackground();
   const store = bg.__store;
-  for (let i = 0; i < 40; i++) store[`asr:BVoff${i}:1`] = official(i);
+  const max = vm.runInContext("ASR_CACHE_MAX", bg);
+  for (let i = 0; i < max; i++) store[`asr:BVoff${i}:1`] = official(i);
   await bg.persistOfficialSubtitleCache("BVnew", 1, { cues: [line("new")], source: "bilibili", activeLan: "ai-zh" });
   for (let i = 0; i < 50 && store["asr:BVoff0:1"]; i++) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(store["asr:BVoff0:1"], undefined, "最旧的一份被挤掉");
   assert.ok(store["asr:BVnew:1"], "刚写入的保留");
-  assert.equal(keysWith(store, "asr:").length, 40);
+  assert.equal(keysWith(store, "asr:").length, max);
 });
 
 // ---- 发送端：只有侧栏 / 浮窗的手动改字、批量替换带 edited: true ----
@@ -792,4 +796,22 @@ test("页面把侧栏的 edited 原样转给后台：改字带 true，其它保�
   await sync({ persisted: true, edited: true });
   await tick();
   assert.equal(page.sent.filter((message) => message.type === "SAVE_CUES_CACHE").length, 2);
+});
+
+test("独立推荐缓存跟随字幕清理：删失效和可再生记录，保留受保护视频", async () => {
+  const bg = loadBackground();
+  const store = bg.__store;
+  store["asr:BVreviewOff:1"] = official(10);
+  store["asr:BVreviewAsr:1"] = transcribed(20);
+  store["recommendation:v1:BVreviewOff:1"] = { fingerprint: "off", value: {} };
+  store["recommendation:v1:BVreviewAsr:1"] = { fingerprint: "asr", value: {} };
+  store["recommendation:v1:BVgone:1"] = { fingerprint: "gone", value: {} };
+  await bg.pruneAuxCache();
+  assert.equal(store["recommendation:v1:BVgone:1"], undefined);
+  assert.ok(store["recommendation:v1:BVreviewAsr:1"]);
+  await bg.dropSubtitleEntries([{ key: "asr:BVreviewOff:1" }]);
+  assert.equal(store["recommendation:v1:BVreviewOff:1"], undefined);
+  assert.ok(store["recommendation:v1:BVreviewAsr:1"]);
+  await bg.clearVideoCache("BVreviewAsr", 1);
+  assert.equal(store["recommendation:v1:BVreviewAsr:1"], undefined);
 });

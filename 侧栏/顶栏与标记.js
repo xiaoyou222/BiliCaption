@@ -122,6 +122,8 @@ function persistLastVideo(next) {
 
 function setMoreOpen(open) {
   moreOpen = open;
+  // 打开、收起「更多」都退回普通菜单（设计稿：打开时退出自定义状态）
+  setQuickCustomizing(false);
   show(ui.moreMenu, open);
   ui.btnMore.classList.toggle("active", open);
   if (open) {
@@ -136,6 +138,7 @@ function setMarkerMoreOpen(open) {
   $("btnMarkerMore")?.classList.toggle("active", open);
   if (open) {
     moreOpen = false;
+    setQuickCustomizing(false);
     show(ui.moreMenu, false);
     ui.btnMore?.classList.remove("active");
     setSpeedMenuOpen(false);

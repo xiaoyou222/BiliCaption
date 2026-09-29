@@ -107,6 +107,88 @@ async function fetchView(bvid) {
   return json.data;
 }
 
+// 视频的互动数据：只留判断「值不值得看」要用的几项，随字幕状态带给侧栏，不为此单独请求。
+function pickViewStat(stat) {
+  if (!stat || typeof stat !== "object") return null;
+  const out = {};
+  for (const key of ["view", "like", "coin", "favorite", "reply", "share", "danmaku"]) {
+    const n = Number(stat[key]);
+    if (Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out.view > 0 ? out : null;
+}
+
+// ---- 热评：生成大纲时取一次，只作「值不值得看」的修正参考 ----
+// 不登录也能取；最多 2 页（每页 20 条）、留 40 条，每条截到 150 字，按赞数排序。
+// 失败或超过 5 秒就当没有评论，不影响大纲生成。
+const HOT_COMMENT_PAGES = 2;
+const HOT_COMMENT_MAX = 40;
+const HOT_COMMENT_CHARS = 150;
+const HOT_COMMENT_TIMEOUT_MS = 5000;
+
+function clipCommentText(text) {
+  const flat = String(text || "").replace(/\s+/g, " ").trim();
+  const chars = [...flat];
+  return chars.length > HOT_COMMENT_CHARS ? `${chars.slice(0, HOT_COMMENT_CHARS).join("")}…` : flat;
+}
+
+/** 接口返回的 replies → [{ message, like }]：去重、去空、按赞数降序、截断 */
+function normalizeHotComments(replies) {
+  const seen = new Set();
+  const out = [];
+  for (const reply of replies || []) {
+    const id = reply?.rpid ?? reply?.rpid_str;
+    if (id != null) {
+      if (seen.has(String(id))) continue;
+      seen.add(String(id));
+    }
+    const message = clipCommentText(reply?.content?.message);
+    if (!message) continue;
+    out.push({ message, like: Math.max(0, Number(reply?.like) || 0) });
+  }
+  return out.sort((a, b) => b.like - a.like).slice(0, HOT_COMMENT_MAX);
+}
+
+async function fetchHotComments(aid, { timeoutMs = HOT_COMMENT_TIMEOUT_MS } = {}) {
+  const oid = Number(aid) || 0;
+  if (!oid) return { comments: [] };
+  const replies = [];
+  const ac = new AbortController();
+  let timer = 0;
+  const work = (async () => {
+    let next = "";
+    for (let page = 0; page < HOT_COMMENT_PAGES; page += 1) {
+      const params = { oid, type: 1, mode: 3, plat: 1, web_location: 1315875 };
+      if (page > 0) params.next = next;
+      const query = await BiliCaptionWbi.signQuery(params);
+      if (ac.signal.aborted) return;
+      const json = await fetchJson(`https://api.bilibili.com/x/v2/reply/wbi/main?${query}`, { signal: ac.signal });
+      if (json?.code !== 0) throw new Error(json?.message || `评论接口返回 ${json?.code}`);
+      replies.push(...(json.data?.replies || []));
+      const cursor = json.data?.cursor || {};
+      next = cursor.next;
+      if (cursor.is_end || next == null || next === "" || replies.length >= HOT_COMMENT_MAX) return;
+    }
+  })();
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      ac.abort();
+      resolve("timeout");
+    }, Math.max(0, Number(timeoutMs) || 0));
+  });
+  try {
+    await Promise.race([work, timeout]);
+  } catch (error) {
+    console.warn("[BiliCaption] hot comments failed", error?.message || error);
+  } finally {
+    clearTimeout(timer);
+    ac.abort();
+    work.catch(() => {});
+  }
+  // 第二页失败或超时时，第一页拿到的照样用
+  return { comments: normalizeHotComments(replies) };
+}
+
 function collectBangumiEpisodes(result) {
   const list = [];
   const push = (item) => {

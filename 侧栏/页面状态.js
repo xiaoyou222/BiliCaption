@@ -13,6 +13,7 @@ function renderState(next) {
     next = { ...next, cues: hydrateCueOriginals(next.cues) };
   }
   state = next;
+  ensureRecommendation(next);
   // 字幕助手跟上当前视频：换视频就切到那个视频自己的对话
   syncChatVideo(next);
   applyPlatformChrome(next);
@@ -218,12 +219,14 @@ function renderState(next) {
   } else {
     showOutlineEmptyOrb(false);
     if (outlineEmptyShown) {
-      setShimmer(ui.outlineEmptyLabel, false, "还没有生成大纲");
+      // 设计稿：大纲为空且不在生成时不显示提示文字，只留「生成大纲」按钮
+      setShimmer(ui.outlineEmptyLabel, false, "");
       show($("btnGenOutline"), true);
     } else {
       setShimmer(ui.outlineEmptyLabel, false);
     }
   }
+  if (ui.outlineEmptyLabel) show(ui.outlineEmptyLabel, Boolean(ui.outlineEmptyLabel.textContent));
 
   renderVideoSummary({ streaming: outlineLoading && hasVideoSummary });
   show(ui.outlineList, onOutline && outlineRows);
@@ -361,6 +364,7 @@ function tabVideoChanged(tabUrl) {
 }
 
 function stopJobsForVideoSwitch() {
+  cancelRecommendation();
   cancelCueEdit();
   translating = false;
   generating = false;

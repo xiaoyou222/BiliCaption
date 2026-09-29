@@ -7,15 +7,14 @@
 // - 可重新生成：官方字幕及其译文、且没改过字。按数量 + 体积淘汰，上限只在这一层之间计算；
 //   设置页也可以一键清掉这一层。
 
-// 大纲缓存（outline:v2:*）和 asrIndex:* 跟着字幕缓存走：对应的字幕缓存已不在的大纲 / 索引一并删除；
+// 大纲、推荐缓存及 asrIndex:* 跟着字幕缓存走：对应字幕已不在时一并删除；
 // 大纲另有数量和体积上限兜底，超出时先删可重新生成视频的大纲，受保护视频的排在最后。
 // 旧版 outline:bvid:cid（非 v2）已无人读取，顺手清掉。只列键名，不把整库读进内存。
 const OUTLINE_CACHE_MAX = 60;
 const OUTLINE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 
 function outlineAsrKey(key) {
-  const [bvid = "", cid = ""] = key.slice("outline:v2:".length).split(":");
-  return asrCacheKey(bvid, Number(cid) || 0);
+  return key.replace(/^(?:outline:v2|recommendation:v1):/, "asr:");
 }
 
 async function pruneAuxCache() {
@@ -29,6 +28,7 @@ async function pruneAuxCache() {
   const present = new Set(keys);
   const drop = [];
   const outlines = [];
+  const recommendations = [];
   const indexKeys = keys.filter((key) => key.startsWith("asrIndex:"));
   if (indexKeys.length) {
     const index = await chrome.storage.local.get(indexKeys).catch(() => ({}));
@@ -41,13 +41,17 @@ async function pruneAuxCache() {
     if (key.startsWith("outline:v2:")) {
       if (!present.has(outlineAsrKey(key))) drop.push(key);
       else outlines.push(key);
+    } else if (key.startsWith("recommendation:v1:")) {
+      if (!present.has(outlineAsrKey(key))) drop.push(key);
+      else recommendations.push(key);
     } else if (key.startsWith("outline:")) {
       drop.push(key);
     }
   }
-  if (outlines.length) {
-    const values = await chrome.storage.local.get(outlines).catch(() => ({}));
-    const sized = outlines.map((key) => ({ key, size: utf8Size(values[key]), protected: false, savedAt: 0 }));
+  for (const auxiliary of [outlines, recommendations]) {
+    if (!auxiliary.length) continue;
+    const values = await chrome.storage.local.get(auxiliary).catch(() => ({}));
+    const sized = auxiliary.map((key) => ({ key, size: utf8Size(values[key]), protected: false, savedAt: 0 }));
     let total = sized.reduce((sum, item) => sum + item.size, 0);
     if (sized.length > OUTLINE_CACHE_MAX || total > OUTLINE_CACHE_MAX_BYTES) {
       // 大纲记录没有写入时间：超出上限时先删可重新生成视频的大纲，受保护视频的排在最后；
@@ -69,7 +73,7 @@ async function pruneAuxCache() {
   }
   if (drop.length) {
     await chrome.storage.local.remove(drop).catch(() => {});
-    appLog("info", "cache", `已清理 ${drop.length} 份失效的大纲 / 索引缓存`);
+    appLog("info", "cache", `已清理 ${drop.length} 份失效的大纲 / 推荐 / 索引缓存`);
   }
   return { removed: drop.length };
 }
@@ -92,8 +96,9 @@ function parseAsrCacheKey(key) {
 
 // 可重新生成的字幕缓存上限（受保护条目不占名额、不计体积）。
 // 装了 unlimitedStorage 后写入不会再因配额失败，所以新增可再生条目后会主动检查一次（至多每分钟一次）。
-const ASR_CACHE_MAX = 40;
-const ASR_CACHE_MAX_BYTES = 6 * 1024 * 1024;
+// 一个视频的字幕加译文约 30KB，500 个约 15MB；再大时淘汰和统计要列出的键变多、变慢。
+const ASR_CACHE_MAX = 500;
+const ASR_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 const ASR_PRUNE_INTERVAL = 60 * 1000;
 const SUBTITLE_SCAN_BATCH = 40;
 let asrPruneNextAt = 0;
@@ -156,6 +161,7 @@ async function dropSubtitleEntries(items) {
     remove.add(key);
     remove.add(`outline:v2:${bvid}:${cid}`);
     remove.add(`outline:${bvid}:${cid}`);
+    remove.add(`recommendation:v1:${bvid}:${cid}`);
     const trKey = translateJobStoreKey(bvid, cid);
     remove.add(trKey);
     trKeys.push(trKey);
@@ -466,7 +472,8 @@ async function clearVideoCache(bvid, cid, options = {}) {
     asrJobKey(bvid, cid),
     translateJobStoreKey(bvid, cid),
     `outline:${bvid || ""}:${Number(cid) || 0}`,
-    `outline:v2:${bvid || ""}:${Number(cid) || 0}`
+    `outline:v2:${bvid || ""}:${Number(cid) || 0}`,
+    `recommendation:v1:${bvid || ""}:${Number(cid) || 0}`
   ]);
   // 用户确认过才删 WebDAV 上的字幕备份，并在索引里留墓碑，免得下次打开又被拉回来。
   // 本地先记墓碑再返回，删远端在后台做，不让用户等网络。

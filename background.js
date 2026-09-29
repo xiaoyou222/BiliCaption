@@ -53,7 +53,8 @@ const EXTENSION_MESSAGE_TYPES = new Set([
   "DAV_SYNC_NOW",
   "GET_CACHE_USAGE",
   "CLEAR_RENEWABLE_CACHE",
-  "GET_SUBTITLE_BACKUP_STATUS"
+  "GET_SUBTITLE_BACKUP_STATUS",
+  "GET_HOT_COMMENTS"
 ]);
 
 function allowMessage(type, sender) {
@@ -134,6 +135,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "LOAD_SUBTITLES") {
     return reply(loadSubtitles(message.page, tabId, { force: Boolean(message.force) }));
+  }
+  if (message?.type === "GET_HOT_COMMENTS") {
+    // 生成大纲时取一次热评；fetchHotComments 自带超时，失败回空列表
+    return reply(fetchHotComments(message.aid));
   }
   if (message?.type === "GET_LOGIN") {
     return reply(fetchLoginStatus());

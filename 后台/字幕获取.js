@@ -362,7 +362,8 @@ async function loadSubtitles(page, tabId, options = {}) {
       bvid: view.bvid || page.bvid,
       duration: part?.duration || view.duration || 0,
       pic: view.pic || "",
-      up: view.owner?.name || ""
+      up: view.owner?.name || "",
+      stat: pickViewStat(view.stat)
     };
   } else {
     let hint = page;
@@ -490,6 +491,8 @@ async function loadSubtitles(page, tabId, options = {}) {
     durationMeta: meta.duration || 0,
     pic: meta.pic || "",
     up: meta.up || "",
+    // 播放 / 点赞 / 投币 / 收藏等（番剧没有），生成大纲时算比率作参考
+    stat: meta.stat || null,
     tracks,
     activeLan,
     cues,

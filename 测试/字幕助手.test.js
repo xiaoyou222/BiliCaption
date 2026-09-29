@@ -623,7 +623,7 @@ test("界面：三个视图底部栏各有入口按钮，位置与设计稿一�
   assert.match(videoView, />思考中…</);
   assert.match(css, /\.chat-panel \{[^}]*left: 10px;[^}]*right: 10px;[^}]*bottom: 56px;[^}]*height: 64%;[^}]*z-index: 30;/);
   assert.match(css, /\.video-view \{[^}]*position: relative;/);
-  assert.match(css, /\.chat-send\.ready \{[^}]*background: var\(--blue\);[^}]*color: #0B0C0E;/);
+  assert.match(css, /\.chat-send\.ready \{[^}]*background: var\(--blue\);[^}]*color: #ffffff;/);
   // 任务胶囊下拉、「更多」菜单、提示条压在面板上面
   for (const selector of ["view-tabs", "more-menu", "toast"]) {
     const z = Number(css.match(new RegExp(`\\.${selector} \\{[^}]*z-index: (\\d+);`))[1]);

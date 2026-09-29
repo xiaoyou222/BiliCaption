@@ -55,6 +55,11 @@ $("btnCancelTrJob")?.addEventListener("click", cancelTranslate);
 ui.jobPillHead?.addEventListener("click", (event) => {
   event.stopPropagation();
   if (jobPillAnimating) return;
+  // 失败态（只剩失败段在等重试）：收起时点胶囊直接重试全部失败段
+  if (!jobPillOpen && asrFailedIndexes.length && ui.jobPill?.classList.contains("is-fail")) {
+    retryFailedAsrChunks(asrFailedIndexes.slice());
+    return;
+  }
   if (jobPillOpen) collapseJobPill();
   else expandJobPill();
 });
@@ -62,6 +67,10 @@ $("btnPauseAsr")?.addEventListener("click", (event) => {
   event.stopPropagation();
   if ($("btnPauseAsr")?.dataset.mode === "resume") {
     generateSubtitles();
+    return;
+  }
+  if ($("btnPauseAsr")?.dataset.mode === "retry") {
+    retryFailedAsrChunks(asrFailedIndexes.slice());
     return;
   }
   pauseAsr(!asrPaused);
@@ -98,6 +107,38 @@ ui.videoSummaryToggle?.addEventListener("click", () => {
   videoSummaryOpen = !videoSummaryOpen;
   renderVideoSummary({ streaming: outlineLoading });
 });
+ui.videoVerdictDetails?.addEventListener("mouseenter", () => openRecommendationDetails());
+ui.videoVerdictDetails?.addEventListener("mouseleave", leaveRecommendationDetails);
+ui.videoVerdictDetails?.addEventListener("focusin", (event) => {
+  if (event.target === ui.videoVerdictTrigger) openRecommendationDetails();
+});
+ui.videoVerdictDetails?.addEventListener("focusout", (event) => {
+  if (!ui.videoVerdictDetails.contains(event.relatedTarget)) closeRecommendationDetails();
+});
+ui.videoVerdictTrigger?.addEventListener("click", () => {
+  if (recommendationJob?.error) retryRecommendation();
+  else openRecommendationDetails({ pin: true });
+});
+ui.btnReevaluate?.addEventListener("click", retryRecommendation);
+document.addEventListener("click", (event) => {
+  if (!ui.videoVerdictDetails?.contains(event.target)) closeRecommendationDetails();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeRecommendationDetails();
+});
+window.addEventListener("resize", closeRecommendationDetails);
+// 字幕列表跟随播放自动滚动时徽标不动，不能收起；只有滚动的区域包含徽标时才处理：
+// 徽标仍在视野里就跟着重新定位，滚出视野才收起。
+document.addEventListener("scroll", (event) => {
+  const trigger = ui.videoVerdictTrigger;
+  const pop = ui.videoVerdictPopover;
+  if (!trigger || !pop || pop.classList.contains("hidden") || pop.contains(event.target)) return;
+  const scroller = event.target === document ? document.documentElement : event.target;
+  if (!scroller?.contains?.(trigger)) return;
+  const rect = trigger.getBoundingClientRect();
+  if (rect.bottom < 0 || rect.top > window.innerHeight) closeRecommendationDetails();
+  else positionRecommendationDetails();
+}, true);
 $("emptyRetryLink")?.addEventListener("click", () => retrySubtitles());
 
 ui.outlineDensity?.addEventListener("click", (event) => {
@@ -261,6 +302,15 @@ ui.btnMore.addEventListener("click", (event) => {
   event.stopPropagation();
   setMoreOpen(!moreOpen);
 });
+// 自定义快捷栏：菜单里的勾选、恢复默认、完成都不收起菜单
+$("btnQuickCustomize")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setQuickCustomizing(true);
+});
+$("quickCustom")?.addEventListener("click", (event) => event.stopPropagation());
+$("btnQuickReset")?.addEventListener("click", resetQuickPins);
+$("btnQuickDone")?.addEventListener("click", () => setQuickCustomizing(false));
+document.addEventListener("keydown", closeMoreOnEscape);
 
 // 字幕助手：三个视图底部操作栏各有一个入口按钮（侧栏与浮窗是同一页面）
 for (const id of CHAT_TOGGLE_IDS) $(id)?.addEventListener("click", toggleChat);
@@ -550,6 +600,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (recommendationJob?.error && (changes.apiKey || changes.apiBase || changes.apiModel || changes.sumProvider)) retryRecommendation();
   // 字幕助手开着时，在设置页配好总结服务就收起「还没配置」的提示
   if (chatOpen && (changes.apiKey || changes.sumProvider || changes.apiBase)) {
     chatController().checkConfig().catch(() => {});
@@ -565,6 +616,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes.sttProvider) loadPrefs().catch(() => {});
   if (changes.selKey) selKey = changes.selKey.newValue || "Shift";
+  // 侧栏和浮窗各自一份页面，改了快捷栏另一边跟着换
+  if (changes[QUICK_BAR_KEY]) applyQuickPins(changes[QUICK_BAR_KEY].newValue);
   if (changes.overlayOn) {
     overlayOn = changes.overlayOn.newValue !== false;
     renderOverlayBtn();
@@ -617,6 +670,7 @@ chrome.storage.local.get({ lastVideo: null }).then((data) => {
 loadPrefs().then(() => {
   if (state) renderState(state);
 });
+loadQuickPins().catch(() => {});
 bindFloatTab().then(async () => {
   if (!inFloatEmbed()) {
     const prefs = await loadDockUiPrefs();

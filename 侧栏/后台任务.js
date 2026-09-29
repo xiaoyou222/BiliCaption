@@ -1,5 +1,8 @@
 // 侧栏 · 后台任务：转写 / 翻译任务的进度胶囊、分片列表、暂停与重试，以及轮询确认任务还活着。
 
+// 胶囊处于失败态时待重试的分段序号（从 1 起），点胶囊或「重试失败段」时用
+let asrFailedIndexes = [];
+
 function sameAsrVideo(info) {
   if (!info || !state) return false;
   const hasIdentity = Boolean(info.bvid || info.cid);
@@ -83,6 +86,32 @@ function chunkStatusLabel(status) {
   if (status === "pause") return "已暂停";
   if (status === "done") return "✓ 完成";
   return "排队";
+}
+
+/**
+ * 转写胶囊的失败态：有失败段、且没有正在转写 / 排队的段时，任务其实在等用户重试，
+ * 胶囊不能再显示「转写 0/2」加转圈，要明确告诉用户失败了、可以点重试。
+ * stalled：只剩失败段在等重试；label：胶囊上的文字（没有失败段时为空，沿用原来的显示）。
+ */
+function asrFailSummary(chunks) {
+  const rows = Array.isArray(chunks) ? chunks : [];
+  const total = rows.length;
+  const failed = rows.filter((c) => c.status === "fail").map((c) => Number(c.i));
+  const done = rows.filter((c) => c.status === "done").length;
+  const busy = rows.some((c) => c.status === "run" || c.status === "pause" || c.status === "wait");
+  const stalled = failed.length > 0 && !busy;
+  let label = "";
+  if (failed.length) {
+    label = stalled && !done
+      ? "转写失败 · 重试"
+      : `${done}/${total} · ${failed.length} 段失败`;
+  }
+  return { failed, done, total, stalled, label };
+}
+
+/** 把所有失败段重新提交（胶囊失败态的点击、展开面板里的「重试失败段」） */
+async function retryFailedAsrChunks(indexes) {
+  for (const i of indexes || []) await retryAsrChunk(i);
 }
 
 function synthesizeChunks(done, total, current, duration, failed = []) {
@@ -265,6 +294,7 @@ function collapseJobPill() {
 }
 
 function renderAsrJobBar() {
+  ensureRecommendation(state);
   const pill = ui.jobPill;
   const bar = ui.asrJobBar;
   const trBar = ui.trJobBar;
@@ -294,6 +324,12 @@ function renderAsrJobBar() {
   const trDone = Number(translateProgress.done) || 0;
   const trTotal = Number(translateProgress.total) || 0;
   const failed = progress.failed || [];
+  const chunks = chunkRows
+    || synthesizeChunks(asrDone, asrTotal, asrCurrent, state?.duration, failed);
+  const failInfo = asrFailSummary(generating ? chunks : []);
+  // 只剩失败段在等重试：胶囊显示失败态，点阵球停下
+  const failStalled = Boolean(showAsr && generating && !waiting && failInfo.stalled);
+  asrFailedIndexes = failStalled ? failInfo.failed : [];
 
   const coolLabel = (() => {
     const ms = waitLeft || 0;
@@ -306,6 +342,7 @@ function renderAsrJobBar() {
     if (jobPillOpen && !collapsing) ui.jobPillLabel.textContent = "后台任务";
     else if (showAsr && showTr) ui.jobPillLabel.textContent = "2 个任务";
     else if (showAsr && waiting) ui.jobPillLabel.textContent = `冷却 ${coolLabel}`;
+    else if (showAsr && failInfo.label) ui.jobPillLabel.textContent = failInfo.label;
     else if (showAsr) ui.jobPillLabel.textContent = asrTotal ? `转写 ${asrShown}/${asrTotal}` : "转写中";
     else if (showTr) ui.jobPillLabel.textContent = trTotal ? `翻译 ${trDone}/${trTotal}` : "翻译中";
   }
@@ -316,11 +353,12 @@ function renderAsrJobBar() {
     if (!visible || (visible && wasHidden)) resetJobPillClosed();
     show(pill, visible);
     pill.classList.toggle("is-wait", waiting);
+    pill.classList.toggle("is-fail", failStalled);
     if (ui.jobPillHead) ui.jobPillHead.setAttribute("aria-expanded", jobPillOpen && visible ? "true" : "false");
     if (!collapsing) pill.classList.toggle("is-open", jobPillOpen && visible);
     if (visible && !jobPillOpen && !jobPillAnimating) cacheJobPillChipWidth(pill);
   }
-  showPillOrb(Boolean((showAsr && generating && !waiting && !asrPaused) || showTr));
+  showPillOrb(Boolean((showAsr && generating && !waiting && !asrPaused && !failStalled) || showTr));
   updateTranslateLock();
 
   if (bar) {
@@ -329,8 +367,10 @@ function renderAsrJobBar() {
     if (showAsr) {
       const pauseBtn = $("btnPauseAsr");
       if (pauseBtn) {
-        pauseBtn.textContent = generating ? (asrPaused ? "继续" : "暂停") : "继续生成";
-        pauseBtn.dataset.mode = generating ? "pause" : "resume";
+        pauseBtn.textContent = failStalled
+          ? "重试失败段"
+          : generating ? (asrPaused ? "继续" : "暂停") : "继续生成";
+        pauseBtn.dataset.mode = failStalled ? "retry" : generating ? "pause" : "resume";
         show(pauseBtn, generating || partial);
       }
       show($("btnCancelAsrJob"), generating || partial);
@@ -344,11 +384,13 @@ function renderAsrJobBar() {
         const activeProvider = String(asrProgress?.provider || "").trim();
         ui.asrJobTitle.textContent = waiting
           ? `所有通道都在冷却，${coolLabel} 后继续`
-          : asrPaused
-            ? "已暂停"
-            : generating
-              ? (activeProvider ? `转写中 · ${activeProvider}` : "转写中")
-              : "继续生成";
+          : failStalled
+            ? `${failInfo.failed.length} 段转写失败，可点重试`
+            : asrPaused
+              ? "已暂停"
+              : generating
+                ? (activeProvider ? `转写中 · ${activeProvider}` : "转写中")
+                : "继续生成";
       }
       if (ui.asrSegPct) ui.asrSegPct.textContent = asrTotal ? `${asrShown}/${asrTotal}` : "";
       if (ui.asrJobFill) {
@@ -361,8 +403,6 @@ function renderAsrJobBar() {
           track.setAttribute("aria-valuetext", asrTotal ? `${asrShown}/${asrTotal} 个分片已完成` : "正在准备转写");
         }
       }
-      const chunks = chunkRows
-        || synthesizeChunks(asrDone, asrTotal, asrCurrent, state?.duration, failed);
       const live = chunks.filter((c) => c.status === "fail" || c.status === "run" || c.status === "pause");
       const doneRows = chunks.filter((c) => c.status === "done" || c.status === "wait");
       renderChunkRows(ui.chunkLiveList, live);
