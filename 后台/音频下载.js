@@ -57,7 +57,10 @@ function pickAudioStream(playurl, { sameAs } = {}) {
     if (same) return same;
     throw new Error("刷新播放地址后音轨变了，无法接着下载。已保存进度，可点「生成字幕」继续");
   }
-  const sorted = [...audios].sort((a, b) => (a.bandwidth || 0) - (b.bandwidth || 0));
+  // 切片器只会重封装 AAC：有 AAC 音轨就只在 AAC 里挑，没有才退回其它编码（切片时会给出明确报错）
+  const aac = audios.filter((item) => /^mp4a/i.test(String(item.codecs || "")));
+  const pool = aac.length ? aac : audios;
+  const sorted = [...pool].sort((a, b) => (a.bandwidth || 0) - (b.bandwidth || 0));
   // 优先较低码率：体积小、分片少
   return sorted[0];
 }

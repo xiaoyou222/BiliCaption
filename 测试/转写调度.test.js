@@ -1435,7 +1435,7 @@ test("取消、失败也各写一条汇总：取消记已完成几段，失败�
       throw httpError(401, "Invalid API Key");
     }
   };
-  await assert.rejects(settle(t, runGenerate(bad, { jobId: "sum-fail", bvid: "BV1fail", cid: 9 })), /所有转写通道都不可用/);
+  await assert.rejects(settle(t, runGenerate(bad, { jobId: "sum-fail", bvid: "BV1fail", cid: 9, duration: 960 })), /所有转写通道都不可用/);
   logs = await bad.getAppLogs();
   const summary = logs.filter((entry) => /^转写/.test(entry.message));
   assert.equal(summary.length, 1);
@@ -1447,4 +1447,65 @@ test("取消、失败也各写一条汇总：取消记已完成几段，失败�
   assert.ok(logs.some((entry) => entry.level === "warn" && /已停用/.test(entry.message)), "通道停用照常单独记");
   const http = logs.find((entry) => /HTTP 401/.test(entry.message));
   assert.equal(JSON.parse(http.detail).status, 401);
+});
+
+// ---------------- 本地切片问题（BV1TYN76GEBP：Groq 400「is it a valid media file?」） ----------------
+
+test("错误分类：服务端说不是有效媒体文件，判为本地切片问题（media），不是换通道重试", () => {
+  const B = loadAsr();
+  const groq = channel("Groq", "g");
+  const invalid = httpError(400, "could not process file - is it a valid media file?");
+  const verdict = B.classifyAsrError(invalid, groq);
+  assert.equal(verdict.kind, "media");
+  assert.match(verdict.message, /本地切片/);
+  assert.equal(B.classifyAsrError(httpError(415, "Unsupported audio format"), channel("OpenAI", "o")).kind, "media");
+  // 5xx 仍按临时故障重试，普通 400 仍是 chunk
+  assert.equal(B.classifyAsrError(httpError(503, "could not process file"), groq).kind, "transient");
+  assert.equal(B.classifyAsrError(httpError(400, "decoder crash on flash segment"), groq).kind, "chunk");
+});
+
+test("分段被判为无效媒体文件：只打一次就记为失败段，不在主账号 / 备用之间来回重试", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_700_000_000_000 });
+  const B = loadAsr({ fetchImpl: async () => audioResponse() });
+  const chunks = fakeChunks(2);
+  useFakeSource(B, chunks);
+  const calls = [];
+  B.BiliCaptionStt = {
+    ...B.BiliCaptionStt,
+    async transcribe(blob, cfg) {
+      calls.push({ index: chunks.findIndex((chunk) => chunk.blob === blob), key: cfg.key });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (blob === chunks[0].blob) throw httpError(400, "could not process file - is it a valid media file?");
+      return segmentResult("好的");
+    }
+  };
+  const job = makeJob([channel("Groq", "g1"), channel("Groq", "g2")]);
+  const work = runTranscribe(B, job, { duration: 960 });
+  work.catch(() => {});
+  await advance(t, 5000);
+  assert.deepEqual(Array.from(job.failedChunks), [1]);
+  assert.equal(calls.filter((call) => call.index === 0).length, 1, "坏分片只发一次");
+  job.controller.abort();
+  await settle(t, work).catch(() => {});
+});
+
+test("切片覆盖时长明显少于视频时长：停止转写并给出明确报错，清掉不可信的断点", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_700_000_000_000 });
+  const B = loadAsr({ fetchImpl: async () => audioResponse() });
+  // 旧 bug：时间轴被压缩成 48000/88200，1041 秒的音轨只标到 567 秒
+  const chunks = fakeChunks(2, { seconds: 284.5 });
+  useFakeSource(B, chunks);
+  B.BiliCaptionStt = {
+    ...B.BiliCaptionStt,
+    async transcribe() {
+      await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
+      return segmentResult("好的");
+    }
+  };
+  const job = makeJob([channel("Groq", "g")]);
+  await assert.rejects(settle(t, runTranscribe(B, job, { duration: 1041 })), /只切出 567\/1041 秒/);
+  assert.equal(B.__local["asrJob:BV1test:1"], undefined, "断点已清掉，下次从头来");
+  assert.equal(B.asrCoverageShortfall(1030, 1041), null, "差十来秒属正常");
+  assert.equal(B.asrCoverageShortfall(28, 30), null, "短视频差一两秒属正常");
+  assert.ok(B.asrCoverageShortfall(567, 1041));
 });

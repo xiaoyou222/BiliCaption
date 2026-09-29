@@ -437,13 +437,34 @@ async function runAsrProducer(run) {
       run.parts.length = run.chunks.length;
       job.chunkPlan.length = run.chunks.length;
       const lastEnd = Number(run.chunks[run.chunks.length - 1]?.end) || 0;
-      if (Number(run.duration) > 0 && lastEnd > 0 && lastEnd < Number(run.duration) - 90) {
-        appLog("warn", "asr", `音轨只切到 ${Math.round(lastEnd)}s / ${Math.round(Number(run.duration))}s`);
+      const short = asrCoverageShortfall(lastEnd, run.duration);
+      if (short) {
+        // 音频字节已经收全，时间轴却对不上视频时长：多半是音轨参数读错（分片时间轴被整体缩放、
+        // 解码配置也坏了），拿这些分片去转写只会被服务端拒收或错位，直接停下并清掉这次的断点
+        appLog("error", "asr", short.message, { bvid: run.meta?.bvid, cid: run.meta?.cid });
+        const error = new Error(short.message);
+        error.clearProgress = true;
+        run.producerError = error;
+        run.fatal = error;
       }
     }
     job.chunkTotal = asrRunTotal(run);
     run.wake();
   }
+}
+
+/**
+ * 切片覆盖的时长明显少于视频时长（不到 95%，且差出 15 秒以上）时返回报错信息。
+ * 短视频的音轨可能比画面短一两秒，所以另设绝对差值门槛。
+ */
+function asrCoverageShortfall(lastEnd, duration) {
+  const end = Number(lastEnd) || 0;
+  const dur = Number(duration) || 0;
+  if (!(dur > 0) || !(end > 0)) return null;
+  if (end >= dur * 0.95 || dur - end <= 15) return null;
+  return {
+    message: `音轨只切出 ${Math.round(end)}/${Math.round(dur)} 秒，音频解析可能有误，已停止转写以免浪费额度。请点「生成字幕」重试，仍不行请反馈`
+  };
 }
 
 function markAsrChunkFailed(run, index, reason) {
@@ -612,6 +633,11 @@ function handleAsrChunkError(run, index, picked, error) {
       stage: "upload",
       message: `${label} 繁忙（${error?.status || "临时故障"}），${formatWait(backoff)} 后重试第 ${index + 1} 段`
     });
+    return;
+  }
+  if (verdict.kind === "media") {
+    // 分片本身坏了（本地切片问题）：换通道也一样被拒，直接记为失败段
+    markAsrChunkFailed(run, index, verdict.message);
     return;
   }
   // 音频被这条通道拒了：换一条没试过的通道再试，都不行调度器会记为失败段
@@ -829,6 +855,8 @@ async function transcribeAudio(stream, { meta, language, signal, onProgress, dur
     await run.persistChain;
     for (const chunk of run.chunks) chunk.blob = null;
     job.wake = null;
+    // 切片时间轴有误时，这次存下的断点分段也不可信，下次从头来
+    if (run.fatal?.clearProgress) await clearAsrJob(meta.bvid, meta.cid).catch(() => {});
   }
   return finishAsrRun(run);
 }

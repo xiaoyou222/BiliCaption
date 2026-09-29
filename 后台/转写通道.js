@@ -350,6 +350,7 @@ function isFatalSttError(error) {
  * - dead：Key 无效、额度或余额用完，本任务内停用该通道，这段交给其他通道；
  * - quota：限流，通道冷却（冷却期间其他通道接手），这段稍后重发；
  * - transient：超时、5xx、网络中断，这段退避后重试，有次数上限；
+ * - media：服务端说不是有效媒体文件，属于本地切片问题，直接记为失败段、不再换通道；
  * - chunk：音频本身被拒（400/413 等），换一条没试过的通道，都不行就记为失败段；
  * - job：分片明显超长，整个任务停下以免浪费额度。
  */
@@ -381,7 +382,21 @@ function classifyAsrError(error, cfg, { maxSeconds = 0 } = {}) {
   if (isAsrTransient(error)) {
     return { kind: "transient", waitMs: Math.min(60 * 1000, Number(error?.retryAfter) || 0), message: raw };
   }
+  if (isAsrMediaRejected(error)) {
+    return { kind: "media", message: `服务端无法解码这段音频（${raw.slice(0, 120)}），是本地切片出了问题，换通道重试也没用` };
+  }
   return { kind: "chunk", message: raw };
+}
+
+/**
+ * 服务端说「不是有效媒体文件 / 无法解码」：同一个分片换哪条通道都一样，属于本地切片问题，
+ * 不该在各通道之间来回重试、白耗额度。
+ */
+function isAsrMediaRejected(error) {
+  const status = Number(error?.status) || 0;
+  if (status && ![400, 415, 422].includes(status)) return false;
+  return /could not process file|valid media file|not a valid (?:media|audio)|invalid (?:media|audio) file|unsupported (?:audio|media|file) (?:format|type)|failed to decode|(?:audio|media) file (?:is )?(?:corrupt|invalid)|无法解码|不是有效的?(?:媒体|音频)/i
+    .test(String(error?.message || error || ""));
 }
 
 // ---- Groq 每小时音频额度前瞻 ----
