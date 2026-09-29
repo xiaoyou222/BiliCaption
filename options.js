@@ -5,7 +5,7 @@ const Prefs = window.BiliCaptionPrefs;
 const { keyLabel } = window.BiliCaptionCueTools;
 
 const $ = (id) => document.getElementById(id);
-const SCOPE = { groq: "转写", asr: "转写", bili: "B站", net: "网络", set: "设置", app: "应用", sum: "总结", dav: "同步", cache: "缓存", sub: "字幕", x: "X" };
+const SCOPE = { groq: "转写", asr: "转写", bili: "B站", net: "网络", set: "设置", app: "应用", sum: "总结", dav: "同步", cache: "缓存", sub: "字幕", x: "X", article: "文章" };
 
 const TABS = ["stt", "sum", "sync", "keys", "logs"];
 let tab = TABS.includes(new URLSearchParams(location.search).get("tab"))
@@ -1090,7 +1090,7 @@ $("syncNow").addEventListener("click", async () => {
   }
 });
 
-// ---- 本地字幕缓存：两张卡片（统计、删除和上限都在后台，见 后台/缓存.js） ----
+// ---- 本地缓存：字幕两张卡片 + 文章总结一张（统计、删除和上限都在后台，见 后台/缓存.js） ----
 
 const CACHE_MB = 1024 * 1024;
 const CACHE_CLEARED_TEXT = "已清理可重新获取的字幕";
@@ -1152,17 +1152,31 @@ function renderCacheUsage(usage) {
   setCacheBar("cacheRegenSizeBar", regen.bytes, maxBytes);
   setCacheNum("cacheKeepCount", String(Number(kept.videos) || 0));
   setCacheNum("cacheKeepSize", formatCacheMB(kept.bytes));
+  // 文章总结缓存单独一张卡片，不算进字幕
+  const article = usage?.article || {};
+  const articleMax = Number(article.maxCount) || 0;
+  const articleMaxBytes = Number(article.maxBytes) || 0;
+  setCacheNum("cacheArticleCount", String(Number(article.count) || 0), articleMax ? String(articleMax) : "");
+  setCacheNum(
+    "cacheArticleSize",
+    articleMaxBytes ? cacheMBNumber(article.bytes) : formatCacheMB(article.bytes),
+    articleMaxBytes ? `${cacheLimitMB(articleMaxBytes)} MB` : ""
+  );
+  setCacheBar("cacheArticleCountBar", article.count, articleMax);
+  setCacheBar("cacheArticleSizeBar", article.bytes, articleMaxBytes);
   syncClearCacheBtn();
 }
 
 function renderCacheError(error) {
   const text = error?.message || String(error);
-  for (const id of ["cacheRegenCount", "cacheRegenSize", "cacheKeepCount", "cacheKeepSize"]) {
+  for (const id of ["cacheRegenCount", "cacheRegenSize", "cacheKeepCount", "cacheKeepSize", "cacheArticleCount", "cacheArticleSize"]) {
     setCacheNum(id, "读取失败");
     $(id).title = text;
   }
   setCacheBar("cacheRegenCountBar", 0, 0);
   setCacheBar("cacheRegenSizeBar", 0, 0);
+  setCacheBar("cacheArticleCountBar", 0, 0);
+  setCacheBar("cacheArticleSizeBar", 0, 0);
   cacheRenewableVideos = 0;
   syncClearCacheBtn();
 }

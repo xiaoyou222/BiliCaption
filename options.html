@@ -163,7 +163,7 @@
             </div>
           </div>
           <div class="hr-section"></div>
-          <h2>本地字幕缓存</h2>
+          <h2>本地缓存</h2>
           <div class="cache-grid">
             <div class="cache-card">
               <div class="cache-card-head">
@@ -195,6 +195,21 @@
                 <span class="cache-row-label">容量</span>
                 <span class="cache-gap"></span>
                 <span id="cacheKeepSize" class="cache-num">统计中…</span>
+              </div>
+            </div>
+            <div class="cache-card">
+              <div class="cache-card-head">
+                <span class="cache-card-title" title="网页文章的总结，再次打开同一篇文章直接显示、不重复调用模型；超出上限自动删除最旧的">文章总结</span>
+              </div>
+              <div class="cache-row">
+                <span class="cache-row-label">文章</span>
+                <div class="cache-bar"><div id="cacheArticleCountBar" class="cache-bar-fill"></div></div>
+                <span id="cacheArticleCount" class="cache-num with-bar">统计中…</span>
+              </div>
+              <div class="cache-row">
+                <span class="cache-row-label">容量</span>
+                <div class="cache-bar"><div id="cacheArticleSizeBar" class="cache-bar-fill"></div></div>
+                <span id="cacheArticleSize" class="cache-num with-bar">统计中…</span>
               </div>
             </div>
           </div>

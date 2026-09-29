@@ -54,6 +54,9 @@ async function requestPromptModel(prompt, { base, key, model, provider, task, on
     onDelta,
     validate
   });
+  if (result.truncated && String(task || "").startsWith("article-")) {
+    throw new Error("文章总结超出输出长度，请重试或缩小正文范围");
+  }
   if (result.truncated) flash("模型输出达到长度上限，结果被截断", 5000);
   return result.text;
 }
@@ -67,6 +70,21 @@ async function sumServiceConfig() {
     apiModel: ""
   });
   return globalThis.BiliCaptionProviders.resolveSum(settings);
+}
+
+/**
+ * 文章总结按档位取模型（规则见 lib/providers.js 的 resolveTier）：
+ * tier 为 "smart"（单段总结、最终汇总）或 "fast"（长文分段总结）。
+ */
+async function articleModelConfig(tier = "smart") {
+  const settings = await BiliCaptionPrefs.loadSettings({
+    sumProvider: "OpenAI",
+    apiBase: "",
+    apiKey: "",
+    apiModel: "",
+    translateModel: ""
+  });
+  return globalThis.BiliCaptionProviders.resolveTier(settings, tier);
 }
 
 async function openaiPrompt(prompt, { onDelta, signal, validate, system, task } = {}) {

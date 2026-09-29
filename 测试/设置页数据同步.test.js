@@ -376,7 +376,7 @@ test("设置页本地字幕缓存：分母与进度条按后台返回的上限�
 
   // 页面源码里没有写死上限
   const html = read("options.html");
-  const section = html.slice(html.indexOf("本地字幕缓存"), html.indexOf("</section>", html.indexOf("本地字幕缓存")));
+  const section = html.slice(html.indexOf("<h2>本地缓存"), html.indexOf("</section>", html.indexOf("<h2>本地缓存")));
   assert.doesNotMatch(section, /\b40\b|6 MB/);
   assert.doesNotMatch(read("options.js"), /\/ 40|6 MB|6 \* 1024 \* 1024/);
 

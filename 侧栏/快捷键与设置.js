@@ -16,6 +16,7 @@ async function setRateFromHotkey(rate) {
 
 function onSidepanelHotkey(event) {
   if (isTypingTarget(event.target) || isTypingTarget(document.activeElement)) return;
+  if (globalThis.BiliCaptionArticlePanel?.isActive()) return;
   if (event.isComposing || event.key === "Process") return;
 
   if (matchesKey(event, selKey)) {
@@ -59,6 +60,7 @@ function finishHeldSelect() {
 }
 
 function onSelKeyUp(event) {
+  if (globalThis.BiliCaptionArticlePanel?.isActive()) return;
   if (event.type === "blur") {
     selKeyHeldFromPage = false;
     notifyPageSelKey(false);

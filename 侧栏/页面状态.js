@@ -1,6 +1,7 @@
 // 侧栏 · 页面状态：把后台 / 内容脚本给的字幕状态画到界面上，切视频、刷新和出错重试。
 
 function renderState(next) {
+  if (globalThis.BiliCaptionArticlePanel?.isActive()) return;
   resetTranslationsFor(next);
   if (next?.cues?.length && translatedCueText.size) {
     next = {
@@ -381,6 +382,16 @@ async function refresh(force = false, options = {}) {
   try {
     const tab = await getActiveTab();
     if (tab?.id && !inFloatEmbed()) boundTabId = tab.id;
+    const articleTab = globalThis.BiliCaptionArticlePanel?.resolveTab ? await globalThis.BiliCaptionArticlePanel.resolveTab(tab) : tab;
+    if (!articleTab || (boundTabId && articleTab.id !== boundTabId)) return;
+    if (globalThis.BiliCaptionArticlePanel?.activate(articleTab)) {
+      if (state?.page !== "article") {
+        stopJobsForVideoSwitch();
+        dropTimePort();
+        state = { page: "article", url: tab.url };
+      }
+      return;
+    }
     const switched = tabVideoChanged(tab?.url || "");
     // 任务进行中不重读页面，但前提是已经在显示视频页；启动途中先读到页面状态再说
     if ((outlineLoading || generating || translating) && !force && !switched && state?.page === "video") {

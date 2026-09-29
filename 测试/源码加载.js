@@ -41,6 +41,10 @@ function panelFiles() {
   return own(pageScripts("sidepanel.html"));
 }
 
+function articleContentScripts() {
+  return require("../lib/article.js").CONTENT_FILES.slice();
+}
+
 function contentFiles() {
   return own(contentScripts());
 }
@@ -89,6 +93,7 @@ module.exports = {
   backgroundImports,
   pageScripts,
   contentScripts,
+  articleContentScripts,
   backgroundFiles,
   panelFiles,
   contentFiles,

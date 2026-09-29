@@ -62,7 +62,7 @@ test("选了浮窗后，切标签不会把 Chrome 侧栏当主界面", () => {
   assert.match(panel, /if \(info\.url\) hideChromePanelIfFloating\(\)/);
   assert.doesNotMatch(panel, /RESTORE_SIDE_PANEL/);
   assert.match(panel, /if \(prefs\.preferSidebar\) \{\s*await sendToTab\(\{ type: "CLOSE_FLOAT" \}\)/);
-  assert.match(panel, /else \{\s*await hideChromePanelIfFloating\(\);\s*return;/);
+  assert.match(panel, /else \{\s*if \(await hideChromePanelIfFloating\(\)\) return;/);
   assert.doesNotMatch(
     panel,
     /bindFloatTab\(\)\.then\(async \(\) => \{\s*if \(!inFloatEmbed\(\)\) \{\s*await sendToTab\(\{ type: "CLOSE_FLOAT" \}\)/

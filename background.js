@@ -53,6 +53,7 @@ const EXTENSION_MESSAGE_TYPES = new Set([
   "DAV_SYNC_NOW",
   "GET_CACHE_USAGE",
   "CLEAR_RENEWABLE_CACHE",
+  "PRUNE_ARTICLE_CACHE",
   "GET_SUBTITLE_BACKUP_STATUS",
   "GET_HOT_COMMENTS"
 ]);
@@ -178,6 +179,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "CLEAR_RENEWABLE_CACHE") {
     return reply(clearRenewableSubtitleCache());
+  }
+  if (message?.type === "PRUNE_ARTICLE_CACHE") {
+    // 侧栏写入一篇文章总结后调用：文章缓存超出数量 / 体积上限时删最旧的
+    return reply(pruneArticleCache());
   }
   if (message?.type === "GET_LOGS") {
     // keep：分级保留规则，设置页据此写「保留 7 天 / 24 小时」并在收到新日志时同样裁剪

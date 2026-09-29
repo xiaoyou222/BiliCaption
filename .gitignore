@@ -6,3 +6,5 @@
 设计稿/.thumbnail
 设计稿/HANDOFF-----.md
 *.zip
+
+node_modules/

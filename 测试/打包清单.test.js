@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const { root, read, backgroundImports } = require("./源码加载.js");
+const { root, read, backgroundImports, articleContentScripts } = require("./源码加载.js");
 
 function packedFiles() {
   const out = execFileSync("bash", [path.join(root, "scripts/打包.sh"), "--列出"], { cwd: root, encoding: "utf8" });
@@ -19,6 +19,7 @@ function referencedFiles(packed) {
   for (const entry of manifest.content_scripts || []) entry.js.forEach((file) => refs.add(file));
   for (const entry of manifest.web_accessible_resources || []) entry.resources.forEach((file) => refs.add(file));
   for (const file of backgroundImports()) refs.add(file);
+  articleContentScripts().forEach(file => refs.add(file));
   // 标记库由侧栏用 chrome.runtime.getURL("library.html") 打开，不在 manifest 里
   refs.add("library.html");
   for (const html of packed.filter((file) => file.endsWith(".html"))) {

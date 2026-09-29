@@ -655,7 +655,7 @@ if (!inFloatEmbed()) {
     }
   });
   setInterval(() => {
-    if (!boundTabId || inFloatEmbed() || retrying) return;
+    if (!boundTabId || inFloatEmbed() || retrying || globalThis.BiliCaptionArticlePanel?.isActive()) return;
     if (BiliCaptionPlatforms.isRateLimited(`${state?.error || ""}${state?.notice || ""}`)) return;
     chrome.tabs.get(boundTabId).then((tab) => {
       if (tabVideoChanged(tab?.url || "") || state?.subtitleStatus === "pending" || state?.page === "loading") refresh(true);
@@ -677,8 +677,7 @@ bindFloatTab().then(async () => {
     if (prefs.preferSidebar) {
       await sendToTab({ type: "CLOSE_FLOAT" }).catch(() => {});
     } else {
-      await hideChromePanelIfFloating();
-      return;
+      if (await hideChromePanelIfFloating()) return;
     }
   }
   await refresh(false);

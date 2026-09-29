@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
+html,body{margin:0;background:#0B0C0E;font-family:'Noto Sans SC',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#E7E9ED}
+a{color:#4D8EF0;text-decoration:none}a:hover{color:#79ACF5}
+button{font-family:inherit}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:rgba(127,127,127,.3);border-radius:5px}::-webkit-scrollbar-track{background:transparent}
+[data-thin-scroll]::-webkit-scrollbar{width:4px}[data-thin-scroll]::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:2px}
+@keyframes bcPulse{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes bcFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes bcHl0{0%{background-color:rgba(77,142,240,.30);box-shadow:0 0 0 3px rgba(77,142,240,.5)}65%{background-color:rgba(77,142,240,.16);box-shadow:0 0 0 3px rgba(77,142,240,.22)}100%{background-color:rgba(77,142,240,0);box-shadow:0 0 0 3px rgba(77,142,240,0)}}
+@keyframes bcHl1{0%{background-color:rgba(77,142,240,.30);box-shadow:0 0 0 3px rgba(77,142,240,.5)}65%{background-color:rgba(77,142,240,.16);box-shadow:0 0 0 3px rgba(77,142,240,.22)}100%{background-color:rgba(77,142,240,0);box-shadow:0 0 0 3px rgba(77,142,240,0)}}
+@keyframes bcScanBand{from{top:-140px}to{top:100%}}
+@keyframes bcScanFill{from{height:0}to{height:100%}}
+@keyframes bcTag0{0%{opacity:0;transform:translateY(3px)}8%{opacity:1;transform:none}85%{opacity:1}100%{opacity:0}}
+@keyframes bcTag1{0%{opacity:0;transform:translateY(3px)}8%{opacity:1;transform:none}85%{opacity:1}100%{opacity:0}}
+</style></helmet>
+
+<div style="height:100vh;overflow:hidden;display:flex;flex-direction:column;background:#0B0C0E">
+
+<div style="display:flex;align-items:center;gap:12px;padding:6px 18px;background:#121417;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap;flex:none">
+  <span style="font-size:9.5px;letter-spacing:.16em;color:#8A9099;flex:none">DEMO · 文章</span>
+  <div style="display:flex;gap:5px;flex-wrap:wrap">
+    <sc-for list="{{ scenarios }}" as="d" hint-placeholder-count="11">
+      <button style="{{ d.style }}" style-hover="filter:brightness(1.2)" onClick="{{ d.onClick }}">{{ d.label }}</button>
+    </sc-for>
+  </div>
+  <div style="flex:1;min-width:12px"></div>
+  <button style="{{ notesBtnStyle }}" style-hover="filter:brightness(1.2)" onClick="{{ toggleNotes }}">交互说明</button>
+  <a href="BiliCaption Sidebar.dc.html" style="font-size:11px;flex:none">视频场景设计稿 ›</a>
+</div>
+
+<div style="flex:1;min-height:0;display:flex;position:relative">
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#E4E5E1">
+    <div style="height:38px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;background:#E4E5E1;border-bottom:1px solid #D2D3CE">
+      <div style="display:flex;gap:6px;flex:none"><span style="width:10px;height:10px;border-radius:50%;background:#C9CAC5"></span><span style="width:10px;height:10px;border-radius:50%;background:#C9CAC5"></span><span style="width:10px;height:10px;border-radius:50%;background:#C9CAC5"></span></div>
+      <div style="flex:1;min-width:0;max-width:560px;height:24px;border-radius:6px;background:#F6F6F3;display:flex;align-items:center;padding:0 10px;font-size:11.5px;color:#55585E;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">{{ pageUrl }}</div>
+      <span style="font-size:10.5px;color:#6A6D73;flex:none">示例网页 · 演示数据</span>
+    </div>
+
+    <div ref="{{ pageRef }}" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;background:#FAFAF7;color:#222;position:relative">
+
+      <div style="position:relative;border-bottom:1px solid #E6E6E1;background:#FFFFFF">
+        <div style="{{ xNav }}">
+          <span style="font-family:'Noto Serif SC',serif;font-weight:600;font-size:17px;color:#1D1D1F;flex:none">工程笔记</span>
+          <div style="display:flex;gap:18px;font-size:13px;color:#55585E;flex-wrap:wrap"><span>首页</span><span>归档</span><span>专题</span><span>关于</span></div>
+          <div style="flex:1"></div>
+          <span style="font-size:12px;color:#FFFFFF;background:#1D1D1F;padding:6px 12px;border-radius:6px;flex:none">订阅</span>
+        </div>
+      </div>
+
+      <sc-if value="{{ pageIsList }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:760px;margin:0 auto;padding:36px 28px 60px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:24px;font-weight:600;color:#1D1D1F;margin-bottom:14px">最新文章</div>
+          <sc-for list="{{ listItems }}" as="li" hint-placeholder-count="6">
+            <div style="display:flex;flex-direction:column;gap:4px;padding:14px 0;border-bottom:1px solid #E6E6E1">
+              <span style="font-family:'Noto Serif SC',serif;font-size:16.5px;font-weight:600;color:#1D1D1F">{{ li.t }}</span>
+              <span style="font-size:12px;color:#7A7D83">{{ li.d }}</span>
+            </div>
+          </sc-for>
+          <div style="display:flex;gap:8px;margin-top:18px;font-size:12.5px;color:#55585E"><span style="padding:4px 10px;border:1px solid #D6D6D0;border-radius:5px">1</span><span style="padding:4px 10px">2</span><span style="padding:4px 10px">3</span><span style="padding:4px 10px">下一页 ›</span></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ pageIsArticle }}" hint-placeholder-val="{{ true }}">
+        <div style="max-width:980px;margin:0 auto;padding:18px 28px 0">
+          <div style="{{ xAd }}">
+            <span style="font-size:10px;color:#8B8A82;border:1px solid #C9C8BF;padding:1px 5px;border-radius:3px;flex:none">广告</span>
+            <span style="font-size:14px;color:#4A4943">云数据库 · 新用户首年 3 折</span>
+          </div>
+        </div>
+
+        <div style="max-width:980px;margin:0 auto;padding:30px 28px 40px;display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:48px;align-items:start">
+          <article style="min-width:0;max-width:660px;position:relative">
+            <sc-if value="{{ bodyFrame }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;inset:-12px -18px;border:1px solid rgba(77,142,240,.4);border-radius:10px;pointer-events:none;z-index:2"></div>
+            </sc-if>
+            <sc-if value="{{ scanOn }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;inset:-12px -18px;overflow:hidden;pointer-events:none;z-index:3;border-radius:10px">
+                <div style="position:absolute;left:0;right:0;top:-140px;height:140px;background:linear-gradient(to bottom,rgba(77,142,240,0),rgba(77,142,240,.2) 82%,rgba(77,142,240,.5) 98%,#4D8EF0 100%);animation:bcScanBand 1.6s cubic-bezier(.45,.05,.4,.95) forwards"></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ vizRange }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;margin-bottom:10px"><span style="{{ rangeChipStyle }}">{{ rangeChip }}</span></div>
+            </sc-if>
+            <h1 style="font-family:'Noto Serif SC',serif;font-size:30px;line-height:1.35;font-weight:600;color:#1D1D1F;margin:0 0 10px;text-wrap:pretty">先别拆：小团队为什么应该推迟微服务</h1>
+            <div style="font-size:12.5px;color:#7A7D83;margin-bottom:28px">林叙 · 2026 年 8 月 14 日 · 阅读约 9 分钟</div>
+            <sc-if value="{{ staleBanner }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:12.5px;color:#6B5A2E;background:#F6EFD9;border:1px solid #E8DDB8;border-radius:6px;padding:8px 12px;margin-bottom:20px">更新于 8 月 20 日：删除了第一节的数据表，相关数据待重新核实。</div>
+            </sc-if>
+            <sc-for list="{{ blocks }}" as="b" hint-placeholder-count="10">
+              <div data-pid="{{ b.pid }}" style="{{ b.wrap }}" onClick="{{ b.onClick }}" onMouseEnter="{{ b.onEnter }}" onMouseLeave="{{ b.onLeave }}">
+                <sc-if value="{{ b.hasTag }}" hint-placeholder-val="{{ false }}"><span style="{{ b.tagStyle }}">{{ b.tag }}</span></sc-if>
+                <sc-if value="{{ b.isH }}" hint-placeholder-val="{{ false }}"><h2 style="font-family:'Noto Sans SC',sans-serif;font-size:19px;font-weight:700;color:#1D1D1F;margin:0">{{ b.text }}</h2></sc-if>
+                <sc-if value="{{ b.isP }}" hint-placeholder-val="{{ true }}"><p style="font-family:'Noto Serif SC',serif;font-size:16px;line-height:1.9;color:#2A2A2A;margin:0;text-wrap:pretty">{{ b.text }}</p></sc-if>
+                <sc-if value="{{ b.isList }}" hint-placeholder-val="{{ false }}">
+                  <p style="font-family:'Noto Serif SC',serif;font-size:16px;line-height:1.9;color:#2A2A2A;margin:0 0 6px">{{ b.text }}</p>
+                  <ul style="margin:0;padding-left:22px;display:flex;flex-direction:column;gap:4px">
+                    <sc-for list="{{ b.items }}" as="it" hint-placeholder-count="3"><li style="font-family:'Noto Serif SC',serif;font-size:15.5px;line-height:1.8;color:#2A2A2A">{{ it.x }}</li></sc-for>
+                  </ul>
+                </sc-if>
+                <sc-if value="{{ b.isQuote }}" hint-placeholder-val="{{ false }}">
+                  <blockquote style="margin:0;padding:4px 0 4px 18px;border-left:3px solid #CFCFC8;font-family:'Noto Serif SC',serif;font-size:16px;line-height:1.85;color:#4A4A4A">{{ b.text }}<div style="font-size:13px;color:#7A7D83;margin-top:4px">{{ b.cite }}</div></blockquote>
+                </sc-if>
+                <sc-if value="{{ b.isCode }}" hint-placeholder-val="{{ false }}">
+                  <pre style="margin:0;padding:14px 16px;background:#F0F0EB;border:1px solid #E3E3DD;border-radius:6px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;line-height:1.7;color:#2A2A2A;overflow:auto;white-space:pre">{{ b.text }}</pre>
+                </sc-if>
+                <sc-if value="{{ b.isTable }}" hint-placeholder-val="{{ false }}">
+                  <p style="font-family:'Noto Serif SC',serif;font-size:16px;line-height:1.9;color:#2A2A2A;margin:0 0 10px">{{ b.text }}</p>
+                  <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;font-size:13.5px;border-top:1.5px solid #2A2A2A;border-bottom:1.5px solid #2A2A2A">
+                    <sc-for list="{{ b.cells }}" as="c" hint-placeholder-count="12"><span style="{{ c.style }}">{{ c.v }}</span></sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+            <sc-if value="{{ pageFolded }}" hint-placeholder-val="{{ false }}">
+              <div style="position:relative;margin-top:-70px;padding-top:70px;background:linear-gradient(rgba(250,250,247,0),#FAFAF7 60%);display:flex;justify-content:center">
+                <button style="border:1px solid #D0D0CA;background:#FFFFFF;color:#2A2A2A;font-size:13px;padding:8px 18px;border-radius:18px;cursor:pointer" style-hover="background:#F2F2EE" onClick="{{ expandPage }}">阅读全文（剩余约 60%）▾</button>
+              </div>
+            </sc-if>
+          </article>
+
+          <aside style="{{ xAside }}">
+            <span style="font-size:12px;font-weight:700;color:#1D1D1F;letter-spacing:.04em">相关推荐</span>
+            <sc-for list="{{ recs }}" as="r" hint-placeholder-count="4">
+              <div style="display:flex;flex-direction:column;gap:3px;padding-bottom:12px;border-bottom:1px solid #E6E6E1"><span style="font-family:'Noto Serif SC',serif;font-size:14px;line-height:1.55;color:#2A2A2A">{{ r.t }}</span><span style="font-size:11.5px;color:#8A8D93">{{ r.d }}</span></div>
+            </sc-for>
+            <span style="font-size:12px;font-weight:700;color:#1D1D1F;letter-spacing:.04em;margin-top:6px">热门标签</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap"><span style="font-size:12px;color:#55585E;background:#EFEFEA;padding:3px 9px;border-radius:12px">架构</span><span style="font-size:12px;color:#55585E;background:#EFEFEA;padding:3px 9px;border-radius:12px">团队</span><span style="font-size:12px;color:#55585E;background:#EFEFEA;padding:3px 9px;border-radius:12px">数据库</span><span style="font-size:12px;color:#55585E;background:#EFEFEA;padding:3px 9px;border-radius:12px">前端</span></div>
+            <sc-if value="{{ railWrong }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;inset:-6px;background:rgba(224,168,74,.12);outline:1.5px solid #D69A34;border-radius:6px;pointer-events:none;display:flex;justify-content:flex-end;align-items:flex-start;padding:5px"><span style="font-size:10.5px;font-weight:500;background:#B27A1E;color:#FFFFFF;padding:2px 7px;border-radius:4px">被误识别为正文</span></div>
+            </sc-if>
+          </aside>
+        </div>
+
+        <div style="max-width:980px;margin:0 auto;padding:0 28px 60px;display:flex;flex-direction:column;gap:22px">
+          <div style="{{ xSub }}">
+            <span style="font-size:14px;font-weight:700;color:#1D1D1F">订阅工程笔记</span>
+            <span style="font-size:13px;color:#55585E">每两周一封，写团队、架构和那些没写进文档的事。</span>
+          </div>
+          <div style="{{ xCom }}">
+            <span style="font-size:15px;font-weight:700;color:#1D1D1F">评论（48）</span>
+            <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:12.5px;font-weight:500;color:#2A2A2A">周末去爬山</span><span style="font-size:13.5px;line-height:1.7;color:#44474C">我们去年也拆了，现在最痛的是本地联调，起一套环境要十几个容器。</span></div>
+            <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:12.5px;font-weight:500;color:#2A2A2A">kevin_w</span><span style="font-size:13.5px;line-height:1.7;color:#44474C">依赖检查那条规则很实用，请问有没有推荐的起步配置？</span></div>
+          </div>
+          <span style="font-size:11px;color:#9A9DA3">演示数据：网站、作者与文章内容均为虚构。</span>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="width:372px;flex:none;background:#121417;border-left:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;min-height:0;position:relative">
+    <div style="height:44px;flex:none;display:flex;align-items:center;gap:8px;padding:0 8px 0 14px;border-bottom:1px solid rgba(255,255,255,.07)">
+      <span style="width:15px;height:15px;border-radius:4px;background:#4D8EF0;flex:none"></span>
+      <span style="font-size:12px;font-weight:600;color:#E7E9ED;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">工程笔记</span>
+      <span title="按页面自动选择：B 站视频页为视频模式，其他网页为文章模式" style="font-size:10.5px;color:#C7CBD1;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.06)">文章</span>
+      <div style="flex:1"></div>
+      <button title="设置" style="border:none;background:transparent;color:#8A9099;font-size:14px;width:28px;height:28px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1">⋯</button>
+      <button title="关闭" style="border:none;background:transparent;color:#8A9099;font-size:15px;width:28px;height:28px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1">×</button>
+    </div>
+
+    <div style="flex:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;gap:6px">
+      <span style="font-size:13px;font-weight:600;line-height:1.45;color:#E7E9ED;text-wrap:pretty">{{ docTitle }}</span>
+      <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:7px;min-height:22px">
+        <sc-if value="{{ statusBusy }}" hint-placeholder-val="{{ false }}">
+          <div data-orb-slot="connecting" title="ThinkingOrb · connecting · 13px" style="width:13px;height:13px;border-radius:50%;border:1px dashed rgba(77,142,240,.55);box-sizing:border-box;flex:none"></div>
+        </sc-if>
+        <sc-if value="{{ statusIdle }}" hint-placeholder-val="{{ true }}"><span style="{{ statusDot }}"></span></sc-if>
+        <span style="{{ statusTextStyle }}">{{ statusText }}</span>
+        <div style="flex:1"></div>
+        <sc-if value="{{ statusActions }}" hint-placeholder-val="{{ false }}">
+          <button style="border:none;background:transparent;color:#8A9099;font-size:10.5px;padding:3px 6px;border-radius:5px;cursor:pointer;flex:none" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ toggleFix }}">不准确？</button>
+        </sc-if>
+      </div></sc-if>
+      <sc-if value="{{ fixOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:6px;align-items:center;padding-top:4px;animation:bcFade .18s ease-out">
+          <span style="font-size:10.5px;color:#8A9099;flex:1">识别范围不对时：</span>
+          <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ rerun }}">重新识别</button>
+          <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ goManual }}">手动选择范围</button>
+        </div>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ isGenerating }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;flex:none;border-bottom:1px solid rgba(255,255,255,.06)">
+        <div data-orb-slot="solving" title="ThinkingOrb · solving · 18px" style="width:18px;height:18px;border-radius:50%;border:1px dashed rgba(77,142,240,.55);box-sizing:border-box;flex:none"></div>
+        <span style="font-size:11.5px;color:#C7CBD1;flex:1;min-width:0">{{ genLabel }}</span>
+      </div>
+    </sc-if>
+
+    <div data-thin-scroll style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column">
+
+      <sc-if value="{{ isIdle }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:30px 28px;text-align:center">
+          <button style="border:none;background:#4D8EF0;color:#FFFFFF;font-weight:500;font-size:12px;padding:8px 16px;border-radius:7px;cursor:pointer" style-hover="background:#5D9AF2" onClick="{{ run }}">总结文章</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReading }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:30px 26px;text-align:center">
+          <div data-orb-slot="weaving" title="ThinkingOrb · weaving · 58px" style="width:58px;height:58px;border-radius:50%;border:1px dashed rgba(77,142,240,.55);box-sizing:border-box"></div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <span style="font-size:12.5px;color:#C7CBD1">正在识别正文</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isNotArticle }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px 30px;text-align:center">
+          <span style="font-size:12.5px;color:#C7CBD1">这个页面没有适合总结的文章</span>
+          <span style="font-size:11.5px;line-height:1.7;color:#8A9099;text-wrap:pretty">页面主要是文章列表和链接，没有找到连续的正文段落。打开其中一篇文章后再点「总结文章」。</span>
+          <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;margin-top:4px" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ rereadList }}">重新读取</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isMisread }}" hint-placeholder-val="{{ false }}">
+        <div style="margin:14px;padding:12px 13px;border-radius:10px;background:#1A1D22;border:1px solid rgba(224,168,74,.3);display:flex;flex-direction:column;gap:9px">
+          <span style="font-size:12.5px;font-weight:600;color:#E7E9ED">识别出的正文可能不完整</span>
+          <div style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;line-height:1.65;color:#C7CBD1">
+            <span>· 正文在「二、问题通常不在“单体”」中途结束，页面后面还有约 1,200 字连续文字没有包含。</span>
+            <span>· 右侧「相关推荐」被当成了正文。</span>
+          </div>
+          <span style="font-size:11px;color:#8A9099">网页上已标出当前识别范围。</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:2px">
+            <button style="border:none;background:#4D8EF0;color:#0B0C0E;font-weight:500;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:#5D9AF2" onClick="{{ rerun }}">重新识别</button>
+            <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ goManual }}">手动选择范围</button>
+            <button style="border:none;background:transparent;color:#8A9099;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ sumMisread }}">仍按当前范围总结</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isManual }}" hint-placeholder-val="{{ false }}">
+        <div style="margin:14px;padding:12px 13px;border-radius:10px;background:#1A1D22;border:1px solid rgba(77,142,240,.35);display:flex;flex-direction:column;gap:10px">
+          <span style="font-size:12.5px;font-weight:600;color:#E7E9ED">手动选择正文</span>
+          <span style="font-size:11.5px;line-height:1.65;color:#8A9099">在左侧网页上依次点击正文的第一段和最后一段，中间的内容会一起选中。</span>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:10.5px;color:#8A9099;width:28px;flex:none">起点</span><span style="{{ selStartStyle }}">{{ selStartLabel }}</span></div>
+            <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:10.5px;color:#8A9099;width:28px;flex:none">终点</span><span style="{{ selEndStyle }}">{{ selEndLabel }}</span></div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;padding-top:2px">
+            <button style="{{ selConfirmStyle }}" onClick="{{ selConfirm }}">{{ selConfirmLabel }}</button>
+            <button style="border:none;background:transparent;color:#8A9099;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ selCancel }}">取消</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isPartial }}" hint-placeholder-val="{{ false }}">
+        <div style="margin:14px;padding:12px 13px;border-radius:10px;background:#1A1D22;border:1px solid rgba(224,168,74,.3);display:flex;flex-direction:column;gap:9px">
+          <span style="font-size:12.5px;font-weight:600;color:#E7E9ED">只读取到文章的前一部分</span>
+          <span style="font-size:11.5px;line-height:1.65;color:#C7CBD1">{{ partialText }}</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:2px">
+            <button style="border:none;background:#4D8EF0;color:#0B0C0E;font-weight:500;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:#5D9AF2" onClick="{{ expandRerun }}">{{ expandRerunLabel }}</button>
+            <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ sumPartial }}">先总结已读部分</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isFailed }}" hint-placeholder-val="{{ false }}">
+        <div style="margin:14px;padding:12px 13px;border-radius:10px;background:#1A1D22;border:1px solid rgba(224,108,108,.32);display:flex;flex-direction:column;gap:9px">
+          <span style="font-size:12.5px;font-weight:600;color:#E7E9ED">总结没有生成</span>
+          <span style="font-size:11.5px;line-height:1.65;color:#C7CBD1">总结服务 30 秒内没有响应。正文已经识别好，重试只会重新生成总结。</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:2px">
+            <button style="border:none;background:#4D8EF0;color:#0B0C0E;font-weight:500;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:#5D9AF2" onClick="{{ retry }}">重试</button>
+            <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ showLog }}">查看日志</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showSummary }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:14px;padding:12px 14px 18px">
+          <sc-if value="{{ subsetBanner }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(224,168,74,.1)">
+              <span style="font-size:11px;line-height:1.55;color:#E3C28A;flex:1">{{ subsetText }}</span>
+              <sc-if value="{{ subsetCanExpand }}" hint-placeholder-val="{{ false }}"><button style="border:none;background:transparent;color:#79ACF5;font-size:11px;padding:4px 6px;border-radius:5px;cursor:pointer;flex:none" style-hover="background:rgba(77,142,240,.14)" onClick="{{ expandRerun }}">展开并重新读取</button></sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{ updatedNote }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:11px;line-height:1.55;color:#C7CBD1;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.05)">文章在上次总结后有更新，已按当前内容重新总结；原先引用已删除数据表的 1 条要点已移除。</div>
+          </sc-if>
+
+          <sc-if value="{{ hasConcl }}" hint-placeholder-val="{{ true }}">
+            <div style="{{ concl.card }}" onClick="{{ concl.onSelect }}">
+              <span style="font-size:10.5px;font-weight:500;color:#8A9099">文章总结</span>
+              <span style="font-size:12.5px;line-height:1.75;color:#E7E9ED;text-wrap:pretty">{{ concl.text }}</span>
+              <sc-if value="{{ concl.multi }}" hint-placeholder-val="{{ false }}">
+                <button style="{{ concl.srcBtn }}" style-hover="background:rgba(77,142,240,.12)" onClick="{{ concl.onToggle }}">{{ concl.srcBtnLabel }}</button>
+              </sc-if>
+              <sc-if value="{{ concl.single }}" hint-placeholder-val="{{ false }}">
+                <button style="{{ concl.srcBtn }}" style-hover="background:rgba(77,142,240,.12)" onClick="{{ concl.onSingle }}">{{ concl.srcBtnLabel }}<span style="color:#8A9099;font-weight:400">{{ concl.singleMeta }}</span></button>
+              </sc-if>
+              <sc-if value="{{ concl.open }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:2px;animation:bcFade .16s ease-out">
+                  <sc-for list="{{ concl.srcs }}" as="r" hint-placeholder-count="2">
+                    <button style="{{ r.style }}" style-hover="background:rgba(255,255,255,.05)" onClick="{{ r.onClick }}">
+                      <span style="{{ r.badge }}">{{ r.idx }}</span>
+                      <span style="display:flex;flex-direction:column;gap:1px;min-width:0;text-align:left">
+                        <span style="font-size:11px;color:#C7CBD1">{{ r.meta }}</span>
+                        
+                      </span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-for list="{{ secs }}" as="sc" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <div style="padding:4px 2px 2px">
+                <span style="font-size:12px;font-weight:600;color:#E7E9ED">{{ sc.title }}</span>
+              </div>
+              <sc-if value="{{ sc.open }}" hint-placeholder-val="{{ true }}">
+                <sc-for list="{{ sc.points }}" as="p" hint-placeholder-count="2">
+                  <div style="{{ p.card }}" onClick="{{ p.onSelect }}">
+                    <div style="display:flex;gap:8px">
+                      
+                      <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1">
+                        <span style="font-size:12px;line-height:1.7;color:#C7CBD1;text-wrap:pretty">{{ p.text }}</span>
+                        <sc-if value="{{ p.single }}" hint-placeholder-val="{{ true }}">
+                          <button style="{{ p.srcBtn }}" style-hover="background:rgba(77,142,240,.12)" onClick="{{ p.onSingle }}">{{ p.srcBtnLabel }}<span style="color:#8A9099;font-weight:400">{{ p.singleMeta }}</span></button>
+                        </sc-if>
+                        <sc-if value="{{ p.multi }}" hint-placeholder-val="{{ false }}">
+                          <button style="{{ p.srcBtn }}" style-hover="background:rgba(77,142,240,.12)" onClick="{{ p.onToggle }}">{{ p.srcBtnLabel }}</button>
+                        </sc-if>
+                        <sc-if value="{{ p.open }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;flex-direction:column;gap:2px;animation:bcFade .16s ease-out">
+                            <sc-for list="{{ p.srcs }}" as="r" hint-placeholder-count="2">
+                              <button style="{{ r.style }}" style-hover="background:rgba(255,255,255,.05)" onClick="{{ r.onClick }}">
+                                <span style="{{ r.badge }}">{{ r.idx }}</span>
+                                <span style="display:flex;flex-direction:column;gap:1px;min-width:0;text-align:left">
+                                  <span style="font-size:11px;color:#C7CBD1">{{ r.meta }}</span>
+                                  
+                                </span>
+                              </button>
+                            </sc-for>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ p.fail }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;flex-direction:column;gap:7px;padding:9px 10px;border-radius:7px;background:rgba(224,108,108,.1);animation:bcFade .16s ease-out">
+                            <span style="font-size:11.5px;font-weight:500;color:#E7E9ED">没找到这段原文</span>
+                            <span style="font-size:11px;line-height:1.6;color:#C7CBD1">{{ p.failText }}</span>
+                            <div style="display:flex;gap:6px">
+                              <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#E7E9ED;font-size:11px;padding:4px 9px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26)" onClick="{{ rerun }}">重新读取文章</button>
+                              <button style="border:none;background:transparent;color:#8A9099;font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ p.onDismiss }}">关闭</button>
+                            </div>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </div>
+                  </div>
+                </sc-for>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ showFooter }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:9px 12px;border-top:1px solid rgba(255,255,255,.08);background:#121417;display:flex;gap:6px;flex-wrap:wrap;flex:none">
+        <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ copySum }}">复制总结</button>
+        <button style="border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.26);color:#E7E9ED" onClick="{{ dlSum }}">下载 Markdown</button>
+        <div style="flex:1"></div>
+        <button style="border:none;background:transparent;color:#8A9099;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ rerun }}">重新总结</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ toastOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;left:50%;bottom:60px;transform:translateX(-50%);padding:8px 14px;border:1px solid rgba(255,255,255,.1);background:#1E2430;border-radius:9px;font-size:11.5px;color:#E7E9ED;white-space:nowrap;box-shadow:0 14px 36px rgba(0,0,0,.6);animation:bcFade .18s ease-out">{{ toast }}</div>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ notesOpen }}" hint-placeholder-val="{{ false }}">
+    <div data-thin-scroll style="position:absolute;left:0;top:0;bottom:0;width:min(460px,100%);z-index:40;background:#16181C;border-right:1px solid rgba(255,255,255,.1);box-shadow:16px 0 40px rgba(0,0,0,.5);overflow:auto;padding:20px 24px 40px;box-sizing:border-box;display:flex;flex-direction:column;gap:22px">
+      <div style="display:flex;align-items:center"><span style="font-size:14px;font-weight:600;color:#E7E9ED;flex:1">文章总结 · 交互说明</span><button style="border:none;background:transparent;color:#8A9099;font-size:15px;width:28px;height:28px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,.06);color:#C7CBD1" onClick="{{ toggleNotes }}">×</button></div>
+      <sc-for list="{{ notes }}" as="n" hint-placeholder-count="5">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <span style="font-size:12px;font-weight:600;color:#E7E9ED">{{ n.h }}</span>
+          <sc-for list="{{ n.items }}" as="i" hint-placeholder-count="3">
+            <span style="font-size:11.5px;line-height:1.75;color:#C7CBD1;text-wrap:pretty">{{ i.x }}</span>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;flashSec&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:2.4,&quot;min&quot;:1,&quot;max&quot;:5,&quot;step&quot;:0.2,&quot;unit&quot;:&quot;s&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;原文定位&quot;},&quot;showRangeOnDone&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;正文识别&quot;}}">
+const SECS=['引言','一、拆分的真实成本','二、问题通常不在“单体”','三、什么时候该拆','四、反例与适用范围','结语'];
+const A=[
+{id:'p1',t:'p',s:0,text:'过去三年，我参与过四个团队的架构调整，其中三个都在人数不到二十人时把系统拆成了微服务。拆分的理由听上去都很充分：模块之间互相牵连，一处改动要全量回归，发布一次要等所有人合代码。拆完之后，这些问题有的缓解了，更多的是换了一种形式继续存在。'},
+{id:'p2',t:'p',s:0,text:'我的结论是：团队规模较小、业务边界还在变化时，微服务带来的成本通常高于收益。更稳妥的路径是先把单体做成边界清晰的模块化单体，等出现明确的独立扩缩容或独立发布需求时，再有针对性地拆分。'},
+{id:'h1',t:'h',s:1,text:SECS[1]},
+{id:'p3',t:'p',s:1,text:'拆分之后最先增加的不是代码量，而是“系统之间”的工作。原本一次函数调用能完成的事，现在要经过序列化、网络、重试和超时处理。每个服务都需要自己的部署流水线、配置、监控告警和值班。服务数量翻倍时，这部分工作的增长往往超过一倍，因为服务之间的组合关系也在增加。'},
+{id:'p4',t:'list',s:1,text:'在我们的第二个团队里，拆分后新增的固定工作主要有这几类：',items:['每个服务独立的 CI/CD 流水线和环境配置','跨服务的链路追踪与日志关联','接口版本管理和兼容性测试','分布式事务或补偿逻辑']},
+{id:'p5',t:'table',s:1,text:'拆分前后各半年，同一团队的几个指标对比如下（团队 14 人，拆成 9 个服务）：',head:['指标','拆分前','拆分后'],rows:[['每周发布次数','11','6'],['平均故障定位时间','25 分钟','70 分钟'],['新人首次独立上线','2 周','5 周']]},
+{id:'p6',t:'p',s:1,text:'发布频率下降并不是因为大家变懒了。一个功能往往要同时改三四个服务，这些服务的发布必须按顺序进行，任何一个环节出错都要整体回滚。拆分本来是为了让团队各自发布，结果却把协调成本从代码合并转移到了发布编排。'},
+{id:'h2',t:'h',s:2,text:SECS[2]},
+{id:'p7',t:'p',s:2,text:'回头看，那些让人想拆分的症状——改一处牵动全身、测试跑得慢、没人敢动核心模块——大多数和“单体”这种部署形式无关，而是模块边界不清造成的。边界不清的代码拆成服务后，耦合并不会消失，只是从函数调用变成了网络调用，排查起来更困难。'},
+{id:'p8',t:'quote',s:2,text:'“如果你无法构建一个结构良好的单体，凭什么认为微服务能解决问题？”',cite:'—— Simon Brown'},
+{id:'p9',t:'p',s:2,text:'所以我现在更倾向于先在单体内部划清模块：每个模块只通过公开接口被调用，模块之间的依赖方向用工具强制检查。下面是我们在 CI 里加的一条规则，禁止订单模块直接引用库存模块的内部实现：'},
+{id:'p10',t:'code',s:2,text:"// .dependency-cruiser.js\n{\n  name: 'no-internal-cross-module',\n  from: { path: '^src/modules/order' },\n  to:   { path: '^src/modules/inventory/internal' },\n  severity: 'error'\n}"},
+{id:'p11',t:'p',s:2,text:'这条规则上线后的两个月里，拦下了 30 多次越界引用。模块边界稳定之后，哪些部分适合独立出去，也就变得清楚了。'},
+{id:'h3',t:'h',s:3,text:SECS[3]},
+{id:'p12',t:'list',s:3,text:'我会等到下面至少一个信号明确出现，再考虑把某个模块拆成独立服务：',items:['这个模块的负载特征和其他部分明显不同，需要单独扩缩容','这个模块的发布节奏和其他部分明显不同，经常被迫一起等','有一个固定的小组长期负责它，并且愿意承担它的值班']},
+{id:'p13',t:'p',s:3,text:'拆分时从依赖最少的边缘模块开始，比如通知、文件处理、报表导出。它们出问题时影响范围小，团队也能借此把部署、监控和值班流程先跑通，再去碰核心链路。'},
+{id:'h4',t:'h',s:4,text:SECS[4]},
+{id:'p14',t:'p',s:4,text:'也有一开始就拆分并且效果不错的情况。我接触过的一家支付公司，从第一天起就把清结算单独部署，因为合规要求这部分必须在隔离的网络和权限体系下运行。这种拆分由外部约束决定，不属于本文讨论的“过早拆分”。'},
+{id:'p15',t:'p',s:4,text:'另外需要说明，我的经验主要来自 15 到 30 人规模的 ToB SaaS 团队，业务以表单、流程和报表为主。对于流量波动极大的消费级产品，或者本身就是多个独立产品线的组织，上面的判断未必适用。'},
+{id:'h5',t:'h',s:5,text:SECS[5]},
+{id:'p16',t:'p',s:5,text:'微服务是一种组织和部署方式，适合解决特定的规模问题。对大多数小团队来说，先把模块边界做清楚，比先把服务拆开更重要；边界清楚了，拆不拆、什么时候拆，都会变成一个容易回答的问题。'}
+];
+const SUM={
+  concl:{text:'小团队在业务边界尚未稳定时，拆分微服务的成本通常高于收益。作者建议先做边界清晰的模块化单体，出现独立扩缩容或独立发布的明确需求后，再有针对性地拆分。',partial:'从已读取的部分看，作者认为小团队过早拆分微服务得不偿失，主张先做模块化单体再按需拆分。后文的具体做法和适用范围尚未读取。',src:['p2','p16']},
+  secs:[
+    {title:SECS[1],points:[
+      {text:'拆分后增加的主要是服务之间的工作：网络调用、独立流水线、监控和值班，服务越多增长越快。',src:['p3','p4']},
+      {text:'作者参与过的团队中，三个在不到 20 人时就拆分了；其中一个 14 人的团队拆成 9 个服务后，每周发布从 11 次降到 6 次，故障定位时间从 25 分钟增至 70 分钟。',src:['p1','p5']},
+      {text:'发布变慢是因为一个功能要跨多个服务按顺序发布，协调成本从合并代码转移到了发布编排。',src:['p6']}]},
+    {title:SECS[2],points:[
+      {text:'促使拆分的症状多源于模块边界不清，与单体这种部署形式无关；直接拆分只会把耦合变成网络调用。',src:['p7','p8']},
+      {text:'做法：在单体内部划清模块，用 CI 规则强制依赖方向。作者团队两个月内拦下 30 多次越界引用。',src:['p9','p10','p11']}]},
+    {title:SECS[3],points:[
+      {text:'至少出现一个信号再拆：负载特征不同需要单独扩缩容、发布节奏不同、有固定小组长期负责。',src:['p12']},
+      {text:'从通知、文件处理等依赖最少的边缘模块开始，先跑通部署和值班流程，再动核心链路。',src:['p13']}]},
+    {title:SECS[4],points:[
+      {text:'反例：因合规需要隔离的模块（如支付清结算）一开始就拆是合理的，不属于过早拆分。',src:['p14']},
+      {text:'作者经验来自 15–30 人的 ToB SaaS 团队；流量波动大的消费级产品或多产品线组织未必适用。',src:['p15']}]}
+  ]};
+const BY={};A.forEach(b=>BY[b.id]=b);
+const PIDS=A.filter(b=>b.t!=='h').map(b=>b.id);
+const ORD={};PIDS.forEach((id,i)=>ORD[id]=i+1);
+const MISREAD=PIDS.slice(0,8);
+const groupsOf=src=>{const o=[...src].sort((a,b)=>ORD[a]-ORD[b]);const gs=[];o.forEach(id=>{const g=gs[gs.length-1];if(g&&ORD[id]===ORD[g.ids[g.ids.length-1]]+1)g.ids.push(id);else gs.push({ids:[id]});});gs.forEach(g=>{const a=ORD[g.ids[0]],b=ORD[g.ids[g.ids.length-1]];g.label=g.ids.length>1?'第 '+a+'–'+b+' 段':'第 '+a+' 段';});return gs;};
+const plain=b=>b.t==='code'?b.text:b.t==='list'?b.text+b.items.join(''):b.t==='table'?b.text+b.rows.flat().join(''):b.text;
+const chars=ids=>ids.reduce((n,id)=>n+plain(BY[id]).length,0);
+const fmtChars=ids=>'约 '+(Math.round(chars(ids)/100)*100).toLocaleString('en-US')+' 字';
+const excerpt=id=>{const b=BY[id];const t=b.t==='code'?b.text.split('\n')[2].trim():b.text;return t.length>24?t.slice(0,24)+'…':t;};
+const SCN=[['idle','待总结'],['reading','识别正文中'],['generating','总结生成中'],['done','总结完成'],['locate','定位与高亮'],['misread','识别不准确'],['manual','手动选择范围'],['partial','内容不完整'],['notarticle','非文章页'],['failed','总结失败'],['stale','定位失效']];
+const NOTES=[
+  {h:'与视频场景的关系',items:['插件按当前页面自动选择模式，用户不需要切换：B 站视频页进入视频模式（字幕 / 标记 / 大纲，见视频场景设计稿）；其他网页（含 B 站专栏）检测到文章时进入文章模式。','标题行的「文章」标签只做提示，不可点击。单页应用路由变化后重新判断。','侧栏外壳、浮窗、按钮规格和加载反馈（点阵球占位、状态行文字）两种模式共用。浮窗中使用同一套布局；宽度不足 340px 时，来源行只显示序号和段号。']},
+  {h:'主流程',items:['打开侧栏不会自动读取。点「总结文章」后连续完成：识别正文 → 生成总结。进度写在文章卡片的状态行，生成期间顶部常驻进度条，要点逐条出现。','识别正文时，导航、广告、推荐、订阅和评论被压暗，正文保持原样并有一条扫描线扫过；生成总结期间保持压暗，完成后恢复。点状态行的「不准确？」可以再次压暗非正文，核对识别范围。','总结按文章自身的小标题分段，每段是对应章节的概括，段内每句话各自挂它引用的原文。开头的「文章总结」概括全文主题和结论，引言与结语的内容合并在这里。前提、限制和反例写在对应章节里，不单独成组。']},
+  {h:'查看原文',items:['每句话只挂它实际引用的段落，可以是 1 处或多处；文章总结是对全文的概括，不对应单个段落，没有「查看原文」。没有具体依据的句子不显示入口。','单一来源：直接显示「查看原文」和章节 · 段号，点击即跳转。相邻的多个段落合并为一处，一次高亮；只有不相邻的来源才拆成多处，点「查看原文 · n 处」展开列表，每行是序号、章节和段号。','点击后网页平滑滚动到目标段落，0.25 秒后高亮约 2.4 秒再淡出；段落右上角同时出现「二、问题通常不在“单体”· 原文 1/3」标签，表明正在核对哪一段总结。侧栏中对应句子保持选中，用户可以继续阅读上下文。','定位依据：识别时为每段记录文本指纹和 DOM 路径。定位时先按指纹精确匹配，失败后只在同一章节内做相似度匹配（阈值 0.9）；仍失败就报告「没找到这段原文」，不滚动页面，避免跳到错误位置。']},
+  {h:'异常处理',items:['识别不准确：当正文在小标题中途结束、正文之后还有大段连续文字，或包含链接密度高的区块时自动提示；用户也可以在状态行点「不准确？」。提供「重新识别」和「手动选择范围」。','手动选择：在网页上依次点击起点段落和终点段落，范围内段落显示蓝底，确认后直接总结。只作为补救，不出现在常规流程。','内容不完整：检测到「阅读全文」「展开」等折叠控件或正文被截断时，先提示再总结。可以展开后重新读取，也可以先总结已读部分，此时总结顶部标明依据的段数。','非文章页：说明原因（列表页、登录墙、正文过短等）和下一步。','总结失败：保留已识别的正文，重试只重新请求总结。','原文定位失效：在对应要点内说明，并提供「重新读取文章」。重新读取后按当前内容重新总结，并说明哪些要点发生了变化。']},
+  {h:'开发备注',items:['正文提取使用 Defuddle，需要保留 h2–h4、列表、引用、代码块和表格，以及每段与原 DOM 节点的映射。界面文案不出现 Defuddle。','总结请求中每段带编号（p1…pn），模型为每条要点返回所引用的段落编号；前端丢弃不存在的编号，所有编号都失效的要点不显示来源入口。','演示数据：示例网页、作者和文章均为虚构。演示中的滚动与高亮在示例网页上真实执行。']}
+];
+const BASE={scene:'idle',pageFolded:false,pageStale:false,readIds:null,streamN:0,hl:null,hlN:0,activePt:null,activeSrc:null,failPt:null,openSrc:{},showRange:false,fixOpen:false,selStart:null,selEnd:null,hoverPid:null,collapsed:{}};
+
+class Component extends DCLogic {
+  state={...BASE,demo:'idle',notes:false,toast:null};
+  pageRef=React.createRef();
+  _t=[];
+  clear(){this._t.forEach(t=>{clearTimeout(t);clearInterval(t);});this._t=[];}
+  componentWillUnmount(){this.clear();}
+  flash(msg){this.setState({toast:msg});clearTimeout(this._toast);this._toast=setTimeout(()=>this.setState({toast:null}),1800);}
+  visibleIds(){let ids=A.map(b=>b.id);if(this.state.pageStale)ids=ids.filter(i=>i!=='p5');if(this.state.pageFolded)ids=ids.slice(0,ids.indexOf('p7')+1);return ids;}
+  visParas(){return this.visibleIds().filter(i=>BY[i].t!=='h');}
+  pageTop(){const c=this.pageRef.current;if(c)c.scrollTo({top:0});}
+  build(readIds){
+    const r=new Set(readIds||PIDS);const fs=src=>src.filter(x=>r.has(x));
+    const concl={id:'c',tag:'文章总结',text:r.has('p16')?SUM.concl.text:SUM.concl.partial,src:[]};
+    const secs=[];let si=0;
+    SUM.secs.forEach(sc=>{const pts=sc.points.map(p=>({...p,src:fs(p.src)})).filter(p=>p.src.length);if(!pts.length)return;si++;secs.push({title:sc.title,key:sc.title,points:pts.map((p,i)=>({...p,id:si+'.'+(i+1),num:si+'.'+(i+1),tag:sc.title}))});});
+    return {concl,secs,flat:[concl,...secs.flatMap(s=>s.points)]};
+  }
+  setScene(k){
+    this.clear();
+    const st={...BASE,demo:k,showRange:!!this.props.showRangeOnDone};
+    const map={idle:{scene:'idle'},reading:{scene:'reading'},generating:{scene:'generating',streamN:4},done:{scene:'done'},locate:{scene:'done'},misread:{scene:'misread'},manual:{scene:'manual'},partial:{scene:'partial',pageFolded:true},notarticle:{scene:'notarticle'},failed:{scene:'failed'},stale:{scene:'done',pageStale:true,readIds:PIDS}};
+    this.setState({...st,...map[k]},()=>{this.pageTop();
+      if(k==='locate'){this._t.push(setTimeout(()=>{const pt=this.build(null).flat.find(p=>p.id==='2.2');this.setState(s=>({openSrc:{...s.openSrc,'2.2':true}}));this.jump(pt,['p9','p10','p11']);},450));}
+    });
+  }
+  run(){
+    this.clear();
+    this.setState({scene:'reading',hl:null,activePt:null,activeSrc:null,failPt:null,fixOpen:false,openSrc:{},selStart:null,selEnd:null},()=>this.pageTop());
+    this._t.push(setTimeout(()=>{if(this.state.pageFolded){this.setState({scene:'partial'});return;}this.generate(this.visParas());},1700));
+  }
+  generate(readIds){
+    this.clear();
+    const total=this.build(readIds).flat.length;
+    this.setState({scene:'generating',readIds,streamN:0,hl:null,activePt:null,activeSrc:null,failPt:null,fixOpen:false,openSrc:{}});
+    const iv=setInterval(()=>{const n=this.state.streamN+1;if(n>=total){clearInterval(iv);this.setState({streamN:total,scene:'done'});}else this.setState({streamN:n});},420);
+    this._t.push(iv);
+  }
+  jump(pt,ids){
+    const pid=ids[0];
+    if(!ids.every(x=>this.visibleIds().includes(x))){this.setState({failPt:pt.id,activePt:pt.id,activeSrc:pid,hl:null});return;}
+    const gs=groupsOf(pt.src),k=gs.findIndex(g=>g.ids[0]===pid)+1;
+    const label=pt.tag+(gs.length>1?' · 原文 '+k+'/'+gs.length:'');
+    this.setState(s=>({hl:{pids:ids,label},hlN:s.hlN+1,activePt:pt.id,activeSrc:pid,failPt:null}));
+    requestAnimationFrame(()=>{const c=this.pageRef.current;if(!c)return;const el=c.querySelector('[data-pid="'+pid+'"]');if(!el)return;
+      const top=el.getBoundingClientRect().top-c.getBoundingClientRect().top+c.scrollTop-Math.max(80,(c.clientHeight-el.offsetHeight)/3);
+      c.scrollTo({top:Math.max(0,top),behavior:'smooth'});});
+  }
+  pickBlock(id){
+    if(BY[id].t==='h')return;
+    const s=this.state;
+    if(!s.selStart||s.selEnd)this.setState({selStart:id,selEnd:null});
+    else{let a=s.selStart,b=id;if(PIDS.indexOf(b)<PIDS.indexOf(a))[a,b]=[b,a];this.setState({selStart:a,selEnd:b});}
+  }
+  renderVals(){
+    const s=this.state,sc=s.scene,flashSec=this.props.flashSec??2.4;
+    const vis=this.visibleIds(),visP=vis.filter(i=>BY[i].t!=='h');
+    const isSumScene=sc==='done'||sc==='generating';
+    const readIds=s.readIds||PIDS;
+    let rangeP;
+    if(sc==='misread')rangeP=MISREAD;
+    else if(sc==='manual'){if(s.selStart){const a=PIDS.indexOf(s.selStart),b=PIDS.indexOf(s.selEnd||s.selStart);rangeP=PIDS.slice(a,b+1);}else rangeP=[];}
+    else if(sc==='reading'||sc==='partial')rangeP=visP;
+    else rangeP=readIds.filter(i=>vis.includes(i));
+    const rangeSet=new Set(rangeP);
+    const vizRange=sc==='reading'||sc==='generating'||sc==='misread'||sc==='manual'||(s.showRange&&(sc==='done'||sc==='failed'||sc==='partial'));
+    const pageIsList=sc==='notarticle';
+    const dim=vizRange&&sc!=='manual'&&sc!=='misread'&&!pageIsList;
+    const dimT='transition:filter .45s,opacity .45s;'+(dim?'filter:blur(3.5px);opacity:.5;':'');
+    const inRange=(id,i)=>{if(BY[id].t!=='h')return rangeSet.has(id);const nx=vis.slice(i+1).find(x=>BY[x].t!=='h');return nx&&rangeSet.has(nx);};
+    const tagBase='position:absolute;top:-11px;right:8px;z-index:2;font-family:\'Noto Sans SC\',sans-serif;font-size:10.5px;font-weight:500;color:#FFFFFF;padding:2px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;';
+    const blocks=vis.map((id,i)=>{
+      const b=BY[id],isH=b.t==='h',ir=inRange(id,i);
+      let wrap='position:relative;border-radius:6px;padding:5px 10px;margin:'+(isH?'26px -10px 10px':'0 -10px 12px')+';outline:1.5px solid transparent;transition:background-color .25s,outline-color .2s;';
+      if(vizRange&&ir)wrap+='background-color:'+(sc==='manual'?'rgba(77,142,240,.13)':sc==='misread'?'rgba(224,168,74,.1)':'transparent')+';';
+      if(sc==='manual'&&!isH){wrap+='cursor:pointer;';if(s.hoverPid===id)wrap+='outline-color:rgba(77,142,240,.65);';}
+      let tag='',tagStyle='';
+      if(s.hl&&s.hl.pids.includes(id)){wrap+='animation:bcHl'+(s.hlN%2)+' '+flashSec+'s ease-out .25s;';if(id===s.hl.pids[0]){tag=s.hl.label;tagStyle=tagBase+'background:#4D8EF0;opacity:0;animation:bcTag'+(s.hlN%2)+' '+(flashSec+1.6)+'s ease-out .25s;';}}
+      else if(sc==='manual'&&(id===s.selStart||id===s.selEnd)){tag=id===s.selStart&&(!s.selEnd||s.selEnd===s.selStart)?'起点':id===s.selStart?'起点':'终点';tagStyle=tagBase+'background:#4D8EF0;';}
+      else if(sc==='misread'&&id==='p9'){tag='以下未识别为正文';tagStyle=tagBase+'background:#B27A1E;';}
+      const cells=b.t==='table'?[...b.head.map(v=>({v,style:'padding:7px 8px;font-weight:600;color:#1D1D1F;border-bottom:1px solid #2A2A2A'})),...b.rows.flat().map(v=>({v,style:'padding:7px 8px;color:#2A2A2A;border-bottom:1px solid #E3E3DD'}))]:[];
+      return {pid:id,isH,isP:b.t==='p',isList:b.t==='list',isQuote:b.t==='quote',isCode:b.t==='code',isTable:b.t==='table',text:b.text,cite:b.cite||'',items:(b.items||[]).map(x=>({x})),cells,wrap,hasTag:!!tag,tag,tagStyle,
+        onClick:sc==='manual'?()=>this.pickBlock(id):undefined,
+        onEnter:sc==='manual'?()=>this.setState({hoverPid:id}):undefined,
+        onLeave:sc==='manual'?()=>this.setState({hoverPid:null}):undefined};
+    });
+    let rangeChip='',rangeChipStyle='font-size:11px;font-weight:500;padding:3px 9px;border-radius:5px;';
+    if(sc==='reading'){rangeChip='正在识别正文…';rangeChipStyle+='background:#4D8EF0;color:#FFFFFF';}
+    else if(sc==='misread'){rangeChip='识别的正文 · 8 段 · 可能不完整';rangeChipStyle+='background:#B27A1E;color:#FFFFFF';}
+    else if(sc==='manual'){rangeChip=rangeP.length?'已选 '+rangeP.length+' 段 · '+fmtChars(rangeP):'手动选择：点击正文的第一段';rangeChipStyle+='background:#4D8EF0;color:#FFFFFF';}
+    else{rangeChip='识别的正文 · '+rangeP.length+' 段 · '+fmtChars(rangeP);rangeChipStyle+='background:#4D8EF0;color:#FFFFFF';}
+
+    // status row
+    let statusText='',statusColor='#8A9099',dot='#5B6170',busy=false;
+    if(sc==='idle'){statusText='尚未读取';}
+    else if(sc==='reading'){statusText='正在识别正文';}
+    else if(sc==='generating'){statusText='已识别正文 · '+readIds.length+' 段';dot='#3FB27F';}
+    else if(sc==='done'||sc==='failed'){statusText='已识别正文 · '+readIds.length+' 段';dot=readIds.length<PIDS.length?'#E0A84A':'#3FB27F';}
+    else if(sc==='misread'){statusText='识别结果可能不准确';statusColor='#E3C28A';dot='#E0A84A';}
+    else if(sc==='manual'){statusText='手动选择正文';statusColor='#C7CBD1';dot='#4D8EF0';}
+    else if(sc==='partial'){statusText='只读取到部分正文 · '+visP.length+'/'+PIDS.length+' 段';statusColor='#E3C28A';dot='#E0A84A';}
+    else if(sc==='notarticle'){statusText='没有找到文章正文';}
+    const statusTextStyle='font-size:11px;color:'+statusColor+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0'+(busy?';animation:bcPulse 1.5s infinite ease-in-out;color:#79ACF5':'');
+
+    // summary
+    const {concl,secs,flat}=this.build(s.readIds);
+    const shownN=sc==='generating'?s.streamN:flat.length;
+    const shown=new Set(flat.slice(0,shownN).map(p=>p.id));
+    const srcBtn='align-self:flex-start;display:flex;gap:6px;align-items:baseline;border:none;background:transparent;color:#79ACF5;font-weight:500;font-size:11px;padding:3px 6px;margin-left:-6px;border-radius:5px;cursor:pointer;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    const ptVM=(p,isC)=>{
+      const gs=groupsOf(p.src);const active=s.activePt===p.id,fail=s.failPt===p.id,multi=gs.length>1,open=multi&&!!s.openSrc[p.id];
+      const card=isC?'display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:10px;border:1px solid '+(active?'rgba(77,142,240,.45)':'rgba(255,255,255,.08)')+';background:'+(active?'rgba(77,142,240,.08)':'#1A1D22')+';animation:bcFade .25s ease-out'
+        :'padding:8px 8px 7px;border-radius:8px;background:'+(fail?'rgba(224,108,108,.06)':active?'rgba(77,142,240,.09)':'transparent')+';animation:bcFade .25s ease-out';
+      const aSrc=s.activeSrc||p.src[0]||'p1';return {num:p.num||'',text:p.text,card,single:gs.length===1,multi,open,fail,
+        srcBtn,srcBtnLabel:multi?'查看原文 · '+gs.length+' 处 '+(open?'▴':'▾'):'查看原文',
+        singleMeta:gs.length===1?SECS[BY[gs[0].ids[0]].s]+' · '+gs[0].label:'',
+        onSingle:(e)=>{e&&e.stopPropagation();this.jump(p,gs[0].ids);},
+        onToggle:(e)=>{e&&e.stopPropagation();this.setState(st=>({openSrc:{...st.openSrc,[p.id]:!st.openSrc[p.id]}}));},
+        onSelect:undefined,
+        onDismiss:(e)=>{e&&e.stopPropagation();this.setState({failPt:null});},
+        failText:'这条要点引用的「'+SECS[BY[aSrc].s]+' · 第 '+ORD[aSrc]+' 段」在当前页面上已找不到，文章可能在总结后更新过。为避免跳到错误位置，页面没有滚动。',
+        srcs:gs.map((g,k)=>{const pid=g.ids[0];const on=active&&s.activeSrc===pid;return {idx:String(k+1),meta:SECS[BY[pid].s]+' · '+g.label,
+          style:'display:flex;gap:8px;align-items:center;border:none;background:'+(on?'rgba(77,142,240,.14)':'transparent')+';padding:5px 6px;border-radius:6px;cursor:pointer;min-width:0;width:100%;box-sizing:border-box',
+          badge:'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10px;width:16px;height:16px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex:none;'+(on?'background:#4D8EF0;color:#0B0C0E':'background:rgba(255,255,255,.08);color:#C7CBD1'),
+          onClick:(e)=>{e&&e.stopPropagation();this.jump(p,g.ids);}};})};
+    };
+    const secVMs=secs.map(sec=>{const pts=sec.points.filter(p=>shown.has(p.id));const open=!s.collapsed[sec.key];
+      return {title:sec.title,count:sec.points.length+' 条',open,chev:'font-size:10px;color:#8A9099;transition:transform .15s;display:inline-block;'+(open?'':'transform:rotate(-90deg)'),
+        onToggle:()=>this.setState(st=>({collapsed:{...st.collapsed,[sec.key]:!st.collapsed[sec.key]}})),points:pts.map(p=>ptVM(p,false)),n:pts.length};}).filter(x=>x.n);
+    const subset=isSumScene&&readIds.length<PIDS.length&&!(s.pageStale&&!readIds.includes('p5')&&readIds.length===PIDS.length-1);
+    const readInMisread=readIds.length===MISREAD.length&&readIds.every((x,i)=>x===MISREAD[i]);
+    const subsetText=s.pageFolded||readIds.length===7&&!readInMisread?'总结只基于已读取的前 '+readIds.length+' 段（共 '+PIDS.length+' 段），后文尚未读取。':'总结基于'+(sc==='done'&&readInMisread?'当前识别的 ':'所选的 ')+readIds.length+' 段正文（共 '+PIDS.length+' 段）。';
+
+    const selLabel=id=>id?'第 '+ORD[id]+' 段 · '+excerpt(id):'点击网页上的段落';
+    const selReady=!!s.selStart;
+    return {
+      scenarios:SCN.map(([k,label])=>({label,onClick:()=>this.setScene(k),style:'font-size:10.5px;padding:4px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;'+(s.demo===k?'border:1px solid rgba(77,142,240,.5);background:rgba(77,142,240,.14);color:#E7E9ED':'border:1px solid rgba(255,255,255,.1);background:transparent;color:#8A9099')})),
+      notesBtnStyle:'font-size:10.5px;padding:4px 10px;border-radius:6px;cursor:pointer;flex:none;'+(s.notes?'border:1px solid rgba(77,142,240,.5);background:rgba(77,142,240,.14);color:#E7E9ED':'border:1px solid rgba(255,255,255,.14);background:transparent;color:#C7CBD1'),
+      toggleNotes:()=>this.setState(st=>({notes:!st.notes})),notesOpen:s.notes,notes:NOTES.map(n=>({h:n.h,items:n.items.map(x=>({x}))})),
+      pageRef:this.pageRef,pageUrl:pageIsList?'linxu.blog':'linxu.blog/posts/delay-microservices',
+      pageIsList,pageIsArticle:!pageIsList,blocks,pageFolded:s.pageFolded&&!pageIsList,
+      expandPage:()=>{this.setState({pageFolded:false});if(sc==='partial')this.flash('页面已展开，可以重新读取');},
+      staleBanner:s.pageStale,scanOn:sc==='reading',bodyFrame:dim,
+      vizRange:vizRange&&!pageIsList,rangeChip,rangeChipStyle,xNav:'max-width:980px;margin:0 auto;display:flex;align-items:center;gap:22px;padding:14px 28px;'+dimT,xAd:'position:relative;height:74px;border-radius:6px;background:#EEEDE6;border:1px solid #E1E0D8;display:flex;align-items:center;gap:14px;padding:0 20px;'+dimT,xAside:'position:relative;display:flex;flex-direction:column;gap:14px;padding:4px;'+dimT,xSub:'position:relative;max-width:660px;border:1px solid #E1E0D8;background:#FFFFFF;border-radius:8px;padding:18px 20px;display:flex;flex-direction:column;gap:8px;'+dimT,xCom:'position:relative;max-width:660px;display:flex;flex-direction:column;gap:14px;'+dimT,railWrong:sc==='misread',
+      recs:[{t:'从 0 到 1 搭建内部组件库',d:'7 月 2 日'},{t:'我们为什么放弃了 GraphQL',d:'6 月 18 日'},{t:'一次数据库迁移的复盘',d:'5 月 30 日'},{t:'代码评审里最常见的五个问题',d:'5 月 11 日'}],
+      listItems:[{t:'先别拆：小团队为什么应该推迟微服务',d:'8 月 14 日 · 架构'},{t:'从 0 到 1 搭建内部组件库',d:'7 月 2 日 · 前端'},{t:'我们为什么放弃了 GraphQL',d:'6 月 18 日 · 架构'},{t:'一次数据库迁移的复盘',d:'5 月 30 日 · 数据库'},{t:'代码评审里最常见的五个问题',d:'5 月 11 日 · 团队'},{t:'值班制度的三次修改',d:'4 月 23 日 · 团队'}],
+      siteLabel:pageIsList?'工程笔记 · linxu.blog':'工程笔记 · 林叙 · 2026-08-14',
+      docTitle:pageIsList?'工程笔记 — 首页':'先别拆：小团队为什么应该推迟微服务',
+      showStatus:sc!=='idle'&&sc!=='reading',statusBusy:busy,statusIdle:!busy,statusDot:'width:6px;height:6px;border-radius:50%;background:'+dot+';flex:none',statusText,statusTextStyle,
+      statusActions:sc==='done'||sc==='failed',
+      rangeBtnLabel:s.showRange?'隐藏范围':'查看范围',
+      rangeBtnStyle:'border:none;font-size:10.5px;padding:3px 7px;border-radius:5px;cursor:pointer;flex:none;'+(s.showRange?'background:rgba(77,142,240,.16);color:#79ACF5':'background:transparent;color:#C7CBD1'),
+      toggleRange:()=>this.setState(st=>({showRange:!st.showRange})),
+      fixOpen:s.fixOpen&&(sc==='done'||sc==='failed'),toggleFix:()=>this.setState(st=>({fixOpen:!st.fixOpen,showRange:!st.fixOpen})),
+      isIdle:sc==='idle',isReading:sc==='reading',isGenerating:sc==='generating',isMisread:sc==='misread',isManual:sc==='manual',isPartial:sc==='partial',isFailed:sc==='failed',isNotArticle:sc==='notarticle',
+      genLabel:'正在生成总结 · '+Math.min(shownN,flat.length)+'/'+flat.length+' 条',
+      run:()=>this.run(),rerun:()=>{this.setState({demo:null});this.run();},
+      goManual:()=>{this.clear();this.setState({scene:'manual',selStart:null,selEnd:null,fixOpen:false,hl:null,demo:null});},
+      sumMisread:()=>{this.setState({demo:null});this.generate(MISREAD);},
+      rereadList:()=>{this.setState({scene:'reading',demo:null});this._t.push(setTimeout(()=>this.setState({scene:'notarticle'}),1200));},
+      partialText:(s.pageFolded?'页面折叠了后面的内容，目前读取到前 ':'页面已展开。上次只读取到前 ')+visP.length+' 段（约 40%）。'+(s.pageFolded?'展开「阅读全文」后重新读取，总结会更完整。':'重新读取即可获得完整正文。'),
+      expandRerunLabel:s.pageFolded?'展开并重新读取':'重新读取',
+      expandRerun:()=>{this.setState({pageFolded:false,demo:null},()=>this.run());},
+      sumPartial:()=>{this.setState({demo:null});this.generate(PIDS.slice(0,7));},
+      retry:()=>{this.setState({demo:null});this.generate(readIds);},showLog:()=>this.flash('已打开日志页（视频场景设计稿）'),
+      selStartLabel:selLabel(s.selStart),selEndLabel:s.selEnd?selLabel(s.selEnd):(s.selStart?'点击最后一段；只选一段可直接确认':'—'),
+      selStartStyle:'font-size:11.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:'+(s.selStart?'#E7E9ED':'#8A9099'),
+      selEndStyle:'font-size:11.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:'+(s.selEnd?'#E7E9ED':'#8A9099'),
+      selConfirmLabel:selReady?'用所选 '+rangeP.length+' 段总结':'用所选范围总结',
+      selConfirmStyle:'border:none;font-weight:500;font-size:11px;padding:5px 10px;border-radius:6px;'+(selReady?'background:#4D8EF0;color:#0B0C0E;cursor:pointer':'background:rgba(255,255,255,.06);color:#8A9099;cursor:not-allowed'),
+      selConfirm:()=>{if(selReady){this.setState({demo:null});this.generate(rangeP);}},
+      selCancel:()=>{this.setState({scene:s.readIds?'done':'idle',selStart:null,selEnd:null});},
+      showSummary:isSumScene,showFooter:sc==='done',
+      subsetBanner:subset,subsetText,subsetCanExpand:subset&&(s.pageFolded||(readIds.length===7&&!readInMisread)),
+      updatedNote:isSumScene&&s.pageStale&&!readIds.includes('p5'),
+      hasConcl:shown.has('c'),concl:ptVM(concl,true),secs:secVMs,
+      copySum:()=>this.flash('总结已复制（含原文段落链接）'),dlSum:()=>this.flash('已保存 delay-microservices-summary.md'),
+      toastOpen:!!s.toast,toast:s.toast||''
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1388,7 +1388,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;heigh
 </div>
 
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;site&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;bilibili&quot;,&quot;youtube&quot;,&quot;twitter&quot;],&quot;default&quot;:&quot;bilibili&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;verdict&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;yes&quot;,&quot;no&quot;],&quot;default&quot;:&quot;yes&quot;,&quot;tsType&quot;:&quot;'yes'|'no'&quot;,&quot;section&quot;:&quot;价值判断&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;site&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;bilibili&quot;,&quot;youtube&quot;,&quot;twitter&quot;],&quot;default&quot;:&quot;bilibili&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;verdict&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;yes&quot;,&quot;no&quot;],&quot;default&quot;:&quot;yes&quot;,&quot;tsType&quot;:&quot;'yes'|'skim'|'no'&quot;,&quot;section&quot;:&quot;价值判断&quot;}}">
 const LINES = [
   [34,'先把默认的立方体删掉，我们从一个平面开始。'],
   [41,'在修改器面板里添加 Geometry Nodes，右边会出现节点编辑器。'],
@@ -2397,16 +2397,16 @@ class Component extends DCLogic {
       chapters, outlineActions,
       videoSummaryLabel: s.streaming ? VIDEO_SUMMARY.slice(0, s.summaryChars||0)+((s.summaryChars||0)<VIDEO_SUMMARY.length?'▍':'') : VIDEO_SUMMARY,
       videoSummaryOpen: s.videoSummaryOpen!==false,
-      ...(()=>{ const lv0=s.verdictDemo||this.props.verdict||'yes'; const lv=lv0==='no'?'no':'yes'; const c={yes:['值得看','#4CC38A'],no:['不值得看','#E5685C']}[lv];
+      ...(()=>{ const lv0=s.verdictDemo||this.props.verdict||'yes'; const lv=lv0==='no'?'no':'yes'; const c={yes:['值得看','#4CC38A'],skim:['可跳着看','#E8B04B'],no:['不值得看','#E5685C']}[lv];
         const DATA={
-          yes:{ dims:[['逻辑性',7.8,'评分结论基本由逐项对比得出，推理连贯；个别结论只基于单一样本，推广到所有场景略显跳跃。',[[26,'对比有共同基础：六款工具使用同一份样本控制变量']]],
-              ['充分性',8.5,'横评按视觉效果、扩展语法支持、公众号粘贴还原度和特色功能逐项比较六个 Skill，并给出具体表现与评分；不足是未交代样本具体内容、测试环境和评分标准细节，复现与横向验证有限。',[[26,'交代了对比方法：各款工具使用同一份样本']]],
-              ['干货度',8.5,'大部分篇幅用于结果对照，包含表格换行、样式还原和特色功能演示等具体观察；过渡简短，只有少量无新增信息的重复。',[]],
-              ['标题党',0.0,'标题承诺比较开源公众号排版 Skill，视频横评六款工具的排版、语法支持、粘贴还原度及特色功能，未发现具体的标题误导。',[],1]]},
-          no:{ dims:[['逻辑性',3.4,'把"参数越多效果一定越好"当作前提，未给对比数据就推出结论，忽略了任务类型等关键条件。',[[405,'推断缺少条件：仅凭参数量断言效果更好']]],
-              ['充分性',3.0,'只罗列了几个工具名称，没有演示步骤或具体案例，看完无法上手。',[[312,'操作交代不足：具体用法留给观众自行尝试']]],
-              ['干货度',3.2,'开场铺垫近 4 分钟，中段多次重复同一观点，寒暄、求三连和跑题占用了较多篇幅。',[[18,'无新增信息：求三连打断了内容讲解']]],
-              ['标题党',8.5,'标题称"一期讲透所有 AI 工具"，实际只简单提到三款，承诺基本未兑现。',[],1]]}
+          yes:{ dims:[['逻辑性',7.8,'评分结论基本由逐项对比得出，推理连贯；个别结论只基于单一样本，推广到所有场景略显跳跃。',[[26,'为了控制变量所有skill处理的都是同一份样本']]],
+              ['充分性',8.5,'横评按视觉效果、扩展语法支持、公众号粘贴还原度和特色功能逐项比较六个 Skill，并给出具体表现与评分；不足是未交代样本、测试环境和评分标准细节，复现与横向验证有限。',[[4,'主要从三个角度来对比'],[26,'为了控制变量所有skill处理的都是同一份样本']]],
+              ['干货度',8.5,'大部分篇幅用于结果对照，包含表格换行、样式还原和特色功能演示等具体观察；过渡简短，少量结论较主观，缺少更细的测试记录。',[[50,'我们来看一下结果第一个回合'],[225,'接下来我们进入第三个回合']]],
+              ['标题党',1.0,'标题承诺比较开源公众号排版 Skill，视频确实横评六款工具的排版、语法支持、粘贴还原度及特色功能，基本兑现承诺。',[[0,'今天给大家做一期公众号排版skill横评'],[4,'主要从三个角度来对比']],1]]},
+          no:{ dims:[['逻辑性',3.4,'把"参数越多效果一定越好"当作前提，未给对比数据就推出结论，忽略了任务类型等关键条件。',[[405,'参数量大那肯定就是效果更好嘛']]],
+              ['充分性',3.0,'只罗列了几个工具名称，没有演示步骤或具体案例，看完无法上手。',[[312,'具体怎么用大家自己去试一下就知道了']]],
+              ['干货度',3.2,'开场铺垫近 4 分钟，中段多次重复同一观点，约六成内容是寒暄、求三连和跑题。',[[18,'在开始之前先求一个一键三连'],[540,'我再强调一遍刚才说的']]],
+              ['标题党',8.5,'标题称"一期讲透所有 AI 工具"，实际只简单提到三款，承诺基本未兑现。',[[0,'今天带大家一期讲透所有AI工具']],1]]}
         }[lv];
                 const val=n=>DATA.dims.find(d=>d[0]===n)[1];
         const base=(val('充分性')+val('逻辑性')+val('干货度')+10-val('标题党'))/4; const avg=base.toFixed(1);
@@ -2414,7 +2414,7 @@ class Component extends DCLogic {
         const chip=k=>'flex:none;min-width:34px;text-align:center;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:'+k+';background:color-mix(in oklab, '+k+' 15%, transparent)';
         const col=g=>g>=7?'#4CC38A':g>=5?'#E8B04B':'#E5685C';
         const ORDER=['充分性','逻辑性','干货度','标题党']; const dimRows=(ORDER.map(k=>DATA.dims.find(d=>d[0]===k)).map(([n,v,why,ev,inv])=>({ name:n, hint:inv?'越低越好':'越高越好', score:v.toFixed(1), why, scoreStyle:chip(col(inv?10-v:v)), hasEv:ev.length>0, rule:'', hasRule:false,
-            ev:ev.map(([t,reason])=>({ t:fmt(t), q:reason, onClick:()=>this.flash&&this.flash('跳转到 '+fmt(t)) })) })));
+            ev:ev.map(([t,q])=>({ t:fmt(t), q:'「'+q+'」', onClick:()=>this.flash&&this.flash('跳转到 '+fmt(t)) })) })));
         const strip=dimRows.map(d=>({ name:d.name, score:d.score, style:'display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;padding:6px 2px;border-radius:6px;background:rgba(255,255,255,.035)', scoreStyle:d.scoreStyle.replace('min-width:34px;','')+';font-size:10.5px' }));
         const hov=!!s.verdictHover;
         const vShow = s.scenario!=='empty' && s.scenario!=='error'; const vLoad = s.scenario==='generating' || s.verdictDemo==='loading'; const E=React.createElement; const verdictLoadingEl=E('span',{style:{display:'inline-flex',alignItems:'center',gap:5}},E('span',{style:{width:8,height:8,flex:'none',borderRadius:'50%',border:'1.5px solid rgba(232,176,75,.3)',borderTopColor:'#F0C06A',animation:'bcRingSpin .8s linear infinite'}}),E('span',{style:{fontWeight:500,backgroundImage:'linear-gradient(90deg,#E8B04B 0%,#E8B04B 35%,#FFF1D2 50%,#E8B04B 65%,#E8B04B 100%)',backgroundSize:'200% 100%',WebkitBackgroundClip:'text',backgroundClip:'text',color:'transparent',animation:'bcTextShine 1.6s linear infinite'}},'评估中…')); return { verdictLoadingEl, verdictShow:vShow, verdictReady: !vLoad, verdictLoading: vLoad, verdictShowTab: vShow && (s.verdictDemo==='loading' || !(s.transActive||s.trActive)), verdictBadgeStyle:'position:absolute;left:8px;top:4px;display:inline-flex;align-items:stretch;height:16px;border-radius:8px;font-size:10px;white-space:nowrap;cursor:default;'+(vLoad?'align-items:center;padding:0 8px 0 6px;border:1px solid rgba(232,176,75,.4);background:rgba(232,176,75,.12)':'border:1px solid color-mix(in oklab, '+c[1]+' '+(hov?38:22)+'%, transparent)'), verdictBadgeLeftStyle:'border-radius:7px 0 0 7px;display:inline-flex;align-items:center;gap:3px;padding:0 5px 0 6px;font-weight:500;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' '+(hov?18:10)+'%, transparent)', verdictBadgeRightStyle:'border-radius:0 7px 7px 0;display:inline-flex;align-items:center;padding:0 6px;font-weight:600;font-variant-numeric:tabular-nums;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' '+(hov?30:22)+'%, transparent)', verdictBadgeLeft:'display:inline-flex;align-items:center;gap:4px;padding:0 7px 0 8px;border-radius:999px 0 0 999px;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' 14%, transparent)', verdictBadgeRight:'display:inline-flex;align-items:center;padding:0 8px 0 7px;border-radius:0 999px 999px 0;font-weight:700;font-variant-numeric:tabular-nums;color:#0F1114;background:'+c[1], verdictLabel:c[0], verdictScore:avg,
@@ -2422,7 +2422,7 @@ class Component extends DCLogic {
           verdictScoreWrapStyle:'position:relative;display:inline-block;white-space:nowrap;margin-left:6px;padding-left:6px;border-left:1px solid #3A3F47;color:#A4AAB3;cursor:default',
           verdictScoreStyle:'margin-left:4px;padding:1px 5px;border-radius:4px;font-weight:600;font-variant-numeric:tabular-nums;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' '+(hov?26:16)+'%, transparent)',
           verdictPillStyle:'white-space:nowrap;margin-right:8px;padding-right:8px;border-right:1px solid #3A3F47',
-          verdictIcon:{yes:'M3.5 8.5l3 3 6-7',no:'M4 4l8 8M12 4l-8 8'}[lv],
+          verdictIcon:{yes:'M3.5 8.5l3 3 6-7',skim:'M3 5h10M3 8h7M3 11h4',no:'M4 4l8 8M12 4l-8 8'}[lv],
           verdictHover:hov, verdictPopWrapStyle:'position:absolute;top:100%;left:'+(s.verdictPopX||0)+'px;padding-top:6px;z-index:30;display:block', verdictPopStyle:'display:flex;flex-direction:column;gap:9px;width:236px;padding:11px 12px 10px;background:linear-gradient(180deg, color-mix(in oklab, '+c[1]+' 13%, #1A1D22) 0%, #1A1D22 55%);border:1px solid color-mix(in oklab, '+c[1]+' 22%, rgba(255,255,255,.12));border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.45);white-space:normal;font-weight:400', verdictHeadStyle:'display:flex;align-items:center;gap:10px;padding:12px 14px 11px;border-bottom:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg, color-mix(in oklab, '+c[1]+' 10%, transparent), transparent)', verdictBigStyle:'font-size:24px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:'+c[1], verdictTagStyle:'flex:none;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;color:'+c[1]+';background:color-mix(in oklab, '+c[1]+' 15%, transparent);border:1px solid color-mix(in oklab, '+c[1]+' 30%, transparent)', verdictEnter:(e)=>{ const el=e.currentTarget; const b=el.getBoundingClientRect(); const k=(b.width/(el.offsetWidth||b.width))||1; let p=el.parentElement; while(p&&p.parentElement&&p.offsetWidth<280) p=p.parentElement; const r=p?p.getBoundingClientRect():{left:0,right:window.innerWidth}; const W=300; const L=(r.left-b.left)/k+6, R=(r.right-b.left)/k-6; let x=0; if(x+W>R) x=R-W; if(x<L) x=L; this.setState({verdictHover:true, verdictPopX:Math.round(x)}); }, verdictLeave:()=>this.setState({verdictHover:false}),
           verdictDims: dimRows, verdictStrip: strip, verdictBase: base.toFixed(1), verdictDed: '0.0', verdictRerun:()=>this.flash&&this.flash('已重新提交评估'), verdictPopStyle2:'display:flex;flex-direction:column;width:300px;max-height:min(480px, 72vh);background:linear-gradient(180deg, color-mix(in oklab, '+c[1]+' 9%, #1A1D22) 0%, #1A1D22 90px);border:1px solid color-mix(in oklab, '+c[1]+' 22%, rgba(255,255,255,.12));border-radius:10px;box-shadow:0 14px 36px rgba(0,0,0,.5);white-space:normal;font-weight:400;overflow:hidden;cursor:auto' }; })(),
       toggleVideoSummary:()=>this.setState({videoSummaryOpen: s.videoSummaryOpen===false}),

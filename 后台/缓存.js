@@ -1,5 +1,5 @@
 // 后台 · 本地缓存：字幕缓存（asr:*）、转写进度（asrJob:*）的读写与淘汰，
-// 清理单个视频的全部缓存，以及跟着字幕缓存淘汰的大纲缓存。
+// 清理单个视频的全部缓存，跟着字幕缓存淘汰的大纲缓存，以及单独淘汰的文章总结缓存（article:v1:*）。
 //
 // 字幕缓存分两层（判断在 lib/字幕工具.js 的 subtitleCacheOrigin / isProtectedSubtitleCache）：
 // - 受保护：转写生成（origin "asr"），或用户手动改过字（editedAt）。不参与自动淘汰，
@@ -214,10 +214,56 @@ async function pruneAsrCache(keepKey = "") {
   return { removed: drop.length };
 }
 
-/** 启动 / 安装时：先按分层规则淘汰字幕缓存，再清理跟着失效的大纲和索引 */
+// 文章总结缓存（article:v1:<规范化地址>，侧栏 侧栏/文章.js 生成后写入）：与字幕无关，
+// 单独按数量 + 体积从旧到新（按生成时间）淘汰；设置页单独统计，不算进字幕缓存。
+const ARTICLE_CACHE_PREFIX = "article:v1:";
+const ARTICLE_CACHE_MAX = 100;
+const ARTICLE_CACHE_MAX_BYTES = 5 * 1024 * 1024;
+
+/** 文章缓存条目的元信息：{ key, size, generatedAt }，分批读，只留元信息 */
+async function scanArticleCache(keys) {
+  const list = [];
+  for (let i = 0; i < keys.length; i += SUBTITLE_SCAN_BATCH) {
+    const batch = keys.slice(i, i + SUBTITLE_SCAN_BATCH);
+    const values = await chrome.storage.local.get(batch);
+    for (const key of batch) {
+      const value = values?.[key];
+      if (value == null) continue;
+      list.push({ key, size: utf8Size(value) + key.length, generatedAt: Number(value.generatedAt) || 0 });
+    }
+  }
+  return list;
+}
+
+async function pruneArticleCache() {
+  let keys;
+  try {
+    keys = (await BiliCaptionDav.listLocalKeys()).filter((key) => key.startsWith(ARTICLE_CACHE_PREFIX));
+  } catch {
+    return { removed: 0 };
+  }
+  if (!keys.length) return { removed: 0 };
+  const items = (await scanArticleCache(keys)).sort((a, b) => a.generatedAt - b.generatedAt);
+  let total = items.reduce((sum, item) => sum + item.size, 0);
+  const drop = [];
+  while (items.length > ARTICLE_CACHE_MAX || (total > ARTICLE_CACHE_MAX_BYTES && items.length > 1)) {
+    const gone = items.shift();
+    total -= gone.size;
+    drop.push(gone.key);
+  }
+  if (drop.length) {
+    await chrome.storage.local.remove(drop).catch(() => {});
+    appLog("info", "cache", `已清理 ${drop.length} 份最旧的文章总结缓存`);
+  }
+  return { removed: drop.length };
+}
+
+/** 启动 / 安装时：先按分层规则淘汰字幕缓存，再清理跟着失效的大纲和索引，最后是文章总结缓存 */
 async function pruneLocalCaches() {
   await pruneAsrCache().catch(() => {});
-  return pruneAuxCache();
+  const result = await pruneAuxCache();
+  await pruneArticleCache().catch(() => {});
+  return result;
 }
 
 /** 新增了一条可重新生成的字幕缓存：不等它，顺手检查一次上限（至多每分钟一次） */
@@ -236,8 +282,14 @@ async function getSubtitleCacheUsage() {
   const keys = await BiliCaptionDav.listLocalKeys();
   const usage = {
     renewable: { videos: 0, bytes: 0, maxVideos: ASR_CACHE_MAX, maxBytes: ASR_CACHE_MAX_BYTES },
-    protected: { videos: 0, bytes: 0, asr: 0, edited: 0 }
+    protected: { videos: 0, bytes: 0, asr: 0, edited: 0 },
+    article: { count: 0, bytes: 0, maxCount: ARTICLE_CACHE_MAX, maxBytes: ARTICLE_CACHE_MAX_BYTES }
   };
+  // 文章总结缓存单列，不算进字幕的两层
+  for (const item of await scanArticleCache(keys.filter((key) => key.startsWith(ARTICLE_CACHE_PREFIX)))) {
+    usage.article.count += 1;
+    usage.article.bytes += item.size;
+  }
   for (const item of await scanSubtitleCache(keys.filter(isAsrCacheKey))) {
     const bucket = item.protected ? usage.protected : usage.renewable;
     bucket.videos += 1;

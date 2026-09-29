@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BiliCaption",
   "version": "1.5.1",
-  "description": "B 站、YouTube 和 X 视频侧边栏字幕：翻译、总结、大纲和标记",
+  "description": "视频字幕与网页文章：翻译、总结、大纲和原文定位",
   "action": {
     "default_title": "打开 BiliCaption 侧边栏",
     "default_icon": {
@@ -35,7 +35,8 @@
     "declarativeNetRequest",
     "alarms",
     "webRequest",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "activeTab"
   ],
   "minimum_chrome_version": "116",
   "host_permissions": [
@@ -64,7 +65,8 @@
     "https://video.twimg.com/*"
   ],
   "optional_host_permissions": [
-    "https://*/*"
+    "https://*/*",
+    "http://*/*"
   ],
   "content_scripts": [
     {

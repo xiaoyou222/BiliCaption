@@ -1,0 +1,6 @@
+Defuddle 0.19.4 (MIT)
+项目：https://github.com/kepano/defuddle
+包：https://registry.npmjs.org/defuddle/-/defuddle-0.19.4.tgz
+文件：dist/index.js 原样复制到 defuddle.js，无修改。
+浏览器 core bundle，在扩展隔离环境本地运行，useAsync:false。
+许可证见 defuddle-LICENSE。

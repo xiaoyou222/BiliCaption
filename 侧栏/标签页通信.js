@@ -11,12 +11,15 @@ async function hideChromePanelIfFloating() {
   const prefs = await loadDockUiPrefs();
   if (prefs.preferSidebar) return;
   const tab = await getActiveTab().catch(() => null);
+  const articleTab = globalThis.BiliCaptionArticlePanel?.resolveTab ? await globalThis.BiliCaptionArticlePanel.resolveTab(tab) : tab;
+  if (!articleTab || articleTab.articleMode === 'pending' || globalThis.BiliCaptionArticle?.isArticleURL(articleTab.url, articleTab.articleMode)) return false;
   if (tab?.id && typeof chrome.sidePanel?.close === "function") {
     chrome.sidePanel.close({ tabId: tab.id }).catch(() => {});
-    return;
+    return true;
   }
   if (panelWindowId && typeof chrome.sidePanel?.close === "function") {
     chrome.sidePanel.close({ windowId: panelWindowId }).catch(() => {});
+    return true;
   }
 }
 

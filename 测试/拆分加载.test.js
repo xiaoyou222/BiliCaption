@@ -9,6 +9,7 @@ const {
   backgroundImports,
   pageScripts,
   contentScripts,
+  articleContentScripts,
   runFile,
   loadBackgroundScripts
 } = require("./源码加载.js");
@@ -41,14 +42,15 @@ test("后台、侧栏、设置页、标记库、内容脚本各自的脚本之�
   assertNoDuplicateTopLevel("设置页", pageScripts("options.html"));
   assertNoDuplicateTopLevel("标记库", pageScripts("library.html"));
   assertNoDuplicateTopLevel("内容脚本", contentScripts());
+  assertNoDuplicateTopLevel("文章内容脚本", articleContentScripts());
 });
 
 test("拆分目录里的每个文件都有加载点，加载清单里的文件都存在", () => {
   const listed = (dir) => fs.readdirSync(path.join(root, dir)).filter((name) => name.endsWith(".js")).map((name) => `${dir}/${name}`).sort();
   assert.deepEqual(backgroundImports().filter((file) => file.startsWith("后台/")).sort(), listed("后台"));
   assert.deepEqual(pageScripts("sidepanel.html").filter((file) => file.startsWith("侧栏/")).sort(), listed("侧栏"));
-  assert.deepEqual(contentScripts().filter((file) => file.startsWith("内容/")).sort(), listed("内容"));
-  for (const file of [...backgroundImports(), ...pageScripts("sidepanel.html"), ...pageScripts("options.html"), ...pageScripts("library.html"), ...contentScripts()]) {
+  assert.deepEqual([...contentScripts(), ...articleContentScripts()].filter((file) => file.startsWith("内容/")).sort(), listed("内容"));
+  for (const file of [...backgroundImports(), ...pageScripts("sidepanel.html"), ...pageScripts("options.html"), ...pageScripts("library.html"), ...contentScripts(), ...articleContentScripts()]) {
     assert.ok(fs.existsSync(path.join(root, file)), `${file} 不存在`);
   }
   // 侧栏入口最后加载：事件绑定和启动代码要在所有模块声明完之后才跑

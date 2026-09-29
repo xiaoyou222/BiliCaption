@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><head><title>公众号式排版 · 夹具</title></head><body>
+<header><nav><a href="/">首页</a><a href="/list">文章列表</a></nav></header>
+<div id="js_content" class="rich_media_content">
+<h2 id="s1"><a class="anchor" href="#s1">#</a>一、为什么先做单体</h2>
+<section><span>小团队在业务边界尚未稳定时就拆分微服务，</span><span>部署、监控和排障成本通常会高于收益。作者建议先做结构清晰的模块化单体，再按真实的协作问题拆分。</span></section>
+<section><span style="font-size:15px">模块之间仍然需要明确接口：单体应用并不意味着所有代码都堆在同一个文件里，而是把边界留在代码层面，等到确有需要时再把边界变成服务。</span></section>
+<section><span>判断是否拆分，要看团队之间的发布节奏是否互相拖累，</span><br><span>而不是看代码已经写了多少行。拆分前先明确数据所有权与调用边界。</span></section>
+<p>下面列出几个常见误区：</p>
+<ul>
+<li>误区一：认为服务越多越先进，忽略了&nbsp;每个服务都要单独部署、监控和值班的代价。
+<ul><li>子项：一个三人团队维护十几个服务，往往没有精力把每个服务的告警都处理好。</li></ul>
+</li>
+<li><p>误区二：把数据库按服务拆开，却没有处理跨服务事务，最后只能靠人工对账来弥补数据不一致。</p></li>
+</ul>
+<div class="para-group">第一段用换行分隔的正文：早期产品最重要的是验证需求，先用最简单的结构完成关键流程，通过真实用户反馈确认方向。<br><br>第二段用换行分隔的正文：当不同业务已经由独立团队负责、而且发布节奏相互影响时，才值得认真讨论拆分服务。<br><br>第三段用换行分隔的正文：拆分之后要有能力承担额外的部署、监控和故障处理，否则复杂度只会转移到值班的人身上。</div>
+<figure><img src="arch.png" alt=""><figcaption>图 1：模块化单体的分层结构示意，业务模块之间只通过公开接口调用，数据表按模块划分所有权。</figcaption></figure>
+<dl><dt>模块化单体</dt><dd>一个部署单元内部按业务划分模块，模块之间通过明确接口通信，可以在未来按模块边界拆成独立服务。</dd></dl>
+<pre><code>const order = await orders.create(input);
+await billing.charge(order.id);</code><ul class="pre-numbering"><li>1</li><li>2</li></ul></pre>
+<p>最后需要强调：这不是反对微服务，而是反对没有依据的复杂化。对于已有大量用户、明确隔离要求或独立业务团队的系统，拆分可能确实必要。</p>
+</div>
+<div class="comment-area"><h3>精选留言</h3><p>写得很好</p><button>展开全文</button><button>Show more replies</button></div>
+<section class="related"><h3>相关推荐</h3><a href="/x">另一篇文章</a><a href="/y">Read more</a></section>
+<footer>版权所有</footer>
+</body></html>
