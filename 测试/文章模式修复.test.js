@@ -445,11 +445,19 @@ test("模型分档：自定义网关按 xy 别名，其它服务商用主模型 
     apiModel: "xy-smart",
     translateModel: ""
   };
+  // 完全按设置走：主模型填什么，智能档就用什么；不再把别名替换成 xy-smart
   assert.equal(P.resolveTier(gateway, "smart").model, "xy-smart");
-  assert.equal(P.resolveTier(gateway, "fast").model, "xy-fast");
+  assert.equal(P.resolveTier(gateway, "fast").model, "xy-smart");
+  const fastOnly = { ...gateway, apiModel: "xy-fast" };
+  assert.equal(P.resolveTier(fastOnly, "smart").model, "xy-fast");
+  assert.equal(P.resolveTier(fastOnly, "fast").model, "xy-fast");
   assert.equal(
     P.resolveTier({ ...gateway, apiModel: "my-model", translateModel: "xy-fast" }, "smart").model,
-    "xy-smart"
+    "my-model"
+  );
+  assert.equal(
+    P.resolveTier({ ...gateway, apiModel: "my-model", translateModel: "xy-fast" }, "fast").model,
+    "xy-fast"
   );
   const custom = { ...gateway, apiModel: "my-model", translateModel: "my-fast" };
   assert.equal(P.resolveTier(custom, "smart").model, "my-model");
