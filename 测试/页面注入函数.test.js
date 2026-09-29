@@ -101,6 +101,29 @@ test('YouTube 先用播放器音轨上已带 pot 的同轨地址，不等 setOpt
   assert.deepEqual(asked, []);
 });
 
+test('YouTube 音轨上的带 pot 地址缺 c / cver 时，从页面 ytcfg 补上再请求（否则 YouTube 回空内容）', async () => {
+  const requests = [];
+  const player = ytPlayer([{ baseUrl: BASE, languageCode: 'en', kind: 'asr' }], {
+    getAudioTrack: () => ({ captionTracks: [{ url: `${BASE}&pot=audio-token` }] }),
+    setOption: () => {}
+  });
+  const ytcfg = { get: (key) => ({ INNERTUBE_CLIENT_NAME: 'WEB', INNERTUBE_CLIENT_VERSION: '2.20260929.01.00' })[key] };
+  const readPage = isolated(P.readPage, ytGlobals(player, {
+    window: { ytcfg },
+    fetch: async (href) => {
+      const url = new URL(href);
+      requests.push(url);
+      const complete = url.searchParams.get('c') === 'WEB' && url.searchParams.get('cver') === '2.20260929.01.00';
+      return { ok: true, status: 200, text: async () => (complete ? body('Hello') : '') };
+    }
+  }));
+  const result = await readPage(PAGE_YT, BASE);
+  assert.equal(P.parseCues(result.raw)[0].content, 'Hello');
+  assert.equal(requests[0].searchParams.get('c'), 'WEB');
+  assert.equal(requests[0].searchParams.get('cver'), '2.20260929.01.00');
+  assert.equal(requests[0].searchParams.get('pot'), 'audio-token');
+});
+
 test('YouTube 从资源计时里借 pot：只认同一视频，别的轨只借令牌不换地址', async () => {
   const requests = [];
   const player = ytPlayer([{ baseUrl: BASE, languageCode: 'en', kind: 'asr' }], { setOption() {} });
