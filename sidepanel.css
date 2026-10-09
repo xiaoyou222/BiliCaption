@@ -1561,6 +1561,8 @@ html.float-embed .lang-switch button.active {
   color: var(--faint);
 }
 
+.has-hours .cue time { width: 44px; }
+
 .cue-text {
   flex: 1;
   min-width: 0;

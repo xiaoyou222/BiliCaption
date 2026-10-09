@@ -440,6 +440,8 @@ function buildCueRows(cues) {
     frag.append(row);
   }
   ui.cueList.replaceChildren(frag);
+  // 超过 1 小时的视频时间显示成 h:mm:ss，整列统一加宽，避免和字幕文字重叠、上下对不齐
+  ui.cueList.classList.toggle("has-hours", cues.some((cue) => Number(cue?.from) >= 3600));
   if (cueEdit) {
     const ta = cueRowEls[cueEdit.index]?.querySelector(".cue-edit-text");
     requestAnimationFrame(() => restoreCueEditCaret(ta));
