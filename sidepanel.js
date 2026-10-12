@@ -1,4 +1,4 @@
-// 侧栏入口。前面的 script 标签已按顺序加载 lib/ 和 侧栏/ 下的各模块（共享同一个全局作用域）；
+// 侧栏入口。前面的 script 标签已按顺序加载 lib/ 和 sidepanel/ 下的各模块（共享同一个全局作用域）；
 // 这里只做界面事件绑定、消息 / 存储变更监听和启动。
 
 ui.btnSettings.addEventListener("click", openSettings);
@@ -36,9 +36,6 @@ ui.viewTabs.addEventListener("click", (event) => {
   const btn = event.target.closest("button[data-view]");
   if (!btn) return;
   view = btn.dataset.view;
-  if (view === "outline" && !outline && state?.cues?.length) {
-    // stay empty until user clicks 生成大纲
-  }
   renderState(state);
 });
 ui.captionLang?.addEventListener("click", (event) => {
@@ -116,8 +113,8 @@ ui.videoVerdictDetails?.addEventListener("focusout", (event) => {
   if (!ui.videoVerdictDetails.contains(event.relatedTarget)) closeRecommendationDetails();
 });
 ui.videoVerdictTrigger?.addEventListener("click", () => {
-  if (recommendationJob?.error) retryRecommendation();
-  else openRecommendationDetails({ pin: true });
+  if (recommendationJob?.value) openRecommendationDetails({ pin: true });
+  else startRecommendation();
 });
 ui.btnReevaluate?.addEventListener("click", retryRecommendation);
 document.addEventListener("click", (event) => {
@@ -556,6 +553,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     startTranslateWatch();
   }
   if (message?.type === "STATE" && message.payload) {
+    if (globalThis.BiliCaptionArticlePanel?.isDetecting?.()) return;
     const incoming = message.payload;
     const incomingPending = incoming.subtitleStatus === "pending" || incoming.page === "loading";
     if (
@@ -600,7 +598,6 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (recommendationJob?.error && (changes.apiKey || changes.apiBase || changes.apiModel || changes.sumProvider)) retryRecommendation();
   // 字幕助手开着时，在设置页配好总结服务就收起「还没配置」的提示
   if (chatOpen && (changes.apiKey || changes.sumProvider || changes.apiBase)) {
     chatController().checkConfig().catch(() => {});

@@ -16,6 +16,13 @@
   document.getElementById("bilicaption-progress-marks")?.remove();
 
   let targetRate = 1;
+  let preferredRate = 1;
+  let ratePrefsReady = false;
+  let ratePrefRevision = 0;
+  let rateWritesPending = 0;
+  let rateSyncNeeded = false;
+  let rateWriteChain = Promise.resolve();
+  let ratePageKey = "";
   let applyingRate = false;
   let lastHref = location.href;
   let lastStateKey = "";
@@ -1047,18 +1054,63 @@
   }
 
   function clampRate(rate) {
-    return Math.min(10, Math.max(0.1, Math.round((Number(rate) || 1) * 10) / 10));
+    const n = Number(rate);
+    return Math.min(10, Math.max(0.1, Math.round((Number.isFinite(n) && n > 0 ? n : 1) * 10) / 10));
   }
 
-  function applyRate(rate, { notify = true } = {}) {
+  function rememberRate(rate) {
+    preferredRate = rate;
+    ratePrefsReady = true;
+    ratePrefRevision += 1;
+    rateWritesPending += 1;
+    // 本机偏好不占用 sync 的高频写入配额；串行保存，较早的调速不能最后落盘覆盖新值。
+    rateWriteChain = rateWriteChain.then(async () => {
+      if (isCurrentScript() && runtimeAlive()) await chrome.storage.local?.set({ playbackRate: rate });
+    }).catch(() => {
+      // 存储暂时不可用时，本次播放仍可正常调速。
+    }).finally(() => {
+      rateWritesPending -= 1;
+      if (!rateWritesPending && rateSyncNeeded) {
+        rateSyncNeeded = false;
+        // 写入过程中可能收到另一标签页的新选择，读回最终值，避免一直沿用本页的旧偏好。
+        return loadRatePreference({ restore: false });
+      }
+    });
+    return rateWriteChain;
+  }
+
+  async function loadRatePreference({ restore = true } = {}) {
+    const revision = ratePrefRevision;
+    let data;
+    try { data = await chrome.storage.local?.get({ playbackRate: 1 }); } catch {
+      if (!restore) return;
+    }
+    if (!isCurrentScript() || revision !== ratePrefRevision) return;
+    preferredRate = clampRate(data?.playbackRate);
+    ratePrefsReady = true;
+    if (restore && parsePage().kind !== "other") restoreRate();
+  }
+
+  function restoreRate() {
+    if (!isCurrentScript() || !ratePrefsReady) return;
+    ratePageKey = pageKey();
+    applyRate(preferredRate, { remember: false });
+  }
+
+  // 跳转 / 暂停 / 继续播放后多久之内的速度变化算作播放器重置
+  const SEEK_RATE_RESET_MS = 2000;
+
+  function applyRate(rate, { notify = true, remember = true } = {}) {
     if (!isCurrentScript()) return;
     const next = clampRate(rate);
+    const saved = remember ? rememberRate(next) : Promise.resolve();
     targetRate = next;
     const video = getVideo();
     if (video) {
       applyingRate = true;
       try {
         video.preservesPitch = true;
+        video.defaultPlaybackRate = next;
         video.playbackRate = next;
       } finally {
         queueMicrotask(() => {
@@ -1075,6 +1127,7 @@
         duration: video?.duration || 0
       });
     }
+    return saved;
   }
 
   function hotkeyAction(event) {
@@ -1226,16 +1279,36 @@
       return;
     }
     applyXLinkTime(video);
-    if (hookedVideo === video) return;
+    if (hookedVideo === video) {
+      // SPA 可能复用同一个 video 节点，不一定再次触发 loadedmetadata。
+      if (ratePageKey !== pageKey()) restoreRate();
+      return;
+    }
     unhookVideo();
     hookedVideo = video;
     video.preservesPitch = true;
     watchOverlaySize();
+    // B 站等播放器在跳转（方向键 / 拖动）、暂停、继续播放、缓冲恢复后，会按自己记的速度（通常 1×）
+    // 重设 playbackRate。这些事件之后短时间内的速度变化视为播放器重置，立刻改回用户选的倍速，不当成用户操作。
+    let lastSeekAt = 0;
+    const onSeeking = () => { lastSeekAt = Date.now(); };
+    const PLAYER_RESET_EVENTS = ["seeking", "play", "pause", "playing", "waiting"];
     const onRate = () => {
       if (!isCurrentScript()) return;
+      if (hookedVideo !== video || getVideo() !== video) return;
       if (applyingRate) return;
       const actual = clampRate(video.playbackRate);
       if (Math.abs(actual - targetRate) <= 0.02) return;
+      if (Date.now() - lastSeekAt < SEEK_RATE_RESET_MS) {
+        applyingRate = true;
+        try {
+          video.defaultPlaybackRate = targetRate;
+          video.playbackRate = targetRate;
+        } finally {
+          queueMicrotask(() => { applyingRate = false; });
+        }
+        return;
+      }
       targetRate = actual;
       flashHud(actual);
       postRuntime({
@@ -1247,9 +1320,13 @@
     };
     const onMeta = () => {
       if (!isCurrentScript()) return;
-      applyRate(targetRate, { notify: false });
+      if (hookedVideo !== video || getVideo() !== video) return;
+      restoreRate();
       applyXLinkTime(video);
       renderProgressMarks();
+    };
+    const onLoad = () => {
+      if (hookedVideo === video && getVideo() === video) restoreRate();
     };
     let lastSent = 0;
     const sendTime = ({ force = false } = {}) => {
@@ -1274,16 +1351,21 @@
       sendTime();
     };
     video.addEventListener("ratechange", onRate);
+    video.addEventListener("loadstart", onLoad);
     video.addEventListener("loadedmetadata", onMeta);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("seeked", onSeeked);
+    for (const type of PLAYER_RESET_EVENTS) video.addEventListener(type, onSeeking);
     hookedCleanups.push(() => {
+      for (const type of PLAYER_RESET_EVENTS) video.removeEventListener(type, onSeeking);
       video.removeEventListener("ratechange", onRate);
+      video.removeEventListener("loadstart", onLoad);
       video.removeEventListener("loadedmetadata", onMeta);
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("seeked", onSeeked);
     });
-    applyRate(targetRate, { notify: false });
+    if (ratePrefsReady) restoreRate();
+    else targetRate = clampRate(video.playbackRate);
     updateOverlay(video.currentTime || 0);
     renderProgressMarks();
   }
@@ -1679,8 +1761,7 @@
     if (message?.type === "GET_STATE") return reply(refreshIfNeeded(false).then(snapshot));
     if (message?.type === "REFRESH") return reply(loadState(Boolean(message.force)));
     if (message?.type === "SET_RATE") {
-      applyRate(message.rate);
-      return reply(Promise.resolve(snapshot()));
+      return reply(Promise.resolve(applyRate(message.rate)).then(snapshot));
     }
     if (message?.type === "PAUSE") {
       const video = getVideo();
@@ -1933,6 +2014,17 @@
   ensureTabId().catch(() => {});
   chrome.storage.onChanged.addListener((changes, area) => {
     if (!isCurrentScript()) return;
+    if (area === "local" && changes.playbackRate) {
+      const next = clampRate(changes.playbackRate.newValue);
+      if (rateWritesPending) {
+        if (next !== preferredRate) rateSyncNeeded = true;
+      } else {
+        // 其它标签页调整偏好后，新视频沿用新值；不打断当前正在播放的视频。
+        preferredRate = next;
+        ratePrefsReady = true;
+        ratePrefRevision += 1;
+      }
+    }
     if (area === "sync" && (changes.dockOpen || changes.preferSidebar)) {
       applyDockUiPrefs({
         dockOpen: changes.dockOpen ? changes.dockOpen.newValue : dockOpen,
@@ -1961,5 +2053,6 @@
     }
   });
 
+  loadRatePreference();
   refreshIfNeeded(true);
 })();

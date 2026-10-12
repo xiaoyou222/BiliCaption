@@ -16,9 +16,11 @@ let recording = false;
 // 转写通道链：数组顺序即优先级，同一服务商可多条（多账号）
 let sttChannels = [];
 let sumProvider = "OpenAI";
+let sumEffort = "low", trEffort = "low";
+const Route = window.BiliCaptionModelRoute;
 let settings = {};
 let appLogs = [];
-// 日志分级保留规则，以后台 GET_LOGS 带回来的为准；这里是后台没回时的兜底（与 后台/基础.js 的 LOG_KEEP 一致）
+// 日志分级保留规则，以后台 GET_LOGS 带回来的为准；这里是后台没回时的兜底（与 background/core.js 的 LOG_KEEP 一致）
 let logKeep = {
   issue: { ms: 7 * 24 * 60 * 60 * 1000, max: 200 },
   info: { ms: 24 * 60 * 60 * 1000, max: 100 }
@@ -49,8 +51,11 @@ function setTab(next) {
   tab = TABS.includes(next) ? next : "stt";
   document.querySelectorAll(".nav-item").forEach((btn) => btn.classList.toggle("on", btn.dataset.tab === tab));
   TABS.forEach((id) => show($(`tab-${id}`), id === tab));
-  // 每次切到「数据同步」都重新统计一次本地字幕缓存
-  if (tab === "sync") loadCacheUsage();
+  // 每次切到「数据同步」都重新统计本机保存的数据。
+  if (tab === "sync") {
+    loadCacheUsage();
+    loadChatHistoryUsage();
+  }
 }
 
 function renderSeg(host, list, current, onPick) {
@@ -508,6 +513,7 @@ function fillCombo(kind) {
     row.addEventListener("click", () => {
       (kind === "tr" ? $("trModel") : $("sumModel")).value = m;
       if (kind === "sum") updateTrPlaceholder();
+      renderEfforts();
       closePanels();
     });
     panel.appendChild(row);
@@ -584,7 +590,8 @@ async function testKind(kind) {
       key: cfg.key,
       model: cfg.model,
       provider: cfg.provider,
-      task: "translate",
+      task: "summary",
+      effort: sumEffort,
       temperature: 0,
       maxTokens: 8,
       allowEmpty: true,
@@ -630,7 +637,39 @@ function renderSync() {
   $("davStatus").classList.remove("syncing");
 }
 
+function renderEfforts() {
+  for (const kind of ["sum", "tr"]) {
+    const model = (kind === "tr" && $("trModel").value.trim()) || $("sumModel").value.trim() || P.SUM_MODELS[sumProvider];
+    const supported = Route.effortOptions(sumProvider, model);
+    const value = kind === "sum" ? sumEffort : trEffort;
+    const box = $(kind + "EffortSeg");
+    box.replaceChildren();
+    for (const [key, label] of [["default", "默认"], ["low", "低"], ["medium", "中"], ["high", "高"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.className = value === key ? "on" : "";
+      button.setAttribute("aria-pressed", String(value === key));
+      button.disabled = !supported.includes(key);
+      button.title = button.disabled ? "当前模型不支持此选项" : "";
+      button.addEventListener("click", () => {
+        if (kind === "sum") sumEffort = key; else trEffort = key;
+        renderEfforts();
+      });
+      box.appendChild(button);
+    }
+    const conflict = !supported.includes(value);
+    const note = $(kind + "EffortNote");
+    note.textContent = conflict ? "当前模型不支持所选思考深度，请重新选择后保存。" : "";
+    note.classList.toggle("effort-conflict", conflict);
+  }
+}
+
 function collect() {
+  for (const [kind, value] of [["sum", sumEffort], ["tr", trEffort]]) {
+    const model = (kind === "tr" && $("trModel").value.trim()) || $("sumModel").value.trim() || P.SUM_MODELS[sumProvider];
+    if (!Route.effortOptions(sumProvider, model).includes(value)) throw new Error("当前模型不支持所选思考深度，请重新选择后保存");
+  }
   const sum = currentSumCfg();
   const channels = sttChannels.map((ch) => ({
     provider: ch.provider,
@@ -657,6 +696,8 @@ function collect() {
     apiKey: sum.key,
     apiModel: sum.model,
     translateModel: $("trModel").value.trim(),
+    sumEffort,
+    trEffort,
     selKey,
     summaryPad: clampCtx($("sumCtx").value),
     translateConcurrency: clampConc($("trConc").value),
@@ -683,6 +724,8 @@ function configStamp(data) {
     apiBase: data.apiBase,
     apiModel: data.apiModel,
     translateModel: data.translateModel,
+    sumEffort: data.sumEffort,
+    trEffort: data.trEffort,
     selKey: data.selKey,
     summaryPad: data.summaryPad,
     translateConcurrency: data.translateConcurrency,
@@ -698,7 +741,12 @@ function configStamp(data) {
 }
 
 async function saveSettings() {
-  const data = collect();
+  let data;
+  try { data = collect(); } catch (error) {
+    $("settingsMsg").className = "warn";
+    $("settingsMsg").textContent = error.message;
+    return;
+  }
   if (configStamp(data) === configStamp(settings)) {
     data.davConfigAt = Number(settings.davConfigAt) || data.davConfigAt;
   }
@@ -723,6 +771,7 @@ async function saveSettings() {
 }
 
 function updateTrPlaceholder() {
+  renderEfforts();
   const model = ($("sumModel").value || "").trim() || P.SUM_MODELS[sumProvider] || "";
   $("trModel").placeholder = model ? `跟随总结模型（${model}）` : "留空则跟随总结模型";
 }
@@ -742,6 +791,8 @@ async function loadSettings() {
     apiKey: "",
     apiModel: "",
     translateModel: "",
+    sumEffort: null,
+    trEffort: null,
     selKey: "Shift",
     summaryPad: 10,
     translateConcurrency: 4,
@@ -798,6 +849,8 @@ async function loadSettings() {
   $("sumUrl").value = settings.apiBase || "";
   $("sumModel").value = settings.apiModel || P.SUM_MODELS[sumProvider] || "";
   $("trModel").value = settings.translateModel || "";
+  sumEffort = Route.savedEffort(settings.sumEffort, sumProvider, $("sumModel").value);
+  trEffort = Route.savedEffort(settings.trEffort, sumProvider, $("trModel").value || $("sumModel").value);
   updateTrPlaceholder();
   $("sumCtx").value = String(clampCtx(settings.summaryPad));
   $("trConc").value = String(clampConc(settings.translateConcurrency));
@@ -1035,7 +1088,7 @@ $("sumModel").addEventListener("input", () => {
 });
 $("sumModelCaret").addEventListener("click", () => openCombo("sum"));
 $("trModel").addEventListener("focus", () => openCombo("tr"));
-$("trModel").addEventListener("input", () => { if (modelPanel === "tr") fillCombo("tr"); });
+$("trModel").addEventListener("input", () => { renderEfforts(); if (modelPanel === "tr") fillCombo("tr"); });
 $("trModelCaret").addEventListener("click", () => openCombo("tr"));
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".combo")) closePanels();
@@ -1090,7 +1143,7 @@ $("syncNow").addEventListener("click", async () => {
   }
 });
 
-// ---- 本地缓存：字幕两张卡片 + 文章总结一张（统计、删除和上限都在后台，见 后台/缓存.js） ----
+// ---- 本地缓存：字幕两张卡片 + 文章总结一张（统计、删除和上限都在后台，见 background/cache.js） ----
 
 const CACHE_MB = 1024 * 1024;
 const CACHE_CLEARED_TEXT = "已清理可重新获取的字幕";
@@ -1227,6 +1280,62 @@ $("clearCache").addEventListener("click", async () => {
   } finally {
     cacheClearing = false;
     syncClearCacheBtn();
+  }
+});
+
+// ---- 本机对话记录：与可再生成的缓存分开，清空前明确确认 ----
+let chatHistoryCount = 0;
+let chatHistoryClearing = false;
+let chatHistoryUsageSeq = 0;
+
+function syncClearChatHistoryBtn() {
+  $("clearChatHistory").disabled = chatHistoryClearing || !chatHistoryCount;
+  $("clearChatHistory").textContent = chatHistoryClearing ? "正在清空…" : "清空全部对话记录";
+}
+
+async function loadChatHistoryUsage() {
+  // 删除期间不发出统计，避免拿到删除前的快照；完成后统一重读。
+  if (chatHistoryClearing) return;
+  const seq = ++chatHistoryUsageSeq;
+  try {
+    const usage = await chrome.runtime.sendMessage({ type: "GET_CHAT_HISTORY_USAGE" });
+    if (usage?.error) throw new Error(usage.error);
+    if (![usage?.count, usage?.messages, usage?.bytes].every((n) => Number.isFinite(n) && n >= 0)) {
+      throw new Error("未能获取对话记录统计");
+    }
+    if (seq !== chatHistoryUsageSeq) return;
+    chatHistoryCount = usage.count;
+    $("chatHistoryUsage").textContent = `${usage.count} 个对话 · ${usage.messages} 条消息 · ${formatCacheMB(usage.bytes)}`;
+    $("chatHistoryUsage").title = "";
+    syncClearChatHistoryBtn();
+  } catch (error) {
+    if (seq !== chatHistoryUsageSeq) return;
+    chatHistoryCount = 0;
+    $("chatHistoryUsage").textContent = "读取失败";
+    $("chatHistoryUsage").title = error.message || String(error);
+    syncClearChatHistoryBtn();
+  }
+}
+
+$("clearChatHistory").addEventListener("click", async () => {
+  if (chatHistoryClearing || !chatHistoryCount) return;
+  if (!window.confirm("清空本机全部对话记录？删除后无法恢复，已生成的总结、字幕和设置会保留。")) return;
+  chatHistoryClearing = true;
+  ++chatHistoryUsageSeq;
+  syncClearChatHistoryBtn();
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "CLEAR_CHAT_HISTORY" });
+    if (result?.error) throw new Error(result.error);
+    if (result?.ok !== true) throw new Error("未能确认删除结果");
+    chatHistoryCount = 0;
+    $("chatHistoryUsage").textContent = "统计中…";
+    showToast("已清空全部对话记录");
+  } catch (error) {
+    showToast(`清空失败：${error.message || error}`, 3000);
+  } finally {
+    chatHistoryClearing = false;
+    syncClearChatHistoryBtn();
+    await loadChatHistoryUsage();
   }
 });
 

@@ -90,6 +90,11 @@
             </div>
           </div>
           <div class="field">
+            <span class="label">思考深度</span>
+            <div id="sumEffortSeg" class="seg effort-seg" role="group" aria-label="总结思考深度"></div>
+            <span id="sumEffortNote" class="hint" role="status"></span>
+          </div>
+          <div class="field">
             <span class="label">总结时带上的上下文条数</span>
             <div class="stepper">
               <button type="button" id="ctxDec">−</button>
@@ -119,6 +124,11 @@
                 </div>
               </div>
             </div>
+          <div class="field">
+            <span class="label">思考深度</span>
+            <div id="trEffortSeg" class="seg effort-seg" role="group" aria-label="翻译思考深度"></div>
+            <span id="trEffortNote" class="hint" role="status"></span>
+          </div>
             <p class="hint">留空则跟随总结模型 · 并发 1–16，调高更快但更容易触发限流</p>
           </div>
         </section>
@@ -213,6 +223,13 @@
               </div>
             </div>
           </div>
+          <div class="hr-section"></div>
+          <h2>对话记录</h2>
+          <p class="hint">本机保存，关闭浏览器后保留，不自动过期，不参与云同步。</p>
+          <p id="chatHistoryUsage" class="hint" role="status" aria-live="polite">统计中…</p>
+          <div class="dav-actions">
+            <button type="button" id="clearChatHistory" class="btn-ghost" disabled>清空全部对话记录</button>
+          </div>
         </section>
 
         <section id="tab-keys" class="pane hidden">
@@ -259,13 +276,13 @@
     </div>
   </div>
 
-  <script src="lib/模型路由.js"></script>
-  <script src="lib/模型调用.js"></script>
+  <script src="lib/model-routing.js"></script>
+  <script src="lib/model-call.js"></script>
   <script src="lib/providers.js"></script>
   <script src="lib/stt.js"></script>
   <script src="lib/webdav.js"></script>
   <script src="lib/prefs.js"></script>
-  <script src="lib/字幕工具.js"></script>
+  <script src="lib/subtitle-tools.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

@@ -42,6 +42,7 @@
             <span id="videoVerdictDetails" class="video-verdict-details">
               <button type="button" id="videoVerdictTrigger" class="video-verdict-trigger" aria-expanded="false" aria-controls="videoVerdictPopover" aria-label="查看推荐依据">
                 <span id="videoVerdictResult" class="video-verdict-result hidden"><span class="video-verdict-level"><svg class="video-verdict-icon" width="8" height="8" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path id="videoVerdictIcon"></path></svg><span id="videoVerdictLabel"></span></span><span id="videoVerdictScore" class="video-verdict-num"></span></span>
+                <svg id="videoVerdictStartIcon" class="video-verdict-start-icon hidden" width="7" height="8" viewBox="0 0 7 8" aria-hidden="true"><path d="M1 1l5 3-5 3z" fill="currentColor"></path></svg>
                 <span id="videoVerdictOrb" class="video-verdict-orb hidden" aria-hidden="true"></span><span id="videoVerdictStatus" role="status">评估中…</span>
               </button>
               <span id="videoVerdictPopover" class="video-verdict-popover hidden" role="region" aria-label="推荐指数评分依据"><span id="videoVerdictDimensions" class="video-verdict-dimensions"></span><span class="video-verdict-foot"><span id="videoVerdictNote" class="video-verdict-note"></span><button type="button" id="btnReevaluate" class="video-verdict-rerun"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5V5h-2.5"></path></svg>重新评估</button></span></span>
@@ -213,7 +214,7 @@
           <button id="btnMore" type="button" class="btn-outline">更多 ⋯</button>
           <div id="moreMenu" class="more-menu hidden">
             <div id="moreNormal" class="more-normal">
-              <!-- 没固定到快捷栏的操作由 侧栏/快捷栏.js 按顺序挪进来 -->
+              <!-- 没固定到快捷栏的操作由 sidepanel/quickbar.js 按顺序挪进来 -->
               <div id="moreActions" class="more-actions">
                 <button id="btnGenerate" type="button">重新生成字幕</button>
                 <button id="btnSrt" type="button">下载 SRT</button>
@@ -269,35 +270,35 @@
   <script src="lib/thinking-orbs-engine.js"></script>
   <script src="lib/thinking-orb.js"></script>
   <script src="lib/border-beam.js"></script>
-  <script src="lib/字幕工具.js"></script>
+  <script src="lib/subtitle-tools.js"></script>
   <script src="lib/zh-simp.js"></script>
   <script src="lib/translate.js"></script>
   <script src="lib/outline.js"></script>
-  <script src="lib/模型路由.js"></script>
-  <script src="lib/模型调用.js"></script>
-  <script src="lib/字幕助手.js"></script>
-  <script src="lib/视频平台.js"></script>
+  <script src="lib/model-routing.js"></script>
+  <script src="lib/model-call.js"></script>
+  <script src="lib/subtitle-assistant.js"></script>
+  <script src="lib/video-platforms.js"></script>
   <script src="lib/markers.js"></script>
   <script src="lib/providers.js"></script>
   <script src="lib/prefs.js"></script>
-  <script src="侧栏/基础.js"></script>
-  <script src="侧栏/标签页通信.js"></script>
-  <script src="侧栏/中英字幕.js"></script>
-  <script src="侧栏/顶栏与标记.js"></script>
-  <script src="侧栏/动效.js"></script>
-  <script src="侧栏/后台任务.js"></script>
-  <script src="侧栏/字幕列表.js"></script>
-  <script src="侧栏/选区.js"></script>
-  <script src="侧栏/大纲.js"></script>
-  <script src="侧栏/推荐.js"></script>
-  <script src="侧栏/页面状态.js"></script>
-  <script src="侧栏/生成与翻译.js"></script>
-  <script src="侧栏/总结与模型.js"></script>
-  <script src="侧栏/快捷键与设置.js"></script>
-  <script src="侧栏/字幕助手.js"></script>
-  <script src="侧栏/快捷栏.js"></script>
+  <script src="sidepanel/core.js"></script>
+  <script src="sidepanel/tab-communication.js"></script>
+  <script src="sidepanel/caption-language.js"></script>
+  <script src="sidepanel/toolbar-and-markers.js"></script>
+  <script src="sidepanel/effects.js"></script>
+  <script src="sidepanel/background-jobs.js"></script>
+  <script src="sidepanel/subtitle-list.js"></script>
+  <script src="sidepanel/selection.js"></script>
+  <script src="sidepanel/outline.js"></script>
+  <script src="sidepanel/recommendation.js"></script>
+  <script src="sidepanel/page-state.js"></script>
+  <script src="sidepanel/generation-and-translation.js"></script>
+  <script src="sidepanel/summary-and-model.js"></script>
+  <script src="sidepanel/shortcuts-and-settings.js"></script>
+  <script src="sidepanel/subtitle-assistant.js"></script>
+  <script src="sidepanel/quickbar.js"></script>
   <script src="lib/article.js"></script>
-  <script src="侧栏/文章.js"></script>
+  <script src="sidepanel/article.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

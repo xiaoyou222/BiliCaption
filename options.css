@@ -2,7 +2,6 @@
   --bg: #121417;
   --nav: #121417;
   --card: #1A1D22;
-  --lift: #24272D;
   --text: #E7E9ED;
   --text-2: #C7CBD1;
   --muted: #8A9099;
@@ -1179,3 +1178,9 @@ select {
 }
 
 .add-note { margin: 0; font-size: 10px; color: #E0A34A; }
+
+/* 思考深度：沿用设计稿的紧凑分段选择器。 */
+.effort-seg { width: fit-content; flex-wrap: wrap; }
+.effort-seg button:disabled { color: #4a4f57; cursor: not-allowed; background: transparent; }
+.effort-seg button:disabled.on { text-decoration: line-through; }
+.effort-conflict { color: #e5a84b; }

@@ -46,19 +46,6 @@ body { min-height: 100vh; }
   50% { opacity: 1; }
 }
 
-@keyframes bcBeamPulse {
-  0%, 100% {
-    border-color: rgba(77,142,240,.26);
-    box-shadow: 0 0 0 0 rgba(77,142,240,0);
-  }
-  50% {
-    border-color: rgba(77,142,240,.8);
-    box-shadow: 0 0 16px 0 rgba(77,142,240,.22);
-  }
-}
-
-
-
 button, input, select, textarea { font-family: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .55; cursor: default; }
@@ -523,6 +510,21 @@ html.float-embed .lang-switch button.active {
 .video-verdict-trigger[aria-expanded="true"] .video-verdict-level { background: color-mix(in oklab, var(--verdict) 18%, transparent); }
 .video-verdict-trigger:hover .video-verdict-num,
 .video-verdict-trigger[aria-expanded="true"] .video-verdict-num { background: color-mix(in oklab, var(--verdict) 30%, transparent); }
+.video-verdict[data-state="idle"] { --verdict: #A4AAB3; }
+.video-verdict[data-state="idle"] .video-verdict-trigger {
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 6px;
+  border-color: rgba(255,255,255,.16);
+  background: transparent;
+  color: #A4AAB3;
+  cursor: pointer;
+}
+.video-verdict[data-state="idle"] .video-verdict-trigger:hover {
+  background: rgba(255,255,255,.06);
+  color: #E7E9ED;
+}
+.video-verdict-start-icon { flex: none; }
 .video-verdict[data-state="error"] .video-verdict-trigger {
   align-items: center;
   padding: 0 8px;
@@ -2292,11 +2294,11 @@ html.float-embed .lang-switch button.active {
   z-index: 30;
   display: flex;
   flex-direction: column;
-  background: #16181C;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 12px;
+  background: #22262C;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 16px 40px rgba(0,0,0,.55);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.5), 0 20px 50px rgba(0,0,0,.6);
   animation: bcFade .12s ease;
 }
 
@@ -2307,7 +2309,6 @@ html.float-embed .lang-switch button.active {
   height: 38px;
   padding: 0 6px 0 12px;
   flex: none;
-  border-bottom: 1px solid var(--line);
 }
 
 .chat-title {
@@ -2378,7 +2379,7 @@ html.float-embed .lang-switch button.active {
 
 .chat-bubble {
   max-width: 85%;
-  background: var(--blue-wash);
+  background: rgba(255,255,255,.08);
   color: var(--text);
   font-size: 12px;
   line-height: 1.6;
@@ -2457,8 +2458,7 @@ html.float-embed .lang-switch button.active {
 }
 
 .chat-foot {
-  padding: 9px 12px;
-  background: #16181C;
+  padding: 6px 12px 12px;
   display: flex;
   gap: 6px;
   align-items: flex-end;
@@ -2488,9 +2488,9 @@ html.float-embed .lang-switch button.active {
   resize: none;
   overflow-y: hidden;
   max-height: 96px;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: 7px;
+  background: rgba(255,255,255,.06);
+  border: none;
+  border-radius: 8px;
   padding: 7px 10px;
   color: var(--text);
   font-size: 12px;

@@ -1,6 +1,6 @@
-importScripts("lib/视频平台.js", "lib/字幕工具.js", "lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/模型路由.js", "lib/模型调用.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js", "lib/markers.js", "lib/webdav.js", "后台/基础.js", "后台/启动设置.js", "后台/同步.js", "后台/字幕备份.js", "后台/缓存.js", "后台/B站接口.js", "后台/YouTube与X.js", "后台/字幕获取.js", "后台/音频下载.js", "后台/翻译任务.js", "后台/转写通道.js", "后台/转写分段.js", "后台/切句.js", "后台/转写调度.js", "后台/转写任务.js");
+importScripts("lib/video-platforms.js", "lib/subtitle-tools.js", "lib/md5.js", "lib/wbi.js", "lib/mp4-aac.js", "lib/zh-simp.js", "lib/translate.js", "lib/model-routing.js", "lib/model-call.js", "lib/providers.js", "lib/stt.js", "lib/prefs.js", "lib/markers.js", "lib/webdav.js", "background/core.js", "background/startup.js", "background/webdav-sync.js", "background/subtitle-backup.js", "background/cache.js", "background/chat-history.js", "background/bilibili-api.js", "background/youtube-and-x.js", "background/subtitle-loader.js", "background/audio-download.js", "background/translation-jobs.js", "background/transcription-channels.js", "background/transcription-chunks.js", "background/cue-segmentation.js", "background/transcription-scheduler.js", "background/transcription-jobs.js");
 
-// 后台入口。上面按顺序加载 lib/ 和 后台/ 下的各模块（共享同一个全局作用域，后台/ 里只做声明）；
+// 后台入口。上面按顺序加载 lib/ 和 background/ 下的各模块（共享同一个全局作用域，background/ 里只做声明）；
 // 这里只留三件事：消息来源校验、service worker 启动时必须同步注册的事件监听、消息路由。
 
 // ---- 消息来源校验 ----
@@ -52,6 +52,11 @@ const EXTENSION_MESSAGE_TYPES = new Set([
   "CLEAR_VIDEO_CACHE",
   "DAV_SYNC_NOW",
   "GET_CACHE_USAGE",
+  "CHAT_HISTORY_READ",
+  "CHAT_HISTORY_WRITE",
+  "CHAT_HISTORY_CLEAR",
+  "CLEAR_CHAT_HISTORY",
+  "GET_CHAT_HISTORY_USAGE",
   "CLEAR_RENEWABLE_CACHE",
   "PRUNE_ARTICLE_CACHE",
   "GET_SUBTITLE_BACKUP_STATUS",
@@ -174,6 +179,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "GET_SUBTITLE_BACKUP_STATUS") {
     return reply(subtitleBackupStatus(message.bvid || "", Number(message.cid) || 0));
   }
+  if (message?.type === "CHAT_HISTORY_READ") return reply(readChatHistory(message));
+  if (message?.type === "CHAT_HISTORY_WRITE") return reply(writeChatHistory(message));
+  if (message?.type === "CHAT_HISTORY_CLEAR") return reply(clearChatHistory(message));
+  if (message?.type === "CLEAR_CHAT_HISTORY") return reply(clearAllChatHistory(message));
+  if (message?.type === "GET_CHAT_HISTORY_USAGE") return reply(getChatHistoryUsage());
   if (message?.type === "GET_CACHE_USAGE") {
     return reply(getSubtitleCacheUsage());
   }

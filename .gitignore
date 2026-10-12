@@ -1,10 +1,8 @@
 .DS_Store
 *.log
-参考/
-设计稿/screenshots/
-设计稿/uploads/
-设计稿/.thumbnail
-设计稿/HANDOFF-----.md
+design/screenshots/
+design/uploads/
+design/.thumbnail
 *.zip
 
 node_modules/

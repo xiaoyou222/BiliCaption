@@ -81,9 +81,9 @@
         "*://www.twitter.com/*"
       ],
       "js": [
-        "lib/视频平台.js",
-        "lib/字幕工具.js",
-        "内容/样式.js",
+        "lib/video-platforms.js",
+        "lib/subtitle-tools.js",
+        "content/styles.js",
         "content.js"
       ],
       "run_at": "document_idle"
