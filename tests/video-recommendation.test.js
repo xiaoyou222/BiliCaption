@@ -1091,3 +1091,65 @@ test("新任务先查缓存：命中时不出现「评估中」，直接显示�
   assert.equal(panel.calls.prompts.length, 1);
   panel.run("cancelRecommendation()");
 });
+
+// ---- 切到大纲页自动生成 ----
+const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+
+test("切到大纲页、没有缓存且字幕就绪时自动生成一次，之后不再重复", async () => {
+  const panel = loadPanelOutline({ state: BILI, runModel: async () => modelResult(BILI.cues, null) });
+  await panel.run("loadOutlineCache(state)");
+  panel.run("maybeAutoGenerateOutline()");
+  await settle();
+  assert.equal(panel.calls.prompts.length, 1);
+  assert.ok(panel.storage["outline:v2:BV1xx:7"], "自动生成的大纲写入缓存");
+  panel.run("outline = null; videoSummary = ''");
+  panel.run("maybeAutoGenerateOutline()");
+  await settle();
+  assert.equal(panel.calls.prompts.length, 1, "同一视频只自动尝试一次");
+});
+
+test("已有大纲缓存时切到大纲页直接显示，不调用模型", async () => {
+  const panel = loadPanelOutline({ state: BILI, runModel: async () => modelResult(BILI.cues, null),
+    storage: { "outline:v2:BV1xx:7": { summary: "已有总结", chapters: [{ title: "章", start: 0, end: 50 }] } } });
+  await panel.run("loadOutlineCache(state)");
+  panel.run("maybeAutoGenerateOutline()");
+  await settle();
+  assert.equal(panel.calls.prompts.length, 0);
+  assert.equal(panel.run("videoSummary"), "已有总结");
+});
+
+test("字幕没就绪（转写未完成、翻译中）时先等待，不自动生成", async () => {
+  for (const patch of [{ partial: true }, { subtitleStatus: "pending" }]) {
+    const panel = loadPanelOutline({ state: { ...BILI, ...patch }, runModel: async () => modelResult(BILI.cues, null) });
+    await panel.run("loadOutlineCache(state)");
+    assert.equal(panel.run("outlineAutoState(state)"), "wait");
+    panel.run("maybeAutoGenerateOutline()");
+    await settle();
+    assert.equal(panel.calls.prompts.length, 0);
+  }
+  const panel = loadPanelOutline({ state: BILI, runModel: async () => modelResult(BILI.cues, null) });
+  panel.context.translating = true;
+  await panel.run("loadOutlineCache(state)");
+  panel.run("maybeAutoGenerateOutline()");
+  await settle();
+  assert.equal(panel.calls.prompts.length, 0, "翻译中不生成");
+});
+
+test("自动生成失败后不自动重试，只留手动按钮；不在大纲页不生成", async () => {
+  const panel = loadPanelOutline({ state: BILI, runModel: async () => { throw new Error("网关出错"); } });
+  await panel.run("loadOutlineCache(state)");
+  panel.run("maybeAutoGenerateOutline()");
+  await settle();
+  panel.run("maybeAutoGenerateOutline()");
+  await settle();
+  assert.ok(panel.calls.prompts.length <= 2, "失败后不会反复自动请求");
+  const tried = panel.calls.prompts.length;
+  assert.equal(panel.run("outlineAutoState(state)"), "manual");
+  const other = loadPanelOutline({ state: BILI, runModel: async () => modelResult(BILI.cues, null) });
+  other.context.view = "captions";
+  await other.run("loadOutlineCache(state)");
+  other.run("maybeAutoGenerateOutline()");
+  await settle();
+  assert.equal(other.calls.prompts.length, 0);
+  assert.ok(tried >= 1);
+});

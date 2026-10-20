@@ -245,8 +245,38 @@ function outlineMarkdown() {
   return outlineApi()?.formatOutlineMarkdown(title, videoSummary, outline) || `# ${title}\n`;
 }
 
+// ---- 切到大纲页自动生成 ----
+// 切到大纲页就表示想看大纲：没有缓存、字幕已就绪时自动生成。每个视频只自动尝试一次，
+// 失败或手动停止后不再自动重试（避免反复计费），留「生成大纲」按钮手动重试；已有大纲时「重新生成」仍需手动。
+let outlineCacheReadyKey = "";
+const outlineAutoTried = new Set();
+
+function outlineSubtitlesReady(next = state) {
+  return next?.page === "video" && Boolean(next?.cues?.length) && !next.partial && !generating && !translating
+    && !["pending", "fetch_failed", "login"].includes(next.subtitleStatus) && !next.error;
+}
+
+/** 大纲页空着时的状态：wait = 等字幕就绪，manual = 已自动试过（失败或被停止），auto = 即将自动开始 */
+function outlineAutoState(next = state) {
+  const key = outlineKey(next);
+  if (!outlineSubtitlesReady(next)) return "wait";
+  if (key && outlineAutoTried.has(key)) return "manual";
+  return "auto";
+}
+
+function maybeAutoGenerateOutline() {
+  if (view !== "outline" || outlineLoading) return;
+  const key = outlineKey(state);
+  if (!key || outlineCacheReadyKey !== key) return;
+  if (outline?.length || String(videoSummary || "").trim()) return;
+  if (outlineAutoState(state) !== "auto") return;
+  outlineAutoTried.add(key);
+  generateOutline();
+}
+
 async function loadOutlineCache(next) {
   const key = outlineKey(next);
+  outlineCacheReadyKey = "";
   if (!key) {
     outline = null;
     videoSummary = "";
@@ -266,6 +296,7 @@ async function loadOutlineCache(next) {
   videoSummary = rec.summary || "";
   videoSummaryOpen = true;
   resetOutlineTree();
+  outlineCacheReadyKey = key;
 }
 
 function outlineCues() {
@@ -426,6 +457,8 @@ async function generateLongOutline(cues, signal, paint) {
 
 async function generateOutline() {
   if (!state?.cues?.length || outlineLoading) return;
+  const triedKey = outlineKey(state);
+  if (triedKey) outlineAutoTried.add(triedKey);
   outlineAbort?.abort();
   outlineAbort = new AbortController();
   const ac = outlineAbort;

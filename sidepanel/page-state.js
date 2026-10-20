@@ -220,9 +220,11 @@ function renderState(next) {
   } else {
     showOutlineEmptyOrb(false);
     if (outlineEmptyShown) {
-      // 设计稿：大纲为空且不在生成时不显示提示文字，只留「生成大纲」按钮
-      setShimmer(ui.outlineEmptyLabel, false, "");
-      show($("btnGenOutline"), true);
+      // 切到大纲页会自动生成：字幕没就绪时提示等待；自动试过（失败或被停止）后只留「生成大纲」按钮
+      const autoState = outlineAutoState(next);
+      setShimmer(ui.outlineEmptyLabel, false, autoState === "wait" ? "字幕就绪后自动生成大纲" : "");
+      show($("btnGenOutline"), autoState === "manual");
+      if (autoState === "auto") queueMicrotask(maybeAutoGenerateOutline);
     } else {
       setShimmer(ui.outlineEmptyLabel, false);
     }
