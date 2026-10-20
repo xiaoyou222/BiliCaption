@@ -2432,6 +2432,26 @@ html.float-embed .lang-switch button.active {
 
 .chat-retry:hover { color: var(--blue-hover); }
 
+/* AI 回答下面的「复制」：平时淡一点，悬停变亮，复制后短暂显示「已复制」 */
+.chat-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 5px;
+  margin-left: -5px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.chat-copy:hover { color: var(--text-2); background: rgba(255,255,255,.06); }
+.chat-copy.is-done { color: var(--green); }
+
 .chat-notice {
   color: var(--warn);
   font-size: 12px;

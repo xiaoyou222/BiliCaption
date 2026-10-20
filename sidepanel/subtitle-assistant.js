@@ -106,7 +106,7 @@ function fillChatAnswer(el, text) {
   el.replaceChildren(...nodes);
 }
 
-function chatMessageRow(msg) {
+function chatMessageRow(msg, { streaming = false } = {}) {
   const row = document.createElement("div");
   if (msg.role === "user") {
     row.className = "chat-row user";
@@ -132,7 +132,48 @@ function chatMessageRow(msg) {
     }
   }
   row.append(body);
+  // 生成完的回答下面放一个「复制」，复制的是回答原文（不带「已中断」标记）
+  if (!streaming && msg.status !== "error" && String(msg.text || "").trim()) row.append(chatCopyButton(msg.text));
   return { row, body };
+}
+
+function chatCopyButton(text) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "chat-copy";
+  btn.dataset.chatAction = "copy";
+  btn.title = "复制回答";
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  for (const [k, v] of Object.entries({ width: "11", height: "11", viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
+    "stroke-width": "1.6", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
+  const rect = document.createElementNS(NS, "rect");
+  for (const [k, v] of Object.entries({ x: "5.5", y: "5.5", width: "8", height: "8", rx: "1.6" })) rect.setAttribute(k, v);
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", "M10.5 5.5V3.6A1.1 1.1 0 0 0 9.4 2.5H3.6a1.1 1.1 0 0 0-1.1 1.1v5.8a1.1 1.1 0 0 0 1.1 1.1h1.9");
+  svg.append(rect, path);
+  btn.append(svg);
+  const label = document.createElement("span");
+  label.textContent = "复制";
+  btn.append(label);
+  btn.dataset.copyText = String(text || "").trim();
+  return btn;
+}
+
+async function copyChatAnswer(btn) {
+  const label = btn.querySelector("span");
+  try {
+    await copyText(btn.dataset.copyText || "");
+    if (label) label.textContent = "已复制";
+    btn.classList.add("is-done");
+    clearTimeout(btn._copyTimer);
+    btn._copyTimer = setTimeout(() => {
+      if (label) label.textContent = "复制";
+      btn.classList.remove("is-done");
+    }, 1500);
+  } catch (error) {
+    flash(error?.message || "复制失败");
+  }
 }
 
 function chatRetryButton() {
@@ -151,7 +192,7 @@ function renderChatList() {
   chatPendingEl = null;
   const pending = ctl.pending;
   if (pending?.started) {
-    const { row, body } = chatMessageRow({ role: "ai", text: pending.text });
+    const { row, body } = chatMessageRow({ role: "ai", text: pending.text }, { streaming: true });
     chatPendingEl = body;
     rows.push(row);
   }
@@ -320,7 +361,8 @@ function onChatAreaClick(event) {
   }
   const action = event.target?.closest?.("[data-chat-action]");
   if (!action || !ui.chatScroll?.contains(action)) return;
-  if (action.dataset.chatAction === "retry") retryChat();
+  if (action.dataset.chatAction === "copy") copyChatAnswer(action);
+  else if (action.dataset.chatAction === "retry") retryChat();
   else if (action.dataset.chatAction === "settings") openSettings("sum");
 }
 

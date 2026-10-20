@@ -486,8 +486,22 @@ function fakeNode(tag = "div") {
     },
     set className(value) { classes.clear(); String(value).split(/\s+/).filter(Boolean).forEach((name) => classes.add(name)); },
     get className() { return [...classes].join(" "); },
+    attributes: {},
+    setAttribute(name, value) { node.attributes[name] = String(value); },
     append(...items) { node.children.push(...items); },
     replaceChildren(...items) { node.children = items; },
+    querySelector(selector) {
+      const tag = selector.toUpperCase();
+      const walk = (list) => {
+        for (const child of list || []) {
+          if (child?.tagName === tag) return child;
+          const hit = walk(child?.children);
+          if (hit) return hit;
+        }
+        return null;
+      };
+      return walk(node.children);
+    },
     closest(selector) {
       return selector === ".chat-time" && classes.has("chat-time") ? node : null;
     }
@@ -496,12 +510,14 @@ function fakeNode(tag = "div") {
 }
 
 function loadPanelChat({ cfg, chat } = {}) {
-  const calls = { origins: [], chat: [], seek: [], flash: [], settings: [] };
+  const calls = { origins: [], chat: [], seek: [], flash: [], settings: [], copied: [] };
   const context = loadLibs({
     document: {
       createElement: (tag) => fakeNode(tag),
+      createElementNS: (_ns, tag) => fakeNode(tag),
       createTextNode: (text) => ({ nodeType: 3, textContent: String(text) })
     },
+    copyText: async (text) => calls.copied.push(text),
     chrome: { storage: { session: null } },
     ui: { chatScroll: { contains: () => true } },
     $: () => null,
@@ -644,4 +660,23 @@ test("快捷键：焦点在对话输入框里时全局快捷键不抢按键，�
   assert.match(panel, /function openChat\(\) \{[\s\S]*?setMoreOpen\(false\);\s*setMarkerMoreOpen\(false\);/);
   assert.match(panel, /if \(!selectHeld && !dragSelect && pointerInChat\(event\)\) return;/);
   assert.ok(fs.existsSync(path.join(root, "lib/subtitle-assistant.js")));
+});
+
+test("AI 回答生成完后带「复制」按钮：复制原文（不含已中断标记），生成中和出错的不显示", async () => {
+  const { calls, run } = loadPanelChat();
+  const copyOf = (row) => row.children.find((c) => c.className === "chat-copy");
+  const done = run(`chatMessageRow({ role: "ai", text: "答案 [01:02] 第二句" }).row`);
+  const btn = copyOf(done);
+  assert.ok(btn, "完成的回答有复制按钮");
+  assert.equal(btn.dataset.copyText, "答案 [01:02] 第二句");
+  const aborted = run(`chatMessageRow({ role: "ai", text: "半截回答", status: "aborted" }).row`);
+  assert.equal(copyOf(aborted).dataset.copyText, "半截回答");
+  assert.equal(copyOf(run(`chatMessageRow({ role: "ai", text: "生成中" }, { streaming: true }).row`)), undefined);
+  assert.equal(copyOf(run(`chatMessageRow({ role: "ai", text: "出错了", status: "error" }).row`)), undefined);
+  assert.equal(run(`chatMessageRow({ role: "user", text: "问题" }).row`).children.some((c) => c.className === "chat-copy"), false);
+
+  await run("copyChatAnswer")(btn);
+  assert.deepEqual(calls.copied, ["答案 [01:02] 第二句"]);
+  assert.equal(btn.querySelector("span").textContent, "已复制");
+  assert.equal(btn.classList.contains("is-done"), true);
 });
