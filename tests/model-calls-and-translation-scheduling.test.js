@@ -1040,3 +1040,20 @@ test("保存的思考选择贯通视频总结、大纲、文章分段与后台�
   const payload = W.configPayload(settings);
   assert.equal(payload.sumEffort, "default"); assert.equal(payload.trEffort, "low");
 });
+
+test("思考深度「不思考」只给文档写明能关闭思考的组合，DeepSeek 用自己的 thinking 参数", () => {
+  const { BiliCaptionModelRoute: R } = loadLibs(["lib/model-routing.js"]);
+  const has = (provider, model) => R.effortOptions(provider, model).includes("none");
+  assert.equal(has("自定义", "xy-fast"), true);
+  assert.equal(has("OpenAI", "gpt-6-luna"), true);
+  assert.equal(has("Gemini", "gemini-2.5-flash"), true);
+  assert.equal(has("DeepSeek", "deepseek-flash"), true);
+  assert.equal(has("Gemini", "gemini-3.8-flash"), false, "Gemini 3 关不掉思考");
+  assert.equal(has("Gemini", "gemini-2.5-flash-lite"), false);
+  assert.equal(has("OpenAI", "gpt-5-mini"), false, "gpt-5 最低是 minimal");
+  const f = (provider, model) => plain(R.requestFields({ provider, model, task: "outline", effort: "none" }));
+  assert.deepEqual(f("自定义", "xy-fast"), { reasoning_effort: "none" });
+  assert.deepEqual(f("DeepSeek", "deepseek-flash"), { thinking: { type: "disabled" } });
+  assert.deepEqual(f("Gemini", "gemini-2.5-flash"), { reasoning_effort: "none" });
+  assert.throws(() => R.requestFields({ provider: "Gemini", model: "gemini-3.8-flash", effort: "none" }), /不支持/);
+});

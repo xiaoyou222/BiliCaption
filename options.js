@@ -644,7 +644,7 @@ function renderEfforts() {
     const value = kind === "sum" ? sumEffort : trEffort;
     const box = $(kind + "EffortSeg");
     box.replaceChildren();
-    for (const [key, label] of [["default", "默认"], ["low", "低"], ["medium", "中"], ["high", "高"]]) {
+    for (const [key, label] of [["default", "默认"], ["none", "不思考"], ["low", "低"], ["medium", "中"], ["high", "高"]]) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
